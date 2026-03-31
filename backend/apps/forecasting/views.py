@@ -1,0 +1,430 @@
+import json
+import mimetypes
+import os
+from datetime import date, datetime, timedelta
+
+import pytz
+from dateutil import parser
+from django.http import HttpResponse
+from django.utils import timezone
+from django_q.models import Schedule
+from django_q.tasks import async_task
+from django_filters.rest_framework import DjangoFilterBackend
+from dotenv import load_dotenv
+from langchain.chat_models import init_chat_model
+from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
+from rest_framework import viewsets
+from rest_framework.decorators import action
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
+from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework.viewsets import ModelViewSet
+
+from apps.core.utils import StandardResponse
+from .runner import ETLRunner
+from .filters import ExecutionPipelineFilter, PredictionFilter, RecommandationFilter
+from .models import DataImport, ExecutionPipeline, Prediction, RuptureStock, Recommandation
+from .serializers import (
+    DataImportSerializer, ExecutionPipelineSerializer,
+    PredictionSerializer, RecommandationSerializer,
+    CreateRecommandationSerializer,
+)
+
+load_dotenv()
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+
+
+class DataImportViewSet(ModelViewSet):
+    queryset = DataImport.objects.all()
+    serializer_class = DataImportSerializer
+    permission_classes = [AllowAny]
+    http_method_names = ['get', 'post', 'delete']
+
+
+class ExecutionPipelineViewSet(ModelViewSet):
+    queryset = ExecutionPipeline.objects.all()
+    serializer_class = ExecutionPipelineSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = ExecutionPipelineFilter
+
+
+class PredictionViewSet(ModelViewSet):
+    queryset = Prediction.objects.all()
+    serializer_class = PredictionSerializer
+    permission_classes = [IsAuthenticated]
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = PredictionFilter
+
+    @action(detail=False, methods=['delete'])
+    def bulk_delete(self, request):
+        qs = self.filter_queryset(self.get_queryset())
+        count = qs.count()
+        if count == 0:
+            return Response({"message": "Aucune prédiction trouvée."}, status=404)
+        qs.delete()
+        return Response({"message": f"{count} prédiction(s) supprimée(s).", "count": count})
+
+
+class RecommandationViewSet(viewsets.ModelViewSet):
+    queryset = Recommandation.objects.all()
+    serializer_class = RecommandationSerializer
+    parser_classes = [MultiPartParser, FormParser, JSONParser]
+    filter_backends = [DjangoFilterBackend]
+    filterset_class = RecommandationFilter
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            if 'donnee_appui' in request.FILES:
+                serializer.validated_data['donnee_appui'] = request.FILES['donnee_appui']
+            recommandation = serializer.save()
+            # Crée la ligne dans ContenuDans si id_produit fourni
+            produit_id = request.data.get('id_produit')
+            if produit_id:
+                from apps.commandes.models import ContenuDans
+                ContenuDans.objects.create(
+                    recommandation=recommandation,
+                    produit_id=produit_id
+                )
+            return StandardResponse.render(
+                data=serializer.data,
+                message="Recommandation créée avec succès.",
+                status_code=201
+            )
+        return StandardResponse.render(
+            data=serializer.errors,
+            message="Données invalides.",
+            status_code=400
+        )
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        if serializer.is_valid():
+            if 'donnee_appui' in request.FILES:
+                if instance.donnee_appui:
+                    try:
+                        os.remove(instance.donnee_appui.path)
+                    except (OSError, ValueError):
+                        pass
+                serializer.validated_data['donnee_appui'] = request.FILES['donnee_appui']
+            serializer.save()
+            return StandardResponse.render(
+                data=serializer.data, message="Recommandation mise à jour.", status_code=200
+            )
+        return StandardResponse.render(
+            data=serializer.errors, message="Données invalides.", status_code=400
+        )
+
+    @action(detail=True, methods=['post'])
+    def apply(self, request, pk=None):
+        recommandation = self.get_object()
+        recommandation.apply(user=request.user)
+        return StandardResponse.render(
+            message="Recommandation appliquée avec succès.", status_code=200
+        )
+
+    @action(detail=True, methods=['post'], url_path='upload-file')
+    def upload_file(self, request, pk=None):
+        recommandation = self.get_object()
+        if 'file' not in request.FILES:
+            return StandardResponse.render(message="Aucun fichier fourni.", status_code=400)
+        file = request.FILES['file']
+        if recommandation.donnee_appui:
+            try:
+                os.remove(recommandation.donnee_appui.path)
+            except (OSError, ValueError):
+                pass
+        recommandation.donnee_appui = file
+        recommandation.save()
+        return StandardResponse.render(
+            data={
+                'id': recommandation.id,
+                'file_name': file.name,
+                'file_size': file.size,
+                'file_url': recommandation.donnee_appui.url,
+            },
+            message="Fichier uploadé.", status_code=200
+        )
+
+    @action(detail=True, methods=['get'], url_path='download-file')
+    def download_file(self, request, pk=None):
+        recommandation = self.get_object()
+        if not recommandation.donnee_appui:
+            return StandardResponse.render(message="Aucun fichier associé.", status_code=404)
+        file_path = recommandation.donnee_appui.path
+        if not os.path.exists(file_path):
+            return StandardResponse.render(message="Fichier introuvable.", status_code=404)
+        content_type, _ = mimetypes.guess_type(file_path)
+        with open(file_path, 'rb') as f:
+            response = HttpResponse(f.read(), content_type=content_type or 'application/octet-stream')
+            response['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
+            return response
+
+    @action(detail=True, methods=['delete'], url_path='delete-file')
+    def delete_file(self, request, pk=None):
+        recommandation = self.get_object()
+        if not recommandation.donnee_appui:
+            return StandardResponse.render(message="Aucun fichier associé.", status_code=404)
+        try:
+            os.remove(recommandation.donnee_appui.path)
+        except (OSError, ValueError):
+            pass
+        recommandation.donnee_appui = None
+        recommandation.save()
+        return StandardResponse.render(message="Fichier supprimé.", status_code=200)
+
+    @action(detail=True, methods=['get'], url_path='file-info')
+    def file_info(self, request, pk=None):
+        recommandation = self.get_object()
+        if not recommandation.donnee_appui:
+            return StandardResponse.render(message="Aucun fichier associé.", status_code=404)
+        file_path = recommandation.donnee_appui.path
+        exists = os.path.exists(file_path)
+        return StandardResponse.render(data={
+            'file_name': os.path.basename(file_path),
+            'file_url': recommandation.donnee_appui.url,
+            'file_exists': exists,
+            'file_size': os.path.getsize(file_path) if exists else None,
+            'content_type': mimetypes.guess_type(file_path)[0] if exists else None,
+        }, status_code=200)
+
+
+class ExecutePipelineView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data_id = request.data.get('data_id')
+        if not data_id:
+            return Response({"error": "Le paramètre 'data_id' est requis."}, status=400)
+        result = ETLRunner(data_id=data_id).run()
+        return Response(result, status=200 if result['status'] != 'error' else 500)
+
+
+class RunPredictionView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        date_str = request.data.get('date_to_execute')
+        tz_str = request.data.get('timezone')
+        if date_str and tz_str:
+            try:
+                dt = self._parse_datetime(date_str, tz_str)
+            except Exception:
+                return Response({"error": "Format de date invalide."}, status=400)
+            if dt.date() < timezone.now().date():
+                return Response({"error": "La date ne peut pas être dans le passé."}, status=400)
+            Schedule.objects.update_or_create(
+                name="scheduled_prevision_monthly",
+                defaults={
+                    "func": "django.core.management.call_command",
+                    "args": "('prevision',)",
+                    "schedule_type": "O",
+                    "next_run": dt,
+                }
+            )
+            return Response({"message": f"Prévision planifiée pour le {dt}."})
+        async_task("django.core.management.call_command", "prevision")
+        return Response({"message": "Prévision lancée immédiatement."})
+
+    def _parse_datetime(self, date_str, tz_str):
+        if tz_str not in pytz.all_timezones:
+            raise ValueError("Timezone invalide.")
+        user_tz = pytz.timezone(tz_str)
+        dt = parser.parse(date_str)
+        dt = user_tz.localize(dt) if dt.tzinfo is None else dt.astimezone(user_tz)
+        return dt.astimezone(pytz.UTC)
+
+
+class RecommenderView(APIView):
+    """Chatbot IA Gemini — génère des recommandations d'import/export."""
+    permission_classes = [AllowAny]
+
+    PROMPT_EXTRACT = """
+Tu es un assistant conversationnel pour une application de gestion de stock.
+Tu aide l'utilisateur pour la recommandation d'import ou d'export de produits a une date.
+On est le {today} pour t'aider avec la date.
+
+Règles :
+1. Si l'utilisateur pose une question générale, réponds normalement.
+2. Si l'utilisateur demande une recommandation pour un produit à une date donnée, réponds uniquement avec un JSON compact :
+"Found":[{format}],"Not Found":["...","..."]
+3. Réponds toujours dans la langue de l'utilisateur.
+
+Ne mélange jamais texte et JSON.
+Question : {question}
+Produits disponibles : {produits}
+"""
+
+    PROMPT_RECO = """
+Question utilisateur : {question}
+{prediction_infos}
+{recommendation_infos}
+{not_found}
+
+Génère des recommandations structurées au format JSON :
+{{"recommendation":[{{"produit":"...","date":"YYYY-MM-DD","type_recommandation":"import/export",
+"quantite_suggeree":0,"prix_estime":null,"priorité":"HAUTE/MOYENNE/BASSE","raisonnement":"..."}}],
+"user_friendly_response":"..."}}
+
+Réponds uniquement avec un JSON compact, sans markdown.
+"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.prediction_infos = ""
+        self.recommendations = ""
+        self.user_question = ""
+
+    def post(self, request):
+        from apps.catalogue.models import Product
+        self.user_question = request.data.get("message", "")
+        if not self.user_question:
+            return StandardResponse.render(message="Le champ 'message' est requis.", status_code=400)
+
+        noms_produits = list(Product.objects.values_list("name", flat=True).distinct())
+        if not noms_produits:
+            return StandardResponse.render(
+                data="Aucun produit disponible.", status_code=200
+            )
+
+        response = self._extract_product_and_date(self.user_question, noms_produits)
+        if not response["success"]:
+            return StandardResponse.render(
+                message=response["message"], status_code=500, errors=response.get("error")
+            )
+
+        try:
+            data = json.loads(response["content"])
+        except json.JSONDecodeError:
+            return StandardResponse.render(
+                data=response["content"], message="Réponse conversationnelle.", status_code=200
+            )
+
+        if not isinstance(data, dict) or not all(k in data for k in ["Found", "Not Found"]):
+            return StandardResponse.render(
+                message="Format de réponse inattendu.", status_code=500
+            )
+
+        for item in data["Found"]:
+            try:
+                product_name = item["produit"]
+                pred_date = datetime.strptime(item["date"], "%Y-%m-%d")
+                if not self._get_recommendation(product_name, pred_date):
+                    self._get_prediction(product_name, pred_date)
+            except (KeyError, ValueError):
+                continue
+
+        reco_response = self._generate_recommendation(data)
+        if not reco_response["success"]:
+            return StandardResponse.render(
+                message=reco_response["message"], status_code=500
+            )
+
+        try:
+            recommendations = json.loads(reco_response["content"])
+            for reco in recommendations.get("recommendation", []):
+                product = Product.objects.filter(name__icontains=reco["produit"]).first()
+                if product:
+                    Recommandation.objects.update_or_create(
+                        product=product,
+                        date_prediction=reco["date"],
+                        defaults={
+                            "type_recommandation": reco["type_recommandation"],
+                            "quantite_suggeree": reco["quantite_suggeree"],
+                            "prix_estime": reco.get("prix_estime"),
+                            "priority": reco.get("priorité", "MOYENNE"),
+                            "raisonnement": reco.get("raisonnement", ""),
+                        }
+                    )
+        except Exception as e:
+            recommendations = reco_response.get("content", str(e))
+
+        return StandardResponse.render(
+            data=recommendations, message="Recommandation récupérée.", status_code=200
+        )
+
+    def call_gemini(self, message: str) -> dict:
+        if not GOOGLE_API_KEY:
+            return {"success": False, "message": "GOOGLE_API_KEY manquante."}
+        try:
+            model = init_chat_model(
+                "gemini-2.5-flash",
+                model_provider="google_genai",
+                api_key=GOOGLE_API_KEY,
+                temperature=0,
+                max_retries=2,
+            )
+            response = model.invoke(message)
+            return {
+                "success": True,
+                "content": response.content if hasattr(response, "content") else str(response),
+                "message": "Réponse générée."
+            }
+        except ChatGoogleGenerativeAIError as e:
+            return {"success": False, "message": "Erreur Gemini.", "error": str(e)}
+        except Exception as e:
+            return {"success": False, "message": "Erreur inattendue.", "error": str(e)}
+
+    def _extract_product_and_date(self, question, noms_produits):
+        prompt = self.PROMPT_EXTRACT.format(
+            today=date.today(),
+            format='{"produit": "...", "date": "YYYY-MM-DD"}',
+            question=question,
+            produits=', '.join(noms_produits),
+        )
+        return self.call_gemini(prompt)
+
+    def _get_prediction(self, product_name, pred_date):
+        from apps.catalogue.models import Product
+        product = Product.objects.filter(name__icontains=product_name).first()
+        if not product:
+            return False
+        prediction = Prediction.objects.filter(
+            product_id=product.id,
+            date_prediction__gte=pred_date,
+            date_prediction__lte=pred_date + timedelta(days=7)
+        ).order_by('date_prediction').first()
+        self.prediction_infos += (
+            f"\nProduit {product.name} le {getattr(prediction, 'date_prediction', 'N/A')} :"
+            f"\n- Stock prévu : {getattr(prediction, 'stock_prevu', 'N/A')}"
+            f"\n- Import prévu : {getattr(prediction, 'import_qty', 'N/A')}"
+            f"\n- Export prévu : {getattr(prediction, 'export_qty', 'N/A')}"
+            f"\n- Rupture : {getattr(prediction, 'rupture', 'N/A')}"
+            f"\n- Seuil : {product.stock_threshold}"
+        )
+        return True
+
+    def _get_recommendation(self, product_name, pred_date):
+        from apps.catalogue.models import Product
+        product = Product.objects.filter(name__icontains=product_name).first()
+        if not product:
+            return False
+        reco = Recommandation.objects.filter(
+            product=product,
+            date_prediction__gte=pred_date,
+            date_prediction__lte=pred_date + timedelta(days=7)
+        ).first()
+        if reco:
+            self.recommendations += (
+                f"\nRecommandation existante pour {product.name} le {reco.date_prediction} :"
+                f"\n- Type : {reco.type_recommandation}"
+                f"\n- Quantité : {reco.quantite_suggeree}"
+                f"\n- Priorité : {reco.priority}"
+                f"\n- Raisonnement : {reco.raisonnement}"
+            )
+            return True
+        return False
+
+    def _generate_recommendation(self, data):
+        not_found = ', '.join(data.get("Not Found", []))
+        prompt = self.PROMPT_RECO.format(
+            question=self.user_question,
+            prediction_infos=self.prediction_infos or "Aucune prédiction disponible.",
+            recommendation_infos=self.recommendations or "Aucune recommandation existante.",
+            not_found=f"Produits non disponibles : {not_found}" if not_found else "",
+        )
+        return self.call_gemini(prompt)
