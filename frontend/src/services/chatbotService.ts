@@ -1,37 +1,39 @@
-// import { getAuthHeaders } from '@/lib/auth';
+import api from '@/config/axios';
 
-const API_URL = 'http://localhost:8000/api/recommandation/chat/';
+export interface ChatResponse {
+  success: boolean;
+  data: any;
+  message?: string;
+  error?: string;
+}
 
-export const sendChatMessage = async (message: string) => {
+export const sendChatMessage = async (message: string): Promise<ChatResponse> => {
   try {
-    const response = await fetch(API_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `token ${localStorage.getItem("token")}`,
-        // ...getAuthHeaders(),
-      },
-      body: JSON.stringify({ message }),
-    });
+    const response = await api.post('/forecasting/chat/', { message });
+    const raw = response.data;
 
-    const data = await response.json();
-    console.log('Response from server:', data); // Pour le débogage
+    // L'endpoint retourne { success, data, message }
+    // data peut contenir { recommendation, user_friendly_response }
+    const payload = raw?.data ?? raw;
 
-    if (!response.ok) {
-      throw new Error(data.message || 'Erreur du serveur');
+    let displayContent = payload;
+    if (payload?.user_friendly_response) {
+      displayContent = payload.user_friendly_response;
+    } else if (typeof payload === 'object') {
+      displayContent = JSON.stringify(payload, null, 2);
     }
 
     return {
       success: true,
-      data: data.data,
-      message: data.message
+      data: displayContent,
+      message: raw?.message,
     };
-  } catch (error) {
-    console.error('Error details:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Une erreur est survenue',
-      data: null
-    };
+  } catch (error: any) {
+    const msg =
+      error?.response?.data?.message ||
+      error?.response?.data?.error ||
+      error?.message ||
+      'Une erreur est survenue';
+    return { success: false, error: msg, data: null };
   }
 };

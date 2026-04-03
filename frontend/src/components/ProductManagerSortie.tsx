@@ -128,24 +128,19 @@ const ProductManagerSortie = () => {
     };
 
     try {
-      const res = await API.post("/produits_dv/sortie/", liste_sortie_payload, { responseType: 'blob' });
-      const parsed = await parseAxiosBlobResponse(res, "Ordre_de_sorite.pdf");
+      const res = await API.post("catalogue/produits-dv/sortie/", liste_sortie_payload)
+      const { url, filename } = res.data.data
 
-      if (parsed.files && parsed.files.length) {
-        // accumuler fichiers et (optionnel) déclencher le téléchargement immédiat
-        setDownloadedFiles(prev => [...prev, ...parsed.files]);
-        // downloadAll(parsed.files) // décommenter si téléchargement immédiat désiré
-      }
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
 
-      if (parsed.json) {
-        console.log("JSON response:", parsed.json);
-      }
-
-      // Vider les stockExits après succès
-      stockExits.splice(0, stockExits.length);
-      setStockExits([...stockExits]); // Forcer le re-render
-      setRaison('');
-      setShowModal(false); // fermer le modal après envoi réussi
+      setStockExits([])
+      setRaison('')
+      setShowModal(false)
     } catch (err) {
       console.log(err);
     } finally {
@@ -157,7 +152,7 @@ const ProductManagerSortie = () => {
   const FetchProducts_filtered = async () => {
     try {
       const data = { chercher: searchTerm };
-      const res = await API.post("/product/", data);
+      const res = await API.post("catalogue/products/", data);
       setListe_produit(res.data.data || []);
     } catch (err) {
       console.log(err);
@@ -168,7 +163,7 @@ const ProductManagerSortie = () => {
   const FetchDerivproduit = async(id?:number) =>{
     if (id){
       try{
-        const res = await API.get(`produits_dv/par_produit/?product=${id}`).then((reponse)=>{
+        const res = await API.get(`catalogue/produits-dv/par_produit/?product=${id}`).then((reponse)=>{
           setListe_deriv(reponse.data.data);
           setSelectedDerivId(''); // reset selection when changing product
         })

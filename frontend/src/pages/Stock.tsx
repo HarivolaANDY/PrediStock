@@ -165,12 +165,19 @@ export default function Stock() {
   }
 
   const getListePDV = async () => {
+    setIsLoadingPDVs(true)
     try {
       const response = await API.get('catalogue/produits-dv/')
-      setPDVs(response.data?.data || response.data?.results || response.data || [])
-      setIsLoadingPDVs(true)
+      console.log("🔍 RAW response.data:", JSON.stringify(response.data, null, 2)) // ← ajouter ça
+      const data = response.data?.data || response.data?.results || response.data || []
+      console.log("📦 data extrait:", data)
+      console.log("📦 Premier item:", data[0])  // ← voir les vraies clés
+      setPDVs(Array.isArray(data) ? data : [])
     } catch (error) {
       console.error('Erreur produits DV:', error)
+      setPDVs([])
+    } finally {
+      setIsLoadingPDVs(false)
     }
   }
 
@@ -324,20 +331,20 @@ export default function Stock() {
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {!isLoadingPDVs ? (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                              Chargement des produits...
-                            </TableCell>
-                          </TableRow>
-                        ) : filteredPDVs.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                              Aucun produit disponible
-                            </TableCell>
-                          </TableRow>
-                        ) : (
-                          filteredPDVs.map((produit: any) => (
+                        {isLoadingPDVs ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            Chargement des produits...
+                          </TableCell>
+                        </TableRow>
+                      ) : filteredPDVs.length === 0 ? (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
+                            Aucun produit disponible
+                          </TableCell>
+                        </TableRow>
+                      ) : (
+                        filteredPDVs.map((produit: any) => (
                             <TableRow key={produit.id} className="cursor-pointer hover:bg-muted/50 transition-colors">
                               <TableCell>
                                 <p className="font-medium">{produit.designation}</p>
@@ -429,8 +436,8 @@ export default function Stock() {
                                 </TableCell>
                               </TableRow>
                             ) : (
-                              stockMouvements.map((mouvement) => (
-                                <TableRow key={mouvement.id_movement}>
+                              stockMouvements.map((mouvement, index) => (
+                                <TableRow key={mouvement.id_movement ?? `mouvement-${index}`}>
                                   <TableCell>
                                     <div className="flex items-center gap-2">
                                       <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -564,13 +571,13 @@ export default function Stock() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {categoryStockData.map((cat) => {
+                    {categoryStockData.map((cat, index) => {
                       const catProducts = products.filter(p =>
                         (categories.find(c => c.id === p.category)?.name || "Sans catégorie") === cat.name
                       )
                       const valeur = catProducts.reduce((sum, p) => sum + (parseFloat(p.price) || 0) * p.current_stock, 0)
                       return (
-                        <TableRow key={cat.name}>
+                        <TableRow key={`cat-${cat.name}-${index}`}>
                           <TableCell className="font-medium">{cat.name}</TableCell>
                           <TableCell>{cat.stock.toLocaleString()} unités</TableCell>
                           <TableCell>{catProducts.length} produits</TableCell>

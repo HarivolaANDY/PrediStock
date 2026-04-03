@@ -12,7 +12,7 @@ export interface AlertData {
 
 export const fetchAlerts = async (): Promise<AlertData[]> => {
   const token = localStorage.getItem('token');
-  const response = await fetch(`${API_BASE_URL}/alerte/`, {
+  const response = await fetch(`${API_BASE_URL}/notifications/alertes/`, {
     headers: {
       'Authorization': `Token ${localStorage.getItem('token')}`,
       'Content-Type': 'application/json',

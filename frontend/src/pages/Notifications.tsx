@@ -55,7 +55,7 @@ export default function Notifications() {
   const [notifications, setNotifications] = useState<Notification[]>([])
 
   useEffect(() => {
-    fetch("http://localhost:8000/notification/", {
+    fetch("http://localhost:8000/api/notifications/", {
       method: "GET",
       headers: {
         "Content-Type": "application/json",

@@ -144,7 +144,7 @@ export default function Products() {
   /** Revenus par catégorie mensuels — fallback sur MOCK_REVENUE_DATA si vide */
   const getRevenueData = async () => {
     try {
-      const response = await API.get('catalogue/revenues/mensuel/')
+      const response = await API.get('catalogue/revenues/mensuel/') // Missing path: api/catalogue/revenues/mensuel/
       const data = response.data?.data || response.data?.results || response.data || []
       setRevenueData(Array.isArray(data) && data.length > 0 ? data : [])
     } catch (error) {

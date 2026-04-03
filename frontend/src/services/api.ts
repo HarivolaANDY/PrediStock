@@ -288,7 +288,7 @@ export const SupplierService = {
 export const RoleService = {
     createRole: async (roleData: any): Promise<any> => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/role/`, {
+            const response = await fetch(`${API_BASE_URLS}api/accounts/roles/`, {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
@@ -306,7 +306,7 @@ export const RoleService = {
     updateRole: async (roleId: string, roleData: any): Promise<any> => {
         // console.log("Updating role with ID:", roleId, "and data:", roleData);
         try {
-            const response = await fetch(`${API_BASE_URLS}api/role/${roleId}/`, {
+            const response = await fetch(`${API_BASE_URLS}api/roles/${roleId}/`, {
                 method: "PATCH",
                 headers: {
                     'Content-Type': 'application/json',
@@ -323,7 +323,7 @@ export const RoleService = {
     },
     getAllRoles: async (): Promise<any> => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/role/`, {
+            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
                 method: "GET",
                 headers: {
                     'Content-Type': 'application/json',
@@ -339,7 +339,7 @@ export const RoleService = {
     },
     getRoles: async () => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/role/`, {
+            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
                 method: "GET",
                 headers: {
                     'Content-Type': 'application/json',

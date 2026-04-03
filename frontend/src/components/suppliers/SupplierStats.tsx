@@ -16,12 +16,12 @@ export const transformSupplier = (supplier: Supplier): SupplierLike => ({
   id: supplier.id,
   name: supplier.name,
   email: supplier.email,
-  phone: supplier.phone,
-  leadTime: supplier.lead_time,
-  minOrderQuantity: supplier.min_order_quantity,
-  maxOrderQuantity: supplier.max_order_quantity,
-  isActive: supplier.is_active,
-  createdAt: supplier.created_at,
+  phone: supplier.phone ?? '',
+  leadTime: supplier.lead_time ?? 0,
+  minOrderQuantity: supplier.min_order_quantity ?? 0,  // ← ?? 0 pas ?? null
+  maxOrderQuantity: supplier.max_order_quantity ?? 0,  // ← idem
+  isActive: Boolean(supplier.is_active),
+  createdAt: supplier.created_at
 })
 
 // ── Helper : normalise is_active en booléen quelle que soit la valeur de l'API

@@ -38,7 +38,7 @@ const ActiviteList = () => {
   useEffect(() => {    
     const fetchActivite = async () => {
       try {
-        const response = await API.get('activite/');
+        const response = await API.get('/notifications/activites/');
         const apiData = Array.isArray(response.data)
           ? response.data
           : Array.isArray(response.data.data.reverse())

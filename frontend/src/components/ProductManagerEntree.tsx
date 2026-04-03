@@ -87,39 +87,37 @@ const ProductManager = () => {
   };
 
   const sendSaveProducts = async () => {
-    setIsloading(true);
-    const newFiles: { blob: Blob; filename: string }[] = [];
-    const liste_inserer = {
-      "liste_inserer": [
-        ...products.map(product => ({
+    setIsloading(true)
+    try {
+      const liste_inserer = {
+        liste_inserer: products.map(product => ({
           id_produit: product.id_produit,
           panier: product.panier
         }))
-      ]
-    };
-    try {
-      const res = await API.post("produits_dv/entree/", liste_inserer, { responseType: 'blob' });
-      const parsed = await parseAxiosBlobResponse(res, "Rapport_entrée.pdf");
-
-      if (parsed.files && parsed.files.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files]);
-        // downloadAll(parsed.files) // décommenter si téléchargement immédiat désiré
       }
-      if (parsed.json) console.log(parsed.json);
 
-      products.splice(0, products.length);
-      setProducts([...products]); // Forcer le re-render
+      const res = await API.post("catalogue/produits-dv/entree/", liste_inserer)
+      const { url, filename } = res.data.data
+
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      setProducts([])
     } catch (err) {
-      console.log(err);
+      console.error(err)
     } finally {
-      setIsloading(false);
+      setIsloading(false)
     }
-  };
+  }
 
   const FetchProducts_filtered = async () => {
     try {
       const data = { "chercher": searchTerm };
-      const res = await API.post("/product/", data);
+      const res = await API.post("catalogue/products/", data);
       setListe_produit(res.data.data || []);
     } catch (err) {
       console.log(err);
@@ -129,7 +127,7 @@ const ProductManager = () => {
 
   const fetch_sousProduits = async (productId: number) => {
     try {
-      const res = await API.get(`/produits_dv/par_produit/?product=${productId}`).then((response)=>{
+      const response = await API.get(`catalogue/produits-dv/par_produit/?product=${productId}`).then((response)=>{
         setSelectProduit_dv(response.data.data);        
       })
     } catch (err) {
@@ -139,15 +137,13 @@ const ProductManager = () => {
 
   // Debounce pour éviter trop d'appels API
   useEffect(() => {
-    fetch_sousProduits(0);
     const delayDebounceFn = setTimeout(() => {
       if (searchTerm) {
         FetchProducts_filtered();
       } else {
-        setListe_produit([]); // Efface la liste si searchTerm vide
+        setListe_produit([]);
       }
-    }, 300); // Délai de 300ms
-
+    }, 300);
     return () => clearTimeout(delayDebounceFn);
   }, [searchTerm]);
 

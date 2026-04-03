@@ -59,15 +59,19 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
     note: "",
   })
 
-  const filtered = useMemo(() => {
-    const term = search.toLowerCase()
-    return suppliers.filter(
-      (s) =>
-        s.name.toLowerCase().includes(term) ||
-        s.email.toLowerCase().includes(term) ||
-        s.phone.includes(search)
+  const safeString = (value?: string | null) => value ?? ""
+
+const filtered = useMemo(() => {
+  const term = safeString(search).toLowerCase()
+
+  return suppliers.filter((s) => {
+    return (
+      safeString(s.name).toLowerCase().includes(term) ||
+      safeString(s.email).toLowerCase().includes(term) ||
+      safeString(s.phone).includes(search)
     )
-  }, [suppliers, search])
+  })
+}, [suppliers, search])
 
   const filteredInteractions = useMemo(() => {
     const ids = new Set(filtered.map((s) => s.id))
@@ -162,8 +166,12 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
                       <TableCell>{s.leadTime} days</TableCell>
-                      <TableCell>{s.minOrderQuantity.toLocaleString()}</TableCell>
-                      <TableCell>{s.maxOrderQuantity.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {s.minOrderQuantity != null ? s.minOrderQuantity.toLocaleString() : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {s.maxOrderQuantity != null ? s.maxOrderQuantity.toLocaleString() : "-"}
+                      </TableCell>
                       <TableCell>{s.isActive ? "Active" : "Inactive"}</TableCell>
                       <TableCell>{s.createdAt}</TableCell>
                     </TableRow>

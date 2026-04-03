@@ -1,5 +1,4 @@
 import api from '@/config/axios';
-import { AxiosResponse } from 'axios';
 
 export interface Recommendation {
   id: number;
@@ -19,16 +18,67 @@ export interface Recommendation {
   };
 }
 
-interface ApiResponse {
-  data: Recommendation[];
-  message: string;
-  status_code: number;
+export interface Prediction {
+  id: number;
+  product: number;
+  product_name?: string; // ← ajouter ce champ
+  date_prediction: string;
+  import_qty: number;
+  import_lower_bound: number | null;
+  import_upper_bound: number | null;
+  export_qty: number;
+  export_lower_bound: number | null;
+  export_upper_bound: number | null;
+  stock_prevu: number;
+  rupture: boolean;
+  horizon: number;
+  modele_utilise: string;
+  creer_le: string;
 }
 
+// Extrait le tableau de données quelle que soit la structure de la réponse
+const extractArray = (raw: any): any[] => {
+  if (Array.isArray(raw)) return raw;
+  if (Array.isArray(raw?.data)) return raw.data;
+  if (Array.isArray(raw?.results)) return raw.results;
+  return [];
+};
+
 const recommendationService = {
-  getAll: (): Promise<AxiosResponse<ApiResponse>> => {
-    return api.get('/recommandation/');
-  }
+
+  // ── Recommandations ────────────────────────────────────────────────────────
+  getAll: async (): Promise<Recommendation[]> => {
+    const response = await api.get('/forecasting/recommandations/');
+    return extractArray(response.data);
+  },
+
+  apply: async (id: number): Promise<boolean> => {
+    try {
+      await api.post(`/forecasting/recommandations/${id}/apply/`);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  // ── Prédictions ────────────────────────────────────────────────────────────
+  getPredictions: async (): Promise<Prediction[]> => {
+    const response = await api.get('/forecasting/predictions/');
+    return extractArray(response.data);
+  },
+
+  // Lance le pipeline de prévision immédiatement
+  runPrediction: async (): Promise<{ message: string }> => {
+    const response = await api.post('/forecasting/predict/', {});
+    return response.data;
+  },
+
+  // ── Chatbot IA ─────────────────────────────────────────────────────────────
+  chat: async (message: string): Promise<any> => {
+    const response = await api.post('/forecasting/chat/', { message });
+    const raw = response.data;
+    return raw?.data ?? raw;
+  },
 };
 
 export default recommendationService;

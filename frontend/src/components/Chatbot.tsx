@@ -12,7 +12,7 @@ const Chatbot = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'Bonjour ! Bienvenue sur StockTalk AI. Je peux vous aider avec les prédictions boursières et l\'analyse de marché. Que voulez-vous savoir ?',
+      content: "Bonjour ! Je suis l'assistant IA de prévision. Demandez-moi une recommandation pour un produit à une date donnée. Ex : \"Que faire pour la Banane le 15 mai ?\"",
       sender: 'bot',
       timestamp: new Date(),
     },

@@ -4,6 +4,7 @@ from .views import (
     DataImportViewSet, ExecutionPipelineViewSet,
     PredictionViewSet, RecommandationViewSet,
     ExecutePipelineView, RunPredictionView, RecommenderView,
+    ModeleListView, ModelePerformanceView
 )
 
 router = DefaultRouter()
@@ -13,11 +14,10 @@ router.register(r'predictions',        PredictionViewSet,         basename='pred
 router.register(r'recommandations',    RecommandationViewSet,     basename='recommandation')
 
 urlpatterns = [
-    # Routes directes EN PREMIER
-    path('execution-pipeline/run-etl/', ExecutePipelineView.as_view(), name='etl-run'),
-    path('predict/',                    RunPredictionView.as_view(),    name='run-prediction'),
-    path('chat/',                       RecommenderView.as_view(),      name='recommender'),
-    
-    # Router EN DERNIER — une seule fois
+    path('execution-pipeline/run-etl/', ExecutePipelineView.as_view()),
+    path('predict/',                    RunPredictionView.as_view()),
+    path('chat/',                       RecommenderView.as_view()),
+    path('modeles/',                    ModeleListView.as_view(),       name='modele-list'),      # ← nouveau
+    path('modeles/performance/',        ModelePerformanceView.as_view(), name='modele-performance'), # ← nouveau
     path('', include(router.urls)),
 ]

@@ -1,5 +1,6 @@
 import os
 from datetime import date
+from django.conf import settings
 
 from django.db import transaction
 from django.db.models import Sum, F, Q
@@ -296,32 +297,49 @@ class ProductViewSet(GenericCRUDViewSet):
 # ─── ProduitDv ──────────────────────────────────────────────
 class ProduitDvViewSet(GenericCRUDViewSet):
     model = ProduitDv
-    queryset = ProduitDv.objects.select_related('product').all()
     serializer_class = ProduitDvSerializer
 
+    def get_queryset(self):
+        return ProduitDv.objects.select_related('product').all()
+
+    # Dans _generer_pdf_mouvement — sauvegardez le PDF et retournez l'URL
     def _generer_pdf_mouvement(self, mouvements, type_mouvement, request):
+        titre_type = "sorties" if type_mouvement == "OUT" else "entrees"
+        
         data = [["Produit", "Quantité", "Date", "Référence", "Utilisateur"]] + [
             [
                 m.produit.name if m.produit else '',
                 m.quantity,
                 m.date.strftime("%Y-%m-%d") if m.date else '',
                 m.referrence or '',
-                m.utilisateur.username.upper() if m.utilisateur else '',
+                m.utilisateur.get_full_name().upper() if m.utilisateur else '',
             ]
             for m in mouvements
         ]
-        titre_type = "sorties" if type_mouvement == "OUT" else "entrées"
+        
         infos = {
             "titre": f"Rapport de {titre_type} de produits",
             "sous_titre": f"Rapport des {titre_type} de produits.",
-            "auteur": request.user.username.upper(),
+            "auteur": request.user.get_full_name().upper() or request.user.username.upper(),
             "couleur": colors.lightgoldenrodyellow if type_mouvement == "OUT" else colors.lightgreen,
             "colWidths": [2*inch, inch, inch, 2*inch, 1.5*inch],
         }
+        
         buffer = PDFGeneratorViewSet()._advanced_pdf(data=data, infos=infos)
-        return FileResponse(
-            buffer, as_attachment=True,
-            filename=f"Rapport_{titre_type}_{date.today()}.pdf"
+        
+        filename = f"Rapport_{titre_type}_{date.today()}.pdf"
+        filepath = os.path.join(settings.MEDIA_ROOT, 'rapports', filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'wb') as f:
+            f.write(buffer.read())
+
+        file_url = request.build_absolute_uri(
+            f"{settings.MEDIA_URL}rapports/{filename}"
+        )
+        return StandardResponse.render(
+            data={"url": file_url, "filename": filename},
+            message="Opération enregistrée avec succès.",
+            status_code=200
         )
 
     @action(detail=False, methods=['post'])

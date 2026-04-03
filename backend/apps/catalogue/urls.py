@@ -7,6 +7,7 @@ router.register(r'categories',  CategoryViewSet,  basename='category')
 router.register(r'suppliers',   SupplierViewSet,  basename='supplier')
 router.register(r'products',    ProductViewSet,   basename='product')
 router.register(r'produits-dv', ProduitDvViewSet, basename='produit-dv')
+#revenu mensuel??
 
 urlpatterns = [
     path('', include(router.urls)),

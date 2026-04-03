@@ -73,7 +73,7 @@ export default function GestionDonnees() {
   const fetchDataSources = async () => {
     try {
       const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:8000/api/data-import/', {
+      const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
         headers: {
           'Authorization': `Token ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -86,7 +86,8 @@ export default function GestionDonnees() {
 
       const data = await response.json()
       console.log('Response data:', data) // Pour déboguer
-      const formattedData = data.results.map((item: DataImport) => ({
+      const items = data.data ?? data.results ?? data ?? []
+      const formattedData = items.map((item: DataImport) => ({
         ...item,
         sourceName: getSourceDescription(item.target_table)
       }))

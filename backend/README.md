@@ -20,6 +20,45 @@ Ce README donne les instructions d'installation, configuration et d'exécution a
 
 Le projet inclut aussi des dépendances pour le traitement asynchrone et ML (ex : `django-q`, `celery`, `torch`, `pandas`, `numpy`, etc.). Voir `requirements.txt` pour la liste complète.
 
+## Endpoints API (routage)
+
+Les routes principales exposées par le backend suivent le préfixe `/api/` défini dans [config/urls.py](config/urls.py#L1-L31). Les routes ci-dessous sont les chemins de base ; les `ViewSet` enregistrés via `DefaultRouter` exposent les opérations CRUD standards (`GET /`, `POST /`, `GET /{pk}/`, `PUT/PATCH /{pk}/`, `DELETE /{pk}/`).
+
+- Administration Django : `/admin/`
+- Comptes (auth, profils) : `/api/accounts/`
+  - Routes du router : `/api/accounts/roles/` (ViewSet `RoleViewSet`)
+  - Endpoints complémentaires :
+    - `/api/accounts/login/`
+    - `/api/accounts/logout/`
+    - `/api/accounts/register/`
+    - `/api/accounts/profile/`
+    - `/api/accounts/update-user/`
+    - `/api/accounts/check-availability/`
+    - `/api/accounts/test-email/`
+- Catalogue : `/api/catalogue/`
+  - Router exposé : `/api/catalogue/categories/`, `/api/catalogue/suppliers/`, `/api/catalogue/products/`, `/api/catalogue/produits-dv/`
+- Stock : `/api/stock/`
+  - Router exposé : `/api/stock/historique-inventaire/`, `/api/stock/inventaire/`, `/api/stock/historique-seuil-stock/`, `/api/stock/mouvements/`
+- Commandes : `/api/commandes/`
+  - Router exposé : `/api/commandes/bon-commande/`, `/api/commandes/contenu-dans/`, `/api/commandes/donnee-vente/`, `/api/commandes/produit-dv/`, `/api/commandes/retours/`
+- Forecasting : `/api/forecasting/`
+  - Router exposé : `/api/forecasting/data-import/`, `/api/forecasting/execution-pipeline/`, `/api/forecasting/predictions/`, `/api/forecasting/recommandations/`
+  - Endpoints custom :
+    - `/api/forecasting/execution-pipeline/run-etl/` — exécution ETL
+    - `/api/forecasting/predict/` — point d'entrée prédiction
+    - `/api/forecasting/chat/` — endpoint de recommandation/chat
+    - `/api/forecasting/modeles/` — liste des modèles disponibles
+    - `/api/forecasting/modeles/performance/` — performances des modèles
+- Notifications : `/api/notifications/`
+  - Router exposé : `/api/notifications/activites/`, `/api/notifications/alertes/`, `/api/notifications/notifications/`
+- Core : `/api/core/`
+  - Router exposé : `/api/core/pdf-historique/`, `/api/core/pdf/`
+
+Remarques :
+- Les chemins de détail suivent le pattern standard des routers DRF, par ex. `GET /api/catalogue/products/` (liste) et `GET /api/catalogue/products/{pk}/` (détail).
+- Certaines routes personnalisées (ex. `/predict/`, `/chat/`, `/execution-pipeline/run-etl/`) sont définies explicitement et ne suivent pas forcément le pattern router.
+- Pour obtenir la liste complète et à jour des endpoints (dont routes possiblement protégées par permissions), vous pouvez exécuter l'application et visiter l'interface browsable de DRF ou interroger `manage.py show_urls` si un plugin est installé.
+
 ## Prérequis
 
 - Python 3.10+ recommandé (vérifier la compatibilité avec vos bibliothèques ML si vous utilisez les fonctionnalités de forecasting).

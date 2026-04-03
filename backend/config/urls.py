@@ -16,37 +16,16 @@ Including another URLconf
 """
 from django.urls import path, include
 from django.contrib import admin
+from django.conf import settings                    # ← remplace "import settings"
+from django.conf.urls.static import static          # ← ajouter
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-
-    # ─── Accounts ───────────────────────────────────────────
     path('api/accounts/', include('apps.accounts.urls')),
-
-    # ─── Catalogue ──────────────────────────────────────────
-    # products/, categories/, suppliers/, produits-dv/ sont tous dans catalogue.urls
     path('api/catalogue/', include('apps.catalogue.urls')),
-
-    # ─── Stock ──────────────────────────────────────────────
-    # inventaire/, mouvements/, historique-inventaire/,
-    # historique-seuil-stock/ sont tous dans stock.urls
     path('api/stock/', include('apps.stock.urls')),
-
-    # ─── Commandes ──────────────────────────────────────────
-    # bon-commande/, donnee-vente/, retours/,
-    # produit-dv/, contenu-dans/ sont tous dans commandes.urls
     path('api/commandes/', include('apps.commandes.urls')),
-
-    # ─── Forecasting ────────────────────────────────────────
-    # data-import/, execution-pipeline/, predictions/,
-    # recommandations/, predict/, chat/ sont tous dans forecasting.urls
     path('api/forecasting/', include('apps.forecasting.urls')),
-
-    # ─── Notifications ──────────────────────────────────────
-    # activites/, alertes/, notifications/ sont tous dans notifications.urls
     path('api/notifications/', include('apps.notifications.urls')),
-
-    # ─── Core ───────────────────────────────────────────────
-    # pdf/, pdf-historique/ sont dans core.urls
     path('api/core/', include('apps.core.urls')),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
