@@ -29,17 +29,7 @@ Liste synthétique des fichiers et changements importants :
 - Divers :
   - Ajout/compilation de bytecode Python dans `__pycache__` suite aux modifications (.pyc) — ces entrées sont générées automatiquement.
   - `requirements.txt` ajouté/actualisé à la racine du dépôt.
-
-## Détail / recommandations
-
-- Les `.pyc` et le PDF sont inclus dans le diff ; il est recommandé d'ignorer les `.pyc` dans `.gitignore` pour des changelogs lisibles. Souhaitez-vous que je régénère ce changelog en excluant les `.pyc` et fichiers binaires ?
-- Si vous voulez des diffs complets (avant/après) ou métadonnées (auteur, hash commit, ticket), je peux :
-  - produire un répertoire `changelogs/diffs/` avec un fichier par changement contenant l'extrait de diff.
-  - ou ajouter des sections détaillées sous chaque entrée du présent `CHANGELOG.md`.
-
----
-
-Si vous confirmez, j'extrais et j'insère les diffs détaillés pour chaque entrée (optionnel : exclure `.pyc`).
+  
 ---
 
 ## Descriptions détaillées des 44 changements (backend + frontend)
