@@ -17,7 +17,7 @@ export default function Connexion() {
   const [errors, setErrors] = useState<Record<string, string>>({})
   const navigate = useNavigate()
 
-  const handleSubmit = async (e: React.SubmitEvent<HTMLFormElement>) => {
+   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     //HandleSubmit Logic
     const validationErrors: Record<string, string> = {}
