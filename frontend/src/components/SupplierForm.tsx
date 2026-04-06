@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/hooks/use-toast"
-import { useSupplier } from "@/contexts/SupplierContext"
+import { useSupplier } from "@/hooks/useSupplier"
 import { Supplier, SupplierFormData } from "@/types/types"
 
 interface SupplierFormProps {
@@ -60,12 +60,13 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
         isActive: formData.isActive,
       }
       onSubmit(supplierData)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur:', error)
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors de l'opération";
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de l'opération",
+        description: errorMessage,
       })
     }
   }

@@ -4,17 +4,11 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { useState } from "react"
+import { ModelSettings } from "@/types/models"
 
 interface ModelSettingsModalProps {
   onClose: () => void
   onSave: (settings: ModelSettings) => void
-}
-
-interface ModelSettings {
-  maxModels: number
-  defaultHorizon: number
-  trainingInterval: string
-  autoRetrain: boolean
 }
 
 export function ModelSettingsModal({ onClose, onSave }: ModelSettingsModalProps) {
@@ -63,7 +57,7 @@ export function ModelSettingsModal({ onClose, onSave }: ModelSettingsModalProps)
             <label className="text-sm font-medium">Intervalle de réentraînement</label>
             <Select 
               value={settings.trainingInterval}
-              onValueChange={(val) => setSettings({...settings, trainingInterval: val})}
+              onValueChange={(val: 'daily' | 'weekly' | 'monthly') => setSettings({...settings, trainingInterval: val})}
             >
               <SelectTrigger>
                 <SelectValue />

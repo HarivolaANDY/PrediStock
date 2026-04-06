@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
-import { Package, TrendingDown, TrendingUp, AlertTriangle, Filter, Search, Calendar, Clock, DollarSign, RefreshCw } from "lucide-react"
+import { Package, TrendingDown, AlertTriangle, Search, Calendar, Clock, DollarSign, RefreshCw } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,51 +11,26 @@ import { LineChart } from "@/components/charts/LineChart"
 import { BarChart } from "@/components/charts/BarChart"
 import { useProducts } from "@/hooks/useProducts"
 import { MetricCard } from "@/components/MetricCard"
-import { saveProduct } from "@/components/productApi"
-import { StockMouvementForm } from "@/components/StockMouvementForm"
-import ImportModalGenerer from "@/components/ImportModalGenerer"
+import ImportModalGenerer, { ProcessedProduct } from "@/components/ImportModalGenerer"
 import API from "@/services/axios"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils"
+import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { Category, StockMouvement, PDV, HistoriqueSeuilStock } from "@/types/types"
 
-type Product = {
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
-}
-
-type Category = {
-  id: number
-  name: string
-}
 
 export default function Stock() {
-  const navigate = useNavigate()
   const [categories, setCategories] = useState<Category[]>([])
-  const { products, loading, error, refetch } = useProducts()
+  const { products, refetch } = useProducts()
   const [searchTerm, setSearchTerm] = useState("")
   const [alertSearchTerm, setAlertSearchTerm] = useState("")
-  const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [stockMouvements, setStockMouvements] = useState<any[]>([])
+  const [stockMouvements, setStockMouvements] = useState<StockMouvement[]>([])
   const [stockMouvementsLoading, setStockMouvementsLoading] = useState(false)
   const [stockMouvementsError, setStockMouvementsError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
   const [isloadingexport, setIsloadingexport] = useState(false)
   const [isLoadingPDVs, setIsLoadingPDVs] = useState(false)
-  const [PDVs, setPDVs] = useState<any[]>([])
-  const [seuilHistorique, setSeuilHistorique] = useState<any[]>([])
+  const [PDVs, setPDVs] = useState<PDV[]>([])
+  const [seuilHistorique, setSeuilHistorique] = useState<HistoriqueSeuilStock[]>([])
 
   // ── Métriques calculées depuis les données réelles ─────────────────────────
 
@@ -83,9 +57,9 @@ export default function Stock() {
   // Données pour le graphique "Tendance des niveaux de stock" depuis l'historique des seuils
   const stockTrendData = useMemo(() => {
     if (seuilHistorique.length === 0) return []
-    return seuilHistorique.map((entry: any) => ({
-      month: entry.date ? new Date(entry.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) : entry.periode || "—",
-      stock: entry.total_stock ?? entry.quantite ?? entry.valeur ?? 0,
+    return seuilHistorique.map((entry: HistoriqueSeuilStock) => ({
+      month: entry.changer_le ? new Date(entry.changer_le).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) : "—",
+      stock: entry.nouveau_seuil ?? 0,
     }))
   }, [seuilHistorique])
 
@@ -94,7 +68,7 @@ export default function Stock() {
     if (products.length === 0 || categories.length === 0) return []
     const map: Record<string, number> = {}
     products.forEach(p => {
-      const catName = categories.find(c => c.id === p.category)?.name || "Sans catégorie"
+      const catName = categories.find(c => c.id.toString() === p.category?.toString())?.name || "Sans catégorie"
       map[catName] = (map[catName] || 0) + p.current_stock
     })
     return Object.entries(map).map(([name, stock]) => ({ name, stock }))
@@ -141,10 +115,9 @@ export default function Stock() {
   // ── Export PDF ─────────────────────────────────────────────────────────────
   const Export_mouvement = async () => {
     try {
-      const res = await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })
+      const res = (await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })) as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, "Rapport_mouvement.pdf")
       if (parsed.files?.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files])
         downloadAll(parsed.files)
       }
     } catch (err) {
@@ -196,7 +169,7 @@ export default function Stock() {
   const fetchStockMouvements = async (type?: string) => {
     setStockMouvementsLoading(true)
     setStockMouvementsError(null)
-    const params: any = {}
+    const params: { movement_type?: string } = {}
     try {
       if (type && type !== "tout") params.movement_type = type
       const response = await stockMouvementService.getStockMouvements(params)
@@ -344,17 +317,20 @@ export default function Stock() {
                           </TableCell>
                         </TableRow>
                       ) : (
-                        filteredPDVs.map((produit: any) => (
-                            <TableRow key={produit.id} className="cursor-pointer hover:bg-muted/50 transition-colors">
-                              <TableCell>
-                                <p className="font-medium">{produit.designation}</p>
-                              </TableCell>
-                              <TableCell>{produit.quantite} {produit.infos?.unite_mesure || ""}</TableCell>
-                              <TableCell>{produit.nombre ?? "—"}</TableCell>
-                              <TableCell>{formatCustomDate(produit.date_creation)}</TableCell>
-                              <TableCell>{produit.infos?.name || "—"}</TableCell>
-                            </TableRow>
-                          ))
+                        filteredPDVs.map((produit: PDV) => (
+                             <TableRow 
+                               key={produit.id} 
+                               className="cursor-pointer hover:bg-muted/50 transition-colors"
+                             >
+                               <TableCell>
+                                 <p className="font-medium">{produit.designation}</p>
+                               </TableCell>
+                               <TableCell>{produit.quantite} {produit.infos?.unite_mesure || ""}</TableCell>
+                               <TableCell>{produit.nombre ?? "—"}</TableCell>
+                               <TableCell>{formatCustomDate(produit.date_creation)}</TableCell>
+                               <TableCell>{produit.infos?.name || "—"}</TableCell>
+                             </TableRow>
+                           ))
                         )}
                       </TableBody>
                     </Table>
@@ -437,7 +413,7 @@ export default function Stock() {
                               </TableRow>
                             ) : (
                               stockMouvements.map((mouvement, index) => (
-                                <TableRow key={mouvement.id_movement ?? `mouvement-${index}`}>
+                                <TableRow key={mouvement.id ?? `mouvement-${index}`}>
                                   <TableCell>
                                     <div className="flex items-center gap-2">
                                       <Calendar className="h-4 w-4 text-muted-foreground" />
@@ -573,7 +549,7 @@ export default function Stock() {
                   <TableBody>
                     {categoryStockData.map((cat, index) => {
                       const catProducts = products.filter(p =>
-                        (categories.find(c => c.id === p.category)?.name || "Sans catégorie") === cat.name
+                        (categories.find(c => c.id.toString() === p.category?.toString())?.name || "Sans catégorie") === cat.name
                       )
                       const valeur = catProducts.reduce((sum, p) => sum + (parseFloat(p.price) || 0) * p.current_stock, 0)
                       return (
@@ -664,28 +640,12 @@ export default function Stock() {
         </TabsContent>
       </Tabs>
 
-      {/* Modal mouvement de stock */}
-      {showStockMouvementForm && selectedProduct && (
-        <StockMouvementForm
-          onClose={() => setShowStockMouvementForm(false)}
-          onSubmit={() => { setShowStockMouvementForm(false); refetch() }}
-          initialData={{
-            id_product: selectedProduct.id,
-            product_name: selectedProduct.name,
-            quantity: 0,
-            movement_type: 'IN',
-            reason: '',
-            notes: ''
-          }}
-        />
-      )}
-
       {/* Modal import */}
       {showImportModal && (
         <ImportModalGenerer
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onImport={(data: any) => {
+          onImport={(data: ProcessedProduct[]) => {
             console.log('Données importées:', data)
             setShowImportModal(false)
           }}

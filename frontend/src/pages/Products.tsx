@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { categoryAPI } from '@/services/api'
-import { Package, Plus, Search, Filter, Edit, Eye, Trash2, BarChart3, DollarSign, TriangleAlert, Download, Upload } from "lucide-react"
+import { Package, Plus, Search, Edit, Eye, Trash2, BarChart3, DollarSign, TriangleAlert, Download, Upload } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -17,26 +17,10 @@ import { saveProduct } from "@/components/productApi"
 import { useProducts } from "@/hooks/useProducts"
 import ImportModal from "@/components/ImportModal"
 import { CategoryForm } from "@/components/CategoryForm"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils"
+import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import API from '@/services/axios'
 
-type Product = {
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
-}
-
-import { Category as CategoryType } from '@/types/types'
+import { Product, Category, HistoriqueInventaire, InventaireItem, DashboardStats } from '@/types/types'
 import { toast } from '@/components/ui/use-toast'
 import {
   Dialog,
@@ -71,13 +55,14 @@ const MOCK_REVENUE_DATA = [
 // ---------------------------------------------------------------------------
 
 export default function Products() {
+  // ── States ──
   const navigate = useNavigate()
   const [currentPage, setCurrentPage] = useState(1)
   const [categories, setCategories] = useState<{ [key: number]: string }>({})
   const [searchTerm, setSearchTerm] = useState("")
   const [isloadingStats, setIsLoadingStats] = useState(true)
   const [showCategoryForm, setShowCategoryForm] = useState(false)
-  const [editingCategory, setEditingCategory] = useState<CategoryType | null>(null)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [analyticsSearchTerm, setAnalyticsSearchTerm] = useState("")
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
@@ -85,12 +70,13 @@ export default function Products() {
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
   const { products, loading, error, refetch, totalCount, hasNextPage, hasPreviousPage } = useProducts(currentPage)
-  const [stats, setStats] = useState<any>(null)
-  const [inventaire, setInventaire] = useState<any[]>([])
-  const [currentHistoriqueId, setCurrentHistoriqueId] = useState(0)
+  
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [inventaire, setInventaire] = useState<InventaireItem[]>([])
+  const [currentHistoriqueId, setCurrentHistoriqueId] = useState<number>(0)
   const [currentHistoriquedesc, setCurrentHistoriqueDesc] = useState("")
-  const [list_histo, setList_histo] = useState<any[]>([])
-  const [redressID, setRedressID] = useState<any>()
+  const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
+  const [redressID, setRedressID] = useState<number | string>()
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [inventoryDescription, setInventoryDescription] = useState("")
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
@@ -100,8 +86,28 @@ export default function Products() {
   const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
 
   // ── États pour les données réelles des graphiques ──────────────────────────
-  const [stockMovements, setStockMovements] = useState<any[]>([])
-  const [revenueData, setRevenueData] = useState<any[]>([])
+  interface ChartDataPoint {
+    [key: string]: unknown;
+  }
+  const [stockMovements, setStockMovements] = useState<ChartDataPoint[]>([])
+  const [revenueData, setRevenueData] = useState<ChartDataPoint[]>([])
+
+  // ───────────────────────────────────────────────────────────────────────────
+
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await categoryAPI.getCategories()
+      if (response && response.data) {
+        const categoryMap = (response.data as Category[]).reduce((acc: Record<string, string>, category: Category) => {
+          if (category.id) acc[category.id] = category.name
+          return acc
+        }, {} as Record<string, string>)
+        setCategories(categoryMap)
+      }
+    } catch (error) {
+      console.error("Erreur rechargement catégories:", error)
+    }
+  }, [])
 
   // Données effectives : réelles si disponibles, fictives sinon
   const stockMovementChartData = stockMovements.length > 0 ? stockMovements : MOCK_STOCK_MOVEMENT_DATA
@@ -119,7 +125,7 @@ export default function Products() {
   }
 
   // ── Appels API ─────────────────────────────────────────────────────────────
-  const getStats = async () => {
+  const getStats = useCallback(async () => {
     try {
       const res = await API.get('catalogue/products/stats/')
       setStats(res.data.data)
@@ -127,10 +133,10 @@ export default function Products() {
     } catch (error) {
       console.error('Erreur stats:', error)
     }
-  }
+  }, [])
 
   /** Mouvements de stock mensuels — fallback sur MOCK_STOCK_MOVEMENT_DATA si vide */
-  const getStockMovements = async () => {
+  const getStockMovements = useCallback(async () => {
     try {
       const response = await API.get('stock/mouvements/')
       const data = response.data?.data || response.data?.results || response.data || []
@@ -139,10 +145,10 @@ export default function Products() {
       console.error('Erreur mouvements de stock:', error)
       setStockMovements([])
     }
-  }
+  }, [])
 
   /** Revenus par catégorie mensuels — fallback sur MOCK_REVENUE_DATA si vide */
-  const getRevenueData = async () => {
+  const getRevenueData = useCallback(async () => {
     try {
       const response = await API.get('catalogue/revenues/mensuel/') // Missing path: api/catalogue/revenues/mensuel/
       const data = response.data?.data || response.data?.results || response.data || []
@@ -151,7 +157,7 @@ export default function Products() {
       console.error('Erreur revenus:', error)
       setRevenueData([]) // déclenche le fallback fictif
     }
-  }
+  }, [])
 
   const getInventaire = async (id_histo: number) => {
     try {
@@ -171,7 +177,7 @@ export default function Products() {
     getInventaire(id_histo)
   }
 
-  const getListeHisto = async () => {
+  const getListeHisto = useCallback(async () => {
     try {
       const response = await API.get('stock/historique-inventaire/')
       const data = response.data?.data || response.data?.results || response.data || []
@@ -187,7 +193,7 @@ export default function Products() {
     } catch (error) {
       console.error('Erreur historique:', error)
     }
-  }
+  }, [])
 
   const Telecharger_pdf = async (historiqueId?: number, description?: string) => {
     if (!historiqueId) return
@@ -201,7 +207,7 @@ export default function Products() {
         specific: historiqueId,
         titre: `Inventaire - ${description || 'Historique ' + historiqueId} - ${Date.now()}.pdf`,
       }
-      const res = await API.post("core/pdf/dynamic/", details, { responseType: 'blob' })
+      const res = (await API.post("core/pdf/dynamic/", details, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, details.titre)
       if (parsed.files?.length) {
         setDownloadedFiles(prev => [...prev, ...parsed.files])
@@ -227,23 +233,24 @@ export default function Products() {
       toast({ title: "Succès", description: "PDF uploadé avec succès !", variant: "default" })
       setShowUploadModal(false)
       setSelectedPdfFile(null)
-    } catch (err: any) {
+    } catch (err) {
+      const axiosError = err as { response?: { data?: { error?: string } } };
       console.error(err)
-      toast({ title: "Erreur", description: err.response?.data?.error || "Échec de l'upload.", variant: "destructive" })
+      toast({ title: "Erreur", description: axiosError.response?.data?.error || "Échec de l'upload.", variant: "destructive" })
     } finally {
       setIsUploading(false)
     }
   }
 
   // ── Filtres produits ───────────────────────────────────────────────────────
-  const filteredProducts = useCallback(() => {
-    return products?.filter((product: any) =>
+  const filteredProductsList = useMemo(() => {
+    return products?.filter((product: Product) =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
     ) ?? []
   }, [products, searchTerm])
 
-  const allFilteredProducts = filteredProducts()
+  const allFilteredProducts = filteredProductsList
 
   // ── Handlers UI ────────────────────────────────────────────────────────────
   const handleAddProduct = () => { setEditingProduct(null); setShowProductForm(true); refetch() }
@@ -256,24 +263,26 @@ export default function Products() {
   const handleDeleteClick = (product: Product) => { setProductToDelete(product); setShowDeleteModal(true); refetch() }
   const handleConfirmDelete = () => { setShowDeleteModal(false); setProductToDelete(null); refetch() }
 
-  const handleSubmitCategory = async (data: CategoryType) => {
+  const handleSubmitCategory = async (data: Category) => {
     setShowCategoryForm(false)
     setEditingCategory(null)
     if (typeof refetch === 'function') refetch()
     try {
       const response = await categoryAPI.getCategories()
-      const categoryMap = response.data.reduce((acc: { [key: number]: string }, category) => {
-        if (category.id) acc[category.id] = category.name
-        return acc
-      }, {})
-      setCategories(categoryMap)
+      if (response && response.data) {
+        const categoryMap = (response.data as Category[]).reduce((acc: Record<string, string>, category: Category) => {
+          if (category.id) acc[category.id] = category.name
+          return acc
+        }, {} as Record<string, string>)
+        setCategories(categoryMap)
+      }
     } catch (error) {
       console.error("Erreur rechargement catégories:", error)
     }
     toast({ title: "Succès", description: `La catégorie ${data.name} a été ${data.id ? 'modifiée' : 'créée'} avec succès.`, variant: "default" })
   }
 
-  const handleSubmitProduct = async (data: any) => {
+  const handleSubmitProduct = async (data: FormData | Record<string, unknown>) => {
     try {
       await saveProduct(data)
       setShowProductForm(false)
@@ -328,20 +337,8 @@ export default function Products() {
     getStockMovements()
     getRevenueData()
     loadCategories()
-  }, [])
+  }, [getListeHisto, getStats, getStockMovements, getRevenueData, loadCategories])
 
-  const loadCategories = async () => {
-    try {
-      const response = await categoryAPI.getCategories()
-      const categoryMap = response.data.reduce((acc: { [key: number]: string }, category) => {
-        if (category.id) acc[category.id] = category.name
-        return acc
-      }, {})
-      setCategories(categoryMap)
-    } catch (error) {
-      console.error("Erreur rechargement catégories:", error)
-    }
-  }
 
   // ── Composant MetricCards ──────────────────────────────────────────────────
   const MetricCardsStats = () => {
@@ -350,26 +347,26 @@ export default function Products() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Nombre de type des produits"
-          value={stats.total_produits.toString()}
+          value={stats.total_produits?.toString() || "0"}
           icon={<Package className="h-4 w-4" />}
         />
         <MetricCard
           title="Calcul Total Stock"
-          value={stats.total_stock.toString()}
+          value={stats.total_stock?.toString() || "0"}
           icon={<DollarSign className="h-4 w-4" />}
           variant="success"
         />
         <MetricCard
           title="En Stock Faible"
-          value={stats.total_stock_faible}
-          description={stats.total_produits > 0 ? (((stats.total_stock_faible * 100) / stats.total_produits).toFixed(2) + "% du stock total") : "0% du stock total"}
+          value={stats.total_stock_faible?.toString() || "0"}
+          description={stats.total_produits && (stats.total_produits as number) > 0 ? ((((stats.total_stock_faible as number) * 100) / (stats.total_produits as number)).toFixed(2) + "% du stock total") : "0% du stock total"}
           icon={<TriangleAlert className="h-4 w-4" />}
           variant="warning"
         />
         <MetricCard
           title="Produits en Rupture"
-          value={stats.total_stock_rupture.toString()}
-          description={stats.total_produits > 0 ? (((stats.total_stock_rupture * 100) / stats.total_produits).toFixed(2) + "% du stock total") : "0% du stock total"}
+          value={stats.total_stock_rupture?.toString() || "0"}
+          description={stats.total_produits && (stats.total_produits as number) > 0 ? ((((stats.total_stock_rupture as number) * 100) / (stats.total_produits as number)).toFixed(2) + "% du stock total") : "0% du stock total"}
           icon={<BarChart3 className="h-4 w-4" />}
           variant="destructive"
         />
@@ -693,18 +690,18 @@ export default function Products() {
                     </TableHeader>
                     <TableBody>
                       {inventaire?.length > 0 ? (
-                        inventaire.map((produit: any, index) => (
+                        inventaire.map((item: InventaireItem, index) => (
                           <TableRow key={index}>
-                            <TableCell>{produit.produit_info?.product_mere?.name || "Inconnu"}</TableCell>
-                            <TableCell>{produit.produit_info?.designation || "N/A"}</TableCell>
-                            <TableCell>{produit.quantite_theo}</TableCell>
-                            <TableCell>{produit.quantite_phy}</TableCell>
+                            <TableCell>{item.produit_info?.product_mere?.name || "Inconnu"}</TableCell>
+                            <TableCell>{item.produit_info?.designation || "N/A"}</TableCell>
+                            <TableCell>{item.quantite_theo}</TableCell>
+                            <TableCell>{item.quantite_phy}</TableCell>
                             <TableCell style={{
-                              backgroundColor: produit.quantite_theo > produit.quantite_phy
+                              backgroundColor: item.quantite_theo > item.quantite_phy
                                 ? 'rgba(255, 0, 0, 0.1)'
-                                : (produit.ecart != 0 ? 'rgba(255, 221, 0, 0.1)' : 'rgba(7, 227, 62, 0.1)'),
+                                : (item.ecart != 0 ? 'rgba(255, 221, 0, 0.1)' : 'rgba(7, 227, 62, 0.1)'),
                             }}>
-                              {produit.ecart}
+                              {item.ecart}
                             </TableCell>
                           </TableRow>
                         ))
@@ -726,7 +723,7 @@ export default function Products() {
 
       {/* ── Modales ── */}
       {showProductForm && (
-        <ProductForm onClose={handleCloseForm} onSubmit={handleSubmitProduct} initialData={editingProduct} />
+        <ProductForm onClose={handleCloseForm} onSubmit={handleSubmitProduct} initialData={editingProduct || undefined} />
       )}
 
       {showDeleteModal && productToDelete && (

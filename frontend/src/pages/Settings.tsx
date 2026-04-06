@@ -35,7 +35,7 @@ export default function Settings() {
     document.body.classList.add(themeColor);
     // Sauvegarder dans les settings
     updateSettings({ themeColor: themeColor });
-  }, [themeColor])
+  }, [themeColor, updateSettings])
 
   useEffect(() => {
     setLanguage(i18n.language)

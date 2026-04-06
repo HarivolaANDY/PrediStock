@@ -50,8 +50,8 @@ export default function Register() {
         localStorage.setItem("user", JSON.stringify(res.user))
         navigate("/dashboard")
       }
-    } catch (err: any) {
-      setError(err.message || "Erreur lors de l'inscription.")
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Erreur lors de l'inscription.")
     } finally {
       setIsLoading(false)
     }

@@ -50,16 +50,9 @@ const Chatbot = () => {
       console.log('Chat response:', response); // Pour le débogage
       
       if (response.success) {
-        let displayContent = response.data;
-        
-        // Si la réponse est un objet JSON, on le formate proprement
-        if (typeof response.data === 'object') {
-          displayContent = JSON.stringify(response.data, null, 2);
-        }
-
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
-          content: displayContent,
+          content: response.data,
           sender: 'bot',
           timestamp: new Date(),
         };

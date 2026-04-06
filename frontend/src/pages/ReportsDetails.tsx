@@ -51,7 +51,6 @@ export default function ReportsDetails() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const [showProductForm, setShowProductForm] = useState(false)
-  const [editingReport, setEditingReport] = useState<Report | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
 
@@ -63,14 +62,12 @@ export default function ReportsDetails() {
       : <Badge className="bg-red-500 text-white">Inactif</Badge>
   }
 
-  const handleEditSupplier = (report: Report) => {
-    setEditingReport(report)
+  const handleEditSupplier = (_report: Report) => {
     setShowProductForm(true)
   }
 
   const handleCloseForm = () => {
     setShowProductForm(false)
-    setEditingReport(null)
   }
 
   const handleDeleteClick = (report: Report) => {
@@ -82,6 +79,11 @@ export default function ReportsDetails() {
     console.log("Fournisseur supprimé :", reportToDelete?.title)
     setShowDeleteModal(false)
     setReportToDelete(null)
+  }
+
+  const handleViewDetails = (report: Report) => {
+    console.log("Viewing report details:", report)
+    // Could navigate to a dedicated view page or open a modal
   }
 
   if (!report) {
@@ -129,7 +131,7 @@ export default function ReportsDetails() {
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1 font-bold">Format du rapport</p>
-              <p className={`font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{report.format.toLocaleString()}</p>
+              <p className={`font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{report.format ?? "-"}</p>
             </div>
             <div>
               <p className="text-sm text-gray-500 mb-1 font-bold">Statut</p>
@@ -167,8 +169,38 @@ export default function ReportsDetails() {
         <ProductForm
           onClose={handleCloseForm}
           onSubmit={() => {}}
-          initialData={editingReport ?? report}
         />
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className={`rounded-lg shadow-lg p-6 max-w-sm ${settings.darkMode ? 'bg-gray-800' : 'bg-white'}`}>
+            <h2 className={`text-lg font-bold mb-4 ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>
+              Confirmer la suppression
+            </h2>
+            <p className={`mb-6 ${settings.darkMode ? 'text-gray-300' : 'text-gray-600'}`}>
+              Êtes-vous sûr de vouloir supprimer le rapport "<span className="font-semibold">{reportToDelete?.title}</span>" ?
+            </p>
+            <div className="flex justify-end gap-3">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowDeleteModal(false)
+                  setReportToDelete(null)
+                }}
+              >
+                Annuler
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleConfirmDelete}
+              >
+                Supprimer
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

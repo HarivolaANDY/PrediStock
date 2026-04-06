@@ -1,6 +1,6 @@
-import React, { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
-import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2 } from "lucide-react"
+import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -16,21 +16,6 @@ import {
 import { MetricCard } from "@/components/MetricCard"
 import { ImportDataModal } from "@/components/ImportDataModal"
 
-import { useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
-
-const importHistory = [
-  { id: "1", file: "ventes_jan.csv", status: "completed", date: "2024-01-15", records: "15,230" },
-  { id: "2", file: "maj_inventaire.xlsx", status: "processing", date: "2024-01-15", records: "3,450" },
-  { id: "3", file: "retours_q4.csv", status: "failed", date: "2024-01-14", records: "890" },
-  { id: "4", file: "catalogue_produits.json", status: "completed", date: "2024-01-14", records: "2,100" }
-]
-
-type DataSource = {
-  id: number,
-  name: string,
-  file
-}
 
 interface DataImport {
   id: number;
@@ -45,7 +30,6 @@ interface DataImport {
 
 export default function GestionDonnees() {
   const navigate = useNavigate()
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [showImportDataModal, setShowImportDataModal] = useState(false)
   const [dataSources, setDataSources] = useState<DataImport[]>([])
   const [loading, setLoading] = useState(true)
@@ -70,9 +54,8 @@ export default function GestionDonnees() {
     return descriptions[target_table] || `Données de ${target_table}`
   }
 
-  const fetchDataSources = async () => {
+  const fetchDataSources = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
         headers: {
           'Authorization': `Token ${localStorage.getItem('token')}`,
@@ -85,7 +68,7 @@ export default function GestionDonnees() {
       }
 
       const data = await response.json()
-      console.log('Response data:', data) // Pour déboguer
+      console.log('Response data:', data)
       const items = data.data ?? data.results ?? data ?? []
       const formattedData = items.map((item: DataImport) => ({
         ...item,
@@ -97,11 +80,11 @@ export default function GestionDonnees() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchDataSources()
-  }, [])
+  }, [fetchDataSources])
 
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {
