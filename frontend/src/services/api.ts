@@ -1,5 +1,5 @@
-import { CreateUserData, UserResponse, CreateProductData, ProductResponse, CreateSupplierData, SupplierResponse, Category, CategoryCreateData, ApiResponse } from "@/types/types";
-import { API_BASE_URL } from "@/config/api.config";
+import { CreateUserData, UserResponse, CreateProductData, ProductResponse, CreateSupplierData, SupplierResponse, Category, CategoryCreateData, ApiResponse, User, Role } from "@/types/types";
+
 import { ToastService } from "./toast.service";
 import { LoginData } from "@/types/login";
 
@@ -76,7 +76,7 @@ export const UserService = {
         }
     },
 
-    getUsers: async (): Promise<UserResponse[]> => {
+    getUsers: async (): Promise<User[]> => {
         try {
             const response = await fetch(`${API_BASE_URLS}api/accounts/check-availability/`, {
                 method: "GET",
@@ -285,8 +285,15 @@ export const SupplierService = {
 }
 
   //Api Role
+export interface RoleData {
+    name?: string;
+    description?: string;
+    permissions?: string[];
+    [key: string]: unknown;
+}
+
 export const RoleService = {
-    createRole: async (roleData: any): Promise<any> => {
+    createRole: async (roleData: RoleData): Promise<unknown> => {
         try {
             const response = await fetch(`${API_BASE_URLS}api/accounts/roles/`, {
                 method: "POST",
@@ -303,7 +310,7 @@ export const RoleService = {
             throw error;
         }
     },
-    updateRole: async (roleId: string, roleData: any): Promise<any> => {
+    updateRole: async (roleId: string, roleData: RoleData): Promise<unknown> => {
         // console.log("Updating role with ID:", roleId, "and data:", roleData);
         try {
             const response = await fetch(`${API_BASE_URLS}api/roles/${roleId}/`, {
@@ -321,7 +328,7 @@ export const RoleService = {
             throw error;
         }
     },
-    getAllRoles: async (): Promise<any> => {
+    getAllRoles: async (): Promise<Role[]> => {
         try {
             const response = await fetch(`${API_BASE_URLS}api/roles/`, {
                 method: "GET",
@@ -331,13 +338,14 @@ export const RoleService = {
                     'Authorization': `Token ${localStorage.getItem('token')}`
                 }
             });
-            return handleHttpErrors(response);
+            const data = await handleHttpErrors(response);
+            return data.results || data;
         } catch (error) {
             console.error("Récupération des rôles échouée:", error);
             throw error;
         }
     },
-    getRoles: async () => {
+    getRoles: async (): Promise<Role[]> => {
         try {
             const response = await fetch(`${API_BASE_URLS}api/roles/`, {
                 method: "GET",
@@ -346,7 +354,8 @@ export const RoleService = {
                     'Authorization': `Token ${localStorage.getItem('token')}`
                 },
             });
-            return handleHttpErrors(response);
+            const data = await handleHttpErrors(response);
+            return data.results || data;
         } catch (error) {
             console.error("Récupération des rôles échouée:", error);
             throw error;
