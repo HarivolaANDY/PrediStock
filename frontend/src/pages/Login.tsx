@@ -4,26 +4,39 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Package2, Eye, EyeOff, ArrowLeft, TrendingUp, BarChart3, Shield } from "lucide-react"
+import { Package2, Eye, EyeOff, ArrowLeft, TrendingUp, BarChart3, Shield, AlertCircle } from "lucide-react"
 import { LoginData } from "@/types/login"
 import { UserService } from "@/services/api"
+import { loginSchema, type LoginFormData } from "@/lib/validations/auth"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 import predistockLogo from "@/image/predistock.png";
+
+// Generic error message for security (prevents user enumeration)
+const GENERIC_LOGIN_ERROR = "Adresse e-mail ou mot de passe incorrect.";
 
 export default function Connexion() {
   const [showPassword, setShowPassword] = useState(false)
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [loginError, setLoginError] = useState<string | null>(null)
   const navigate = useNavigate()
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
+  const {
+    register,
+    handleSubmit,
+    formState: { errors: formErrors },
+  } = useForm<LoginFormData>({
+    resolver: zodResolver(loginSchema),
+  })
+
+  const onSubmit = async (data: LoginFormData) => {
+    setLoginError(null)
     setIsLoading(true)
     
     try {
       const loginData: LoginData = {
-        email,
-        password,
+        email: data.email,
+        password: data.password,
       }
       const res = await UserService.Login(loginData)
       if(res.token) {
@@ -34,6 +47,8 @@ export default function Connexion() {
       }
     } catch (error) {
       console.error("Erreur de connexion:", error)
+      // Display generic error message for security
+      setLoginError(GENERIC_LOGIN_ERROR)
     } finally {
       setIsLoading(false)
     }
@@ -127,7 +142,15 @@ export default function Connexion() {
           </CardHeader>
           
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+              {/* Display generic error message */}
+              {loginError && (
+                <div className="flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-lg">
+                  <AlertCircle className="h-4 w-4 text-red-500" />
+                  <span className="text-red-600 text-sm">{loginError}</span>
+                </div>
+              )}
+
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-slate-700">
                   Adresse e-mail
@@ -136,11 +159,12 @@ export default function Connexion() {
                   id="email"
                   type="email"
                   placeholder="exemple@entreprise.com"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  {...register("email")}
                   className="h-12 border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200"
-                  required
                 />
+                {formErrors.email && (
+                  <p className="text-red-500 text-sm mt-1">{formErrors.email.message}</p>
+                )}
               </div>
 
               <div className="space-y-2">
@@ -152,10 +176,8 @@ export default function Connexion() {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     placeholder="Entrez votre mot de passe"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    {...register("password")}
                     className="h-12 pr-12 border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200"
-                    required
                   />
                   <Button
                     type="button"
@@ -171,6 +193,9 @@ export default function Connexion() {
                     )}
                   </Button>
                 </div>
+                {formErrors.password && (
+                  <p className="text-red-500 text-sm mt-1">{formErrors.password.message}</p>
+                )}
               </div>
 
               <div className="flex items-center justify-between">
