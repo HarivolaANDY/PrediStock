@@ -175,7 +175,7 @@ const generatedReports = [
 export default function Reports() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState<typeof reportTemplates[0] | null>(null)
+  const [selectedTemplate, _setSelectedTemplate] = useState<typeof reportTemplates[0] | null>(null)
   const [showAddPlaning, setShowAddPlaning] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
