@@ -124,27 +124,24 @@ export default function Register() {
               />
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="role">Rôle</Label>
-              <Select
-                onValueChange={(value) => register("role").onChange({ target: { value } })}
-                defaultValue="Utilisateur"
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Sélectionnez un rôle" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="Administrateur">Administrateur</SelectItem>
-                  <SelectItem value="Gestionnaire de Stock">Gestionnaire de Stock</SelectItem>
-                  <SelectItem value="Analyste de Données">Analyste de Données</SelectItem>
-                  <SelectItem value="Utilisateur">Utilisateur</SelectItem>
-                  <SelectItem value="Invité">Invité</SelectItem>
-                </SelectContent>
-              </Select>
-              {formErrors.role && (
-                <p className="text-red-500 text-sm">{formErrors.role.message}</p>
-              )}
-            </div>
+              <div className="space-y-2">
+                <Label htmlFor="role" className="text-sm font-medium text-slate-700">Rôle</Label>
+                <Select
+                  onValueChange={(value) => handleInputChange("role", value)}
+                  defaultValue="Utilisateur"
+                >
+                  <SelectTrigger className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4">
+                    <SelectValue placeholder="Sélectionnez un rôle" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Administrateur">Administrateur</SelectItem>
+                    <SelectItem value="Gestionnaire de Stock">Gestionnaire de Stock</SelectItem>
+                    <SelectItem value="Analyste de Données">Analyste de Données</SelectItem>
+                    <SelectItem value="Utilisateur">Utilisateur</SelectItem>
+                    <SelectItem value="Invité">Invité</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
 
             <div className="space-y-2">
               <Label htmlFor="password">Mot de passe</Label>
