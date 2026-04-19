@@ -104,7 +104,7 @@ const Chatbot = () => {
 
       {/* Chatbot window */}
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-50 flex flex-col h-[500px] w-80 bg-purple-200 border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300">
+        <div className="fixed bottom-24 right-4 sm:right-6 z-50 flex flex-col h-[600px] max-h-[calc(100vh-120px)] w-[calc(100vw-2rem)] sm:w-[500px] bg-purple-200 border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300">
           <ChatHeader onClose={() => setIsOpen(false)} />
           
           <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">
