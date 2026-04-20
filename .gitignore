@@ -24,12 +24,32 @@ coverage/
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Environnements virtuels - TOUS les motifs possibles
 .venv/
+.venv*/
 venv/
+venv*/
 env/
+env*/
 ENV/
+ENV*/
+*virtualenv*/
+*virtualenv*/
+.python-version
 *.bak/
 .pytest_cache/
+
+# Fichiers spécifiques à l'installation pip
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Django spécifique
+*.log
+*.pot
+*.sqlite3
+*.sqlite3-journal
+local_settings.py
 
 # --- Logs & Debug ---
 *.log
