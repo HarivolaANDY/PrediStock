@@ -1,125 +1,97 @@
-import { useState, useEffect } from 'react'
-import { API_BASE_URL, getAuthHeaders } from '@/config/api.config'
-import API from "@/services/axios";
-
-interface ProductResponse {
-  status: string
-  data: {
-    count: number
-    next: string | null
-    previous: string | null
-    results: Product[]
-  }
-  message: string
-  errors: null | string[]
-}
+import { useQuery } from '@tanstack/react-query';
+import { API_BASE_URL, getAuthHeaders } from '@/config/api.config';
 
 export interface Product {
-  revenue: number
-  stock: number
-  status: string
-  //status(status: any): import("react").ReactNode
-  sold: any
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
+  id: number;
+  product_img: string | null;
+  name: string;
+  sku: string;
+  description: string;
+  price: string;
+  stock_threshold: number;
+  current_stock: number;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+  category: number | null;
+  supplier: number | null;
+  unite_mesure: string;
 }
 
-export async function getPDV(page: number= 1){
-  const [productsDV, setProducts] = useState([])
-  try{
-    await API.get('/produits_dv/').then((res)=>{
-      setProducts(res.data.data);
-    });
-    console.log("here");
-  } catch(error) {
-    console.log(error);
-  }
-
-  return(productsDV)
-
+interface ProductResponse {
+  status: string;
+  data: {
+    count: number;
+    next: string | null;
+    previous: string | null;
+    results: Product[];
+    total_stock: number;
+  };
+  message: string;
 }
 
-export function useProducts(page: number = 1) {
-  const [products, setProducts] = useState<Product[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [totalCount, setTotalCount] = useState(0)
-  const [nextPage, setNextPage] = useState<string | null>(null)
-  const [previousPage, setPreviousPage] = useState<string | null>(null)
+export interface ProductFilters {
+  page?: number;
+  category?: number | string;
+  unite_mesure?: string;
+  is_active?: boolean | string;
+  search?: string;
+}
 
-  async function fetchProducts() {
-    try {
-      const headers = getAuthHeaders();
-      
-      // Vérifier si un token d'authentification est présent
-      if (!headers.Authorization) {
-        setError("Erreur d'authentification : Aucun token trouvé. Veuillez configurer VITE_DEFAULT_AUTH_TOKEN dans votre fichier .env.local")
-        setLoading(false)
-        return;
-      }
-      
-      const response = await fetch(
-          `${API_BASE_URL}/catalogue/products/?page=${page}`,
-          { headers }
-      )
-      
-      // Gérer les erreurs HTTP
-      if (!response.ok) {
-        if (response.status === 401 || response.status === 403) {
-          setError("Erreur d'authentification : Token invalide ou expiré. Veuillez vérifier votre configuration.")
-        } else {
-          setError(`Erreur serveur: ${response.status} ${response.statusText}`)
-        }
-        setLoading(false)
-        return;
-      }
-      
-      const result: ProductResponse = await response.json()
-      
-      if (result.data) {
-        // Vérifier si les résultats sont directement dans data.results ou dans data
-        const productResults = result.data.results || result.data;
-        const count = result.data.count || (Array.isArray(result.data) ? result.data.length : 0);
-        
-        setProducts(Array.isArray(productResults) ? productResults : [])
-        setTotalCount(count)
-        setNextPage(result.data.next || null)
-        setPreviousPage(result.data.previous || null)
-        
-        //console.log('Produits chargés:', productResults); // Debug log
-      } else {
-        setError(result.message || "Erreur lors du chargement des produits")
-        console.error('Réponse API invalide:', result); // Debug log
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erreur inconnue")
-    } finally {
-      setLoading(false)
+export function useProducts(filters: ProductFilters = { page: 1 }) {
+  const {
+    page = 1,
+    category,
+    unite_mesure,
+    is_active,
+    search
+  } = filters;
+
+  const fetchProducts = async (): Promise<ProductResponse> => {
+    const headers = getAuthHeaders();
+    
+    if (!headers.Authorization) {
+      throw new Error("Erreur d'authentification : Aucun token trouvé.");
     }
-  }
 
-  useEffect(() => {
-    fetchProducts()
-  }, [page])
+    const queryParams = new URLSearchParams();
+    queryParams.append('page', page.toString());
+    
+    if (category) queryParams.append('category', category.toString());
+    if (unite_mesure) queryParams.append('unite_mesure', unite_mesure);
+    if (is_active !== undefined && is_active !== '') {
+      queryParams.append('is_active', is_active.toString());
+    }
+    if (search) queryParams.append('name', search);
 
-  return { 
-    products, 
-    loading, 
-    error, 
-    refetch: fetchProducts,
-    totalCount,
-    hasNextPage: !!nextPage,
-    hasPreviousPage: !!previousPage
-  }
+    const response = await fetch(
+      `${API_BASE_URL}/catalogue/products/?${queryParams.toString()}`,
+      { headers }
+    );
+
+    if (!response.ok) {
+      if (response.status === 401 || response.status === 403) {
+        throw new Error("Erreur d'authentification : Token invalide ou expiré.");
+      }
+      throw new Error(`Erreur serveur: ${response.status} ${response.statusText}`);
+    }
+
+    return response.json();
+  };
+
+  const query = useQuery({
+    queryKey: ['products', page, category, unite_mesure, is_active, search],
+    queryFn: fetchProducts,
+  });
+
+  return {
+    products: query.data?.data?.results || [],
+    totalCount: query.data?.data?.count || 0,
+    totalStock: query.data?.data?.total_stock || 0,
+    loading: query.isLoading,
+    error: query.error instanceof Error ? query.error.message : null,
+    refetch: query.refetch,
+    hasNextPage: !!query.data?.data?.next,
+    hasPreviousPage: !!query.data?.data?.previous,
+  };
 }
