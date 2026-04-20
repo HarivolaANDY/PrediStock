@@ -239,9 +239,9 @@ export default function Products() {
   const filteredProducts = useCallback(() => {
     return products?.filter((product: any) =>
       product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
+      (product.category && (categories[product.category] || "").toLowerCase().includes(searchTerm.toLowerCase()))
     ) ?? []
-  }, [products, searchTerm])
+  }, [products, searchTerm, categories])
 
   const allFilteredProducts = filteredProducts()
 
@@ -254,6 +254,73 @@ export default function Products() {
   const handleCloseCategoryForm = () => { setShowCategoryForm(false); setEditingCategory(null) }
   const handleImportModal = () => setShowImportModal(true)
   const handleDeleteClick = (product: Product) => { setProductToDelete(product); setShowDeleteModal(true); refetch() }
+  const handleExportCSV = async () => {
+    try {
+      // Force page_size=100 to get as many products as possible (max allowed by backend)
+      const res = await API.get('catalogue/products/', { params: { page_size: 100 } })
+      
+      // Handle both cases: paginated or direct array
+      const allProducts = res.data?.data?.results || res.data?.data || []
+      
+      // Filter products based on search term
+      const dataToExport = allProducts.filter((product: any) =>
+        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (product.category && (categories[product.category] || "").toLowerCase().includes(searchTerm.toLowerCase()))
+      )
+
+      if (dataToExport.length === 0) {
+        toast({ title: "Exportation", description: "Aucune donnée correspondant aux filtres.", variant: "default" })
+        return
+      }
+
+      const headers = ["Product", "Category", "Price", "Quantity", "Status"]
+      const rows = dataToExport.map((p: any) => {
+        const threshold = p.stock_threshold
+        const pourcentage = (threshold * 15) / 100
+        const status = p.current_stock === 0 ? "Rupture" : 
+                       (p.current_stock <= pourcentage) ? "Stock faible" : "En stock"
+        const categoryName = p.category ? (categories[p.category] || "Catégorie inconnue") : "Non catégorisé"
+        
+        return [
+          `"${p.name.replace(/"/g, '""')}"`,
+          `"${categoryName.replace(/"/g, '""')}"`,
+          p.price,
+          p.current_stock,
+          status
+        ]
+      })
+
+      // Create CSV with semicolon separator
+      const csvContent = [
+        headers.join(";"),
+        ...rows.map((row: any) => row.join(";"))
+      ].join("\n")
+
+      // Add BOM for Excel compatibility (UTF-8)
+      const blob = new Blob(["\ufeff" + csvContent], { type: 'text/csv;charset=utf-8;' })
+      
+      const now = new Date()
+      const dd = String(now.getDate()).padStart(2, '0')
+      const mm = String(now.getMonth() + 1).padStart(2, '0')
+      const yyyy = now.getFullYear()
+      const filename = `products_export_${dd}${mm}${yyyy}.csv`
+      
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.URL.revokeObjectURL(url)
+      
+      toast({ title: "Succès", description: `${dataToExport.length} produits exportés avec succès.`, variant: "default" })
+    } catch (err) {
+      console.error("Erreur export:", err)
+      toast({ title: "Erreur", description: "Échec de l'exportation CSV.", variant: "destructive" })
+    }
+  }
+
   const handleConfirmDelete = () => { setShowDeleteModal(false); setProductToDelete(null); refetch() }
 
   const handleSubmitCategory = async (data: CategoryType) => {
@@ -463,7 +530,7 @@ export default function Products() {
                   Filtrer
                 </Button>
                 <Button variant="outline" className="gap-2" onClick={handleImportModal}>Importer</Button>
-                <Button variant="outline" className="gap-2">Exporter</Button>
+                <Button variant="outline" className="gap-2" onClick={handleExportCSV}>Exporter</Button>
               </div>
 
               <div className="rounded-md border">
