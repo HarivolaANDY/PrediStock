@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
-import { Package, TrendingDown, TrendingUp, AlertTriangle, Filter, Search, Calendar, Clock, DollarSign, RefreshCw } from "lucide-react"
+import { Package, TrendingDown, TrendingUp, AlertTriangle, Filter, Search, Calendar, Clock, DollarSign, RefreshCw, Layers } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -249,9 +249,9 @@ export default function Stock() {
       {/* ── Indicateurs clés — tous calculés depuis données réelles ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          title="Produits Totaux"
-          value={products.length.toString()}
-          icon={<Package className="h-4 w-4" />}
+          title="Catégories"
+          value={categories.length.toString()}
+          icon={<Layers className="h-4 w-4" />}
         />
         <MetricCard
           title="Articles en Stock Bas"
