@@ -49,14 +49,14 @@
   --color-sidebar-border: hsl(var(--sidebar-border));
   --color-sidebar-ring: hsl(var(--sidebar-ring));
 
-  --color-bouton: rgb(67, 110, 240);
-  --color-bouton-primary: rgb(67, 110, 240);
-  --color-bouton-foreground: rgba(248, 79, 79, 1);
-  --color-bouton-hover: rgba(70, 147, 183, 0.8);
+  --color-bouton: hsl(var(--primary));
+  --color-bouton-primary: hsl(var(--primary));
+  --color-bouton-foreground: hsl(var(--primary-foreground));
+  --color-bouton-hover: hsl(var(--primary) / 0.8);
 
-  --color-notification-primary: rgb(67, 110, 240);
-  --color-notification-secondary: rgba(88, 243, 10, 1);
-  --color-notification-destructive: rgb(248, 79, 79);
+  --color-notification-primary: hsl(var(--primary));
+  --color-notification-secondary: hsl(var(--success));
+  --color-notification-destructive: hsl(var(--destructive));
 
   --color-texte-primary: rgba(38, 39, 39, 1);
   --color-texte-secondary: rgba(88, 243, 10, 1);
@@ -77,12 +77,23 @@
   --background-image-gradient-hero: var(--gradient-hero);
 
   @keyframes accordion-down {
-    from { height: 0; }
-    to { height: var(--radix-accordion-content-height); }
+    from {
+      height: 0;
+    }
+
+    to {
+      height: var(--radix-accordion-content-height);
+    }
   }
+
   @keyframes accordion-up {
-    from { height: var(--radix-accordion-content-height); }
-    to { height: 0; }
+    from {
+      height: var(--radix-accordion-content-height);
+    }
+
+    to {
+      height: 0;
+    }
   }
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
@@ -138,27 +149,36 @@
     --sidebar-ring: 217 91% 60%;
   }
 
-  .blue {
-    --primary: 217 91% 60%;
-    --sidebar-background: 217 91% 40%;
+  .purple {
+    --primary: 252 83% 68%;
+    --sidebar-background: 252 83% 68%;
+    --sidebar-primary: 252 83% 78%;
+    --sidebar-accent: 252 83% 58%;
+    --ring: 252 83% 68%;
   }
 
   .green {
     --primary: 160 84% 39%;
     --sidebar-background: 160 84% 39%;
+    --sidebar-primary: 160 84% 49%;
+    --sidebar-accent: 160 84% 29%;
     --ring: 160 84% 39%;
   }
 
   .orange {
     --primary: 43 96% 51%;
     --sidebar-background: 43 96% 51%;
+    --sidebar-primary: 43 96% 61%;
+    --sidebar-accent: 43 96% 41%;
     --ring: 43 96% 51%;
   }
 
-  .purple {
-    --primary: 252 83% 68%;
-    --sidebar-background: 252 83% 68%;
-    --ring: 252 83% 68%;
+  .blue {
+    --primary: 217 91% 60%;
+    --sidebar-background: 217 91% 40%;
+    --sidebar-primary: 217 91% 60%;
+    --sidebar-accent: 217 91% 45%;
+    --ring: 217 91% 60%;
   }
 }
 
@@ -166,6 +186,7 @@
   * {
     @apply border-border;
   }
+
   body {
     @apply bg-background text-foreground;
   }
