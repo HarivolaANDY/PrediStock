@@ -16,6 +16,7 @@ import {
 import { MetricCard } from "@/components/MetricCard"
 import recommendationService from "@/services/recommendationService"
 import { toast } from "@/components/ui/use-toast"
+import { Product } from "@/types/types"
 
 
 interface DataImport {
@@ -135,7 +136,7 @@ export default function GestionDonnees() {
     navigate(`/data/${id}`)
   }
 
-  const exportToCSV = (data: any[], filename: string, separator: string = ";") => {
+  const exportToCSV = <T extends Record<string, unknown>>(data: T[], filename: string, separator: string = ";") => {
     if (data.length === 0) {
       toast({
         title: "Erreur",
@@ -195,7 +196,7 @@ export default function GestionDonnees() {
       if (response.ok) {
         const data = await response.json()
         const items = data.data ?? data.results ?? data ?? []
-        const exportData = items.map((p: any) => ({
+        const exportData = items.map((p: Product) => ({
           Nom: p.name,
           SKU: p.sku,
           Prix: p.price,
