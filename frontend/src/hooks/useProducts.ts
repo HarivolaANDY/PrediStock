@@ -19,15 +19,11 @@ export interface Product {
 }
 
 interface ProductResponse {
-  status: string;
-  data: {
-    count: number;
-    next: string | null;
-    previous: string | null;
-    results: Product[];
-    total_stock: number;
-  };
-  message: string;
+  results: Product[];
+  count: number;
+  next: string | null;
+  previous: string | null;
+  total_stock?: number;
 }
 
 export interface ProductFilters {
@@ -64,19 +60,14 @@ export function useProducts(filters: ProductFilters = { page: 1 }) {
     }
     if (search) queryParams.append('name', search);
 
+    const { handleHttpErrors } = await import('@/services/api');
+
     const response = await fetch(
       `${API_BASE_URL}/catalogue/products/?${queryParams.toString()}`,
       { headers }
     );
 
-    if (!response.ok) {
-      if (response.status === 401 || response.status === 403) {
-        throw new Error("Erreur d'authentification : Token invalide ou expiré.");
-      }
-      throw new Error(`Erreur serveur: ${response.status} ${response.statusText}`);
-    }
-
-    return response.json();
+    return handleHttpErrors(response);
   };
 
   const query = useQuery({
@@ -85,13 +76,13 @@ export function useProducts(filters: ProductFilters = { page: 1 }) {
   });
 
   return {
-    products: query.data?.data?.results || [],
-    totalCount: query.data?.data?.count || 0,
-    totalStock: query.data?.data?.total_stock || 0,
+    products: query.data?.results || [],
+    totalCount: query.data?.count || 0,
+    totalStock: query.data?.total_stock || 0,
     loading: query.isLoading,
     error: query.error instanceof Error ? query.error.message : null,
     refetch: query.refetch,
-    hasNextPage: !!query.data?.data?.next,
-    hasPreviousPage: !!query.data?.data?.previous,
+    hasNextPage: !!query.data?.next,
+    hasPreviousPage: !!query.data?.previous,
   };
 }
