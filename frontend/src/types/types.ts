@@ -54,8 +54,19 @@ export interface DisableUser {
 
 
 
+export interface UserData {
+    id?: string;
+    email?: string;
+    first_name?: string;
+    last_name?: string;
+    is_active?: boolean;
+    role?: string;
+    permissions?: string[];
+    [key: string]: unknown;
+}
+
 export interface UserResponse {
-    user?: any;
+    user?: UserData;
     token?: string;
     success: boolean;
     message: string;
@@ -101,13 +112,27 @@ export interface ApiResponse<T> {
     success: boolean;
     data: T;
   };
-  errors?: any;
+  errors?: Record<string, string[]>;
 
 }
 
 //Produit
+export interface ProductDetails {
+  id: number;
+  name: string;
+  description: string;
+  price: number;
+  current_stock: number;
+  category?: string;
+  supplier?: string;
+  is_active?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  [key: string]: unknown;
+}
+
 export interface DetailsResponseproduit{
-  results? : any
+  results?: ProductDetails | ProductDetails[];
 }
 
 export interface CategoryCreateData {
@@ -194,4 +219,4 @@ export interface SupplierFormData {
   isActive: boolean;
 }
 
-export interface CreateSupplierData extends SupplierFormData {}
+export type CreateSupplierData = SupplierFormData;
