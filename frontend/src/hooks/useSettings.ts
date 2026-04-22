@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 interface Settings {
   darkMode: boolean
@@ -59,9 +59,9 @@ export function useSettings() {
     }
   }, [settings])
 
-  const updateSettings = (newSettings: Partial<Settings>) => {
+  const updateSettings = useCallback((newSettings: Partial<Settings>) => {
     setSettings(prev => ({ ...prev, ...newSettings }))
-  }
+  }, [])
 
   return { settings, updateSettings }
 }

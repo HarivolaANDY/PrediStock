@@ -1,23 +1,24 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Brain, TrendingUp, Calendar, Target, RefreshCw, CheckCircle, Play } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-//import { Input } from "@/components/ui/input"
 import { LineChart } from "@/components/charts/LineChart"
 import { MetricCard } from "@/components/MetricCard"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { toast } from "@/components/ui/use-toast"
-import recommendationService, { Recommendation, Prediction } from "@/services/recommendationService"
+import recommendationService from "@/services/recommendationService"
+import { Recommendation, Prediction } from "@/types/types"
+import { isAxiosError } from "axios"
 
 // interface ChatMessage {
 //   role: 'user' | 'assistant'
 //   content: string
 // }
 
-export default function Forecasting() {
+export default function Forecasting(): React.JSX.Element {
   const [selectedPeriod, setSelectedPeriod] = useState("30")
   const [selectedModel, setSelectedModel] = useState("")
   const [recommendations, setRecommendations] = useState<Recommendation[]>([])
@@ -36,7 +37,7 @@ export default function Forecasting() {
   //const [chatLoading, setChatLoading] = useState(false)
 
   // ── Chargement des données ────────────────────────────────────────────────
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -52,7 +53,7 @@ export default function Forecasting() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   // ── Lancement du pipeline ─────────────────────────────────────────────────
   const handleLaunchPipeline = async () => {
@@ -66,21 +67,19 @@ export default function Forecasting() {
       })
       // Recharger après quelques secondes
       setTimeout(() => fetchData(), 3000)
-    } catch (err: any) {
-      const data = err?.response?.data
-      const message =
-        data?.error ||
-        data?.detail ||
-        data?.message ||
-        (typeof data === 'string' ? data : null) ||
-        `Erreur ${err?.response?.status || 'réseau'}`
+    } catch (err: unknown) {
+      let message = "Une erreur est survenue lors du lancement du pipeline."
+      if (isAxiosError(err)) {
+        const data = err.response?.data
+        message = data?.error || data?.detail || data?.message || (typeof data === 'string' ? data : message)
+      }
 
       toast({
         title: "Erreur pipeline",
         description: message,
         variant: "destructive",
       })
-      console.error("Pipeline error response:", err?.response?.data)
+      console.error("Pipeline error:", err)
     } finally {
       setLaunchingPipeline(false)
     }
@@ -105,7 +104,7 @@ export default function Forecasting() {
     return "sufficient"
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string): React.JSX.Element => {
     switch (status) {
       case "critical":   return <Badge variant="destructive">Critique</Badge>
       case "order_now":  return <Badge variant="secondary" className="bg-warning text-warning-foreground">Commander</Badge>
@@ -115,7 +114,7 @@ export default function Forecasting() {
     }
   }
 
-  const getPriorityBadge = (priority: string) => {
+  const getPriorityBadge = (priority: string): React.JSX.Element => {
     switch (priority?.toUpperCase()) {
       case "HAUTE":   return <Badge variant="destructive">Haute</Badge>
       case "MOYENNE": return <Badge variant="secondary" className="bg-warning text-warning-foreground">Moyenne</Badge>
@@ -168,7 +167,7 @@ export default function Forecasting() {
     if (modelesDisponibles.length > 0 && !selectedModel) {
       setSelectedModel(modelesDisponibles[0])
     }
-  }, [modelesDisponibles])
+  }, [modelesDisponibles, selectedModel])
 
   return (
     <div className="space-y-6">

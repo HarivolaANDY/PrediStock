@@ -1,5 +1,4 @@
 import ActiviteList from "../components/Activitelist";
-import React from 'react';
 
 
 const ActivitePage = () => {

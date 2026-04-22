@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Shield, Plus, X, Users, Settings } from "lucide-react"
+import { Shield, Settings } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -14,51 +14,65 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import { Role } from "@/types/types";
 import { RoleService } from "@/services/api";
-import { ToastService } from "@/services/toast.service";
-import { create } from "domain";
+
+type PermissionCategoryKey = 'dashboard_analytics' | 'inventory_management' | 'user_management' | 'ai_datamodels';
+
+interface RoleFormData {
+  id?: number | string;
+  name: string;
+  description: string;
+  prioritylevel: number;
+  is_active: boolean;
+  dashboard_analytics: string[];
+  inventory_management: string[];
+  user_management: string[];
+  ai_datamodels: string[];
+}
 
 interface RoleManagementFormProps {
   open: boolean;
   onClose: () => void;
-  onSuccess?: () => void;
-  onError?: (error: any) => void;
-  role?: any;
+  onSuccess: () => void;
+  onError?: (error: unknown) => void;
+  role?: Role;
   mode: "create" | "edit";
 }
 
-export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: RoleManagementFormProps) {
+export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: RoleManagementFormProps): React.JSX.Element {
   const [isLoading, setIsLoading] = useState(false);
 
-  const [formData, setFormData] = useState({
-    id: role?.id || undefined,
+  const [formData, setFormData] = useState<RoleFormData>({
+    id: role?.id,
     name: role?.name || "",
     description: role?.description || "",
     prioritylevel: role?.prioritylevel || 1,
     is_active: role?.is_active ?? true,
-    dashboard_analytics: role?.dashboard_analytics || [],
-    inventory_management: role?.inventory_management || [],
-    user_management: role?.user_management || [],
-    ai_datamodels: role?.ai_datamodels || [],
+    dashboard_analytics: [],
+    inventory_management: [],
+    user_management: [],
+    ai_datamodels: [],
   });
 
   // Synchroniser formData lorsque le prop role change
   useEffect(() => {
     if (role && mode === "edit") {
-      const parseIfString = (value: any) => {
+      const parseIfString = (value: unknown): string[] => {
         if (typeof value === 'string') {
           try {
-            return JSON.parse(value);
+            const parsed = JSON.parse(value);
+            return Array.isArray(parsed) ? parsed : [];
           } catch (e) {
             console.error('Error parsing permission:', e);
             return [];
           }
         }
-        return Array.isArray(value) ? value : [];
+        return Array.isArray(value) ? (value as string[]) : [];
       };
 
       setFormData({
-        id: role.id || undefined,
+        id: role.id,
         name: role.name || "",
         description: role.description || "",
         prioritylevel: role.prioritylevel || 1,
@@ -71,7 +85,7 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
     }
   }, [role, mode]);
 
-  const availablePermissions = [
+  const availablePermissions: { category: string; key: PermissionCategoryKey; permissions: { id: string; label: string; description: string }[] }[] = [
     {
       category: "Dashboard & Analytics",
       key: "dashboard_analytics",
@@ -116,7 +130,7 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
     },
   ];
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault();
     const data = {
       id: formData.id,
@@ -132,16 +146,17 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
 
     try {
       setIsLoading(true);
-      var response;
+      let response: { status?: string; message?: string };
       if (mode === "create") {
-        response = await RoleService.createRole(data);
+        response = await RoleService.createRole(data) as { status?: string };
       } else {
-        response = await RoleService.updateRole(formData.id, data);
-        
+        response = await RoleService.updateRole(String(formData.id || ""), data) as { status?: string };
       }
-      if(response.status =="success") onSuccess();
-      // if (create.) onSuccess(); 
-      onClose();
+      
+      if (response.status === "success") {
+        onSuccess();
+        onClose();
+      }
 
     } catch (error) {
       // Les erreurs sont déjà gérées par handleHttpErrors dans RoleService
@@ -150,18 +165,24 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
     }
   };
 
-  const togglePermission = (permissionId: string, categoryKey: string) => {
-    setFormData((prev) => ({
-      ...prev,
-      [categoryKey]: prev[categoryKey].includes(permissionId)
-        ? prev[categoryKey].filter((p: string) => p !== permissionId)
-        : [...prev[categoryKey], permissionId],
-    }));
+  const togglePermission = (permissionId: string, categoryKey: PermissionCategoryKey): void => {
+    setFormData((prev) => {
+      const current = prev[categoryKey];
+      
+      return {
+        ...prev,
+        [categoryKey]: current.includes(permissionId)
+          ? current.filter((p: string) => p !== permissionId)
+          : [...current, permissionId],
+      };
+    });
   };
 
-  const toggleCategoryPermissions = (categoryKey: string, categoryPermissions: any[]) => {
-    const categoryIds = categoryPermissions.map((p: any) => p.id);
-    const allSelected = categoryIds.every((id: string) => formData[categoryKey].includes(id));
+  const toggleCategoryPermissions = (categoryKey: PermissionCategoryKey, categoryPermissions: { id: string }[]): void => {
+    const categoryIds = categoryPermissions.map((p: { id: string }) => p.id);
+    const current = formData[categoryKey];
+    
+    const allSelected = categoryIds.every((id: string) => current.includes(id));
 
     setFormData((prev) => ({
       ...prev,
@@ -269,8 +290,9 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
 
                 <div className="space-y-6">
                   {availablePermissions.map((category, categoryIndex) => {
+                    const categoryKey = category.key; // Already narrowed to PermissionCategoryKey
                     const allSelected = category.permissions.every((p) =>
-                      formData[category.key].includes(p.id)
+                      formData[categoryKey].includes(p.id)
                     );
 
                     return (
@@ -281,7 +303,7 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
                             type="button"
                             variant="outline"
                             size="sm"
-                            onClick={() => toggleCategoryPermissions(category.key, category.permissions)}
+                           onClick={() => toggleCategoryPermissions(categoryKey, category.permissions)}
                           >
                             {allSelected ? "Deselect All" : "Select All"}
                           </Button>
@@ -298,8 +320,8 @@ export function RoleManagementForm({ open, onClose, role, mode, onSuccess }: Rol
                                 <p className="text-xs text-muted-foreground">{permission.description}</p>
                               </div>
                               <Switch
-                                checked={formData[category.key].includes(permission.id)}
-                                onCheckedChange={() => togglePermission(permission.id, category.key)}
+                                checked={formData[categoryKey].includes(permission.id)}
+                                onCheckedChange={() => togglePermission(permission.id, categoryKey)}
                               />
                             </div>
                           ))}

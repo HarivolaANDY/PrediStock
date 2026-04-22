@@ -15,6 +15,7 @@ class ProductFilter(FilterSet):
     is_critical = BooleanFilter(method='filter_critical')
     stock_below = NumberFilter(field_name='current_stock', lookup_expr='lte')
     stock_above = NumberFilter(field_name='current_stock', lookup_expr='gte')
+    unite_mesure = CharFilter(lookup_expr='icontains')
 
     def filter_critical(self, queryset, name, value):
         if value:

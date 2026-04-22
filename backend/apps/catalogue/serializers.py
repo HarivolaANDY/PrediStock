@@ -77,6 +77,12 @@ class SupplierSerializer(serializers.ModelSerializer):
     min_order_quantity = serializers.IntegerField(default=0)
     max_order_quantity = serializers.IntegerField(default=0)
     lead_time = serializers.IntegerField(default=0)
+    products = serializers.SerializerMethodField()
+
+    def get_products(self, obj):
+        return list(
+            obj.products.all().values('id', 'name', 'sku', 'unite_mesure')
+        )
 
     class Meta:
         model = Supplier
