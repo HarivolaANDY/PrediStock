@@ -19,6 +19,19 @@ import ImportModal from "@/components/ImportModal"
 import { CategoryForm } from "@/components/CategoryForm"
 import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import API from '@/services/axios'
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover"
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select"
+import { RotateCcw } from "lucide-react"
 
 type Product = {
   id: number
@@ -86,11 +99,22 @@ export default function Products() {
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const { products, loading, error, refetch, totalCount, hasNextPage, hasPreviousPage } = useProducts(currentPage)
   
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [inventaire, setInventaire] = useState<InventaireItem[]>([])
-  const [currentHistoriqueId, setCurrentHistoriqueId] = useState<number>(0)
+  // États des filtres
+  const [filterCategory, setFilterCategory] = useState<string>("all")
+  const [filterUnit, setFilterUnit] = useState("")
+  const [filterStatus, setFilterStatus] = useState<string>("all")
+
+  const { products, loading, error, refetch, totalCount, hasNextPage, hasPreviousPage } = useProducts({
+    page: currentPage,
+    category: filterCategory === "all" ? undefined : filterCategory,
+    unite_mesure: filterUnit || undefined,
+    is_active: filterStatus === "all" ? undefined : filterStatus === "active",
+    search: searchTerm || undefined
+  })
+  const [stats, setStats] = useState<any>(null)
+  const [inventaire, setInventaire] = useState<any[]>([])
+  const [currentHistoriqueId, setCurrentHistoriqueId] = useState(0)
   const [currentHistoriquedesc, setCurrentHistoriqueDesc] = useState("")
   const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
   const [redressID, setRedressID] = useState<number | string>()
@@ -259,15 +283,16 @@ export default function Products() {
     }
   }
 
-  // ── Filtres produits ───────────────────────────────────────────────────────
-  const filteredProductsList = useMemo(() => {
-    return products?.filter((product: Product) =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
-    ) ?? []
-  }, [products, searchTerm])
+  // Les produits sont maintenant filtrés par le hook useProducts via l'API
+  const allFilteredProducts = products || []
 
-  const allFilteredProducts = filteredProductsList
+  const handleResetFilters = () => {
+    setSearchTerm("")
+    setFilterCategory("all")
+    setFilterUnit("")
+    setFilterStatus("all")
+    setCurrentPage(1)
+  }
 
   // ── Handlers UI ────────────────────────────────────────────────────────────
   const handleAddProduct = () => { setEditingProduct(null); setShowProductForm(true); refetch() }
@@ -468,14 +493,84 @@ export default function Products() {
                   <Input
                     placeholder="Rechercher un produit ou une catégorie..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => {
+                      setSearchTerm(e.target.value)
+                      setCurrentPage(1)
+                    }}
                     className="pl-10"
                   />
                 </div>
-                <Button variant="outline" className="gap-2">
-                  <Search className="h-4 w-4" />
-                  Filtrer
-                </Button>
+                
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      <Filter className="h-4 w-4" />
+                      Filtrer
+                      {(filterCategory !== "all" || filterUnit !== "" || filterStatus !== "all") && (
+                        <Badge variant="secondary" className="ml-1 px-1 h-5 min-w-5 justify-center">
+                          {[filterCategory !== "all", filterUnit !== "", filterStatus !== "all"].filter(Boolean).length}
+                        </Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="grid gap-4">
+                      <div className="space-y-2">
+                        <h4 className="font-medium leading-none">Filtres</h4>
+                        <p className="text-sm text-muted-foreground">
+                          Affinez votre liste de produits
+                        </p>
+                      </div>
+                      <div className="grid gap-2">
+                        <div className="grid gap-1">
+                          <Label htmlFor="category">Catégorie</Label>
+                          <Select value={filterCategory} onValueChange={(val) => { setFilterCategory(val); setCurrentPage(1); }}>
+                            <SelectTrigger id="category">
+                              <SelectValue placeholder="Toutes les catégories" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Toutes les catégories</SelectItem>
+                              {Object.entries(categories).map(([id, name]) => (
+                                <SelectItem key={id} value={id}>{name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor="unit">Unité</Label>
+                          <Input
+                            id="unit"
+                            placeholder="kg, pièces, litres..."
+                            value={filterUnit}
+                            onChange={(e) => { setFilterUnit(e.target.value); setCurrentPage(1); }}
+                          />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor="status">Statut</Label>
+                          <Select value={filterStatus} onValueChange={(val) => { setFilterStatus(val); setCurrentPage(1); }}>
+                            <SelectTrigger id="status">
+                              <SelectValue placeholder="Tous les statuts" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Tous les statuts</SelectItem>
+                              <SelectItem value="active">Actif</SelectItem>
+                              <SelectItem value="inactive">Inactif</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Button 
+                        variant="ghost" 
+                        className="w-full gap-2 text-muted-foreground hover:text-foreground"
+                        onClick={handleResetFilters}
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                        Réinitialiser les filtres
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
                 <Button variant="outline" className="gap-2" onClick={handleImportModal}>Importer</Button>
                 <Button variant="outline" className="gap-2">Exporter</Button>
               </div>
@@ -537,7 +632,9 @@ export default function Products() {
               </div>
 
               <div className="flex items-center justify-between mt-4">
-                <p className="text-sm text-muted-foreground">{allFilteredProducts.length} produits sur {totalCount}</p>
+                <p className="text-sm text-muted-foreground">
+                  {allFilteredProducts.length} résultat{allFilteredProducts.length > 1 ? 's' : ''} trouvé{allFilteredProducts.length > 1 ? 's' : ''} sur {totalCount} au total
+                </p>
                 <div className="flex gap-2">
                   <Button variant="outline" size="sm" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={!hasPreviousPage}>
                     Page précédente
