@@ -28,18 +28,12 @@ import { SupplierProvider } from "./contexts/SupplierContext";
 import Activite from "./components/Activitelist";
 import DashboardAdmin from "./pages/DashboardAdmin";
 import ProductManagerPage from "./pages/ProductManagerPage";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 const queryClient = new QueryClient();
 
 const App = () => {
-  const [authboolean, setAuthboolean] = useState<boolean>(false);
-
-  useEffect(() => {
-    if (localStorage.getItem("token")) {
-      setAuthboolean(true);
-    }
-  }, []);
+  const [authboolean] = useState<boolean>(() => !!localStorage.getItem("token"));
 
   // Détermine si le chatbot doit être affiché (pas sur /, /login, /register)
   const showChatbot = !["/", "/login", "/register"].includes(location.pathname);
