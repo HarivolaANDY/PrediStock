@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 
 from apps.core.emailor import send_email_to_user
 from apps.core.views import GenericCRUDViewSet
+from apps.core.utils import StandardResponse
 from apps.notifications.models import Notification, Activite
 from .filters import RoleFilter
 from .models import User, Role
@@ -45,7 +46,6 @@ class RegisterView(APIView):
             response_data = {
                 'token': token.key,
                 'user': UserSerializer(user).data,
-                'message': 'Utilisateur créé avec succès.',
             }
             if temp_password:
                 try:
@@ -57,11 +57,16 @@ class RegisterView(APIView):
                 except Exception as e:
                     response_data['warning'] = f"Échec de l'envoi de l'email : {str(e)}"
 
-            return Response(response_data, status=status.HTTP_201_CREATED)
+            return StandardResponse.render(
+                data=response_data,
+                message='Utilisateur créé avec succès.',
+                status_code=status.HTTP_201_CREATED
+            )
 
-        return Response(
-            {'errors': serializer.errors, 'message': "Données invalides."},
-            status=status.HTTP_400_BAD_REQUEST
+        return StandardResponse.render(
+            data=serializer.errors,
+            message="Données invalides.",
+            status_code=status.HTTP_400_BAD_REQUEST
         )
 
 
@@ -75,16 +80,16 @@ class ExternalLoginView(APIView):
         try:
             user = User.objects.get(email=email)
         except User.DoesNotExist:
-            return Response(
-                {'error': 'Email ou mot de passe incorrect.'},
-                status=status.HTTP_401_UNAUTHORIZED
+            return StandardResponse.render(
+                message='Email ou mot de passe incorrect.',
+                status_code=status.HTTP_401_UNAUTHORIZED
             )
 
         authenticated = authenticate(request, username=user.username, password=password)
         if authenticated is None:
-            return Response(
-                {'error': 'Email ou mot de passe incorrect.'},
-                status=status.HTTP_401_UNAUTHORIZED
+            return StandardResponse.render(
+                message='Email ou mot de passe incorrect.',
+                status_code=status.HTTP_401_UNAUTHORIZED
             )
 
         authenticated.last_login = timezone.now()
@@ -96,11 +101,14 @@ class ExternalLoginView(APIView):
             details="Authentification réussie.",
             categorie="user"
         )
-        return Response({
-            'token': token.key,
-            'user': UserSerializer(authenticated).data,
-            'message': 'Authentification réussie.',
-        })
+        return StandardResponse.render(
+            data={
+                'token': token.key,
+                'user': UserSerializer(authenticated).data,
+            },
+            message='Authentification réussie.',
+            status_code=status.HTTP_200_OK
+        )
 
 
 class LogoutView(APIView):
@@ -115,11 +123,11 @@ class LogoutView(APIView):
                 details="Déconnexion réussie.",
                 categorie="user"
             )
-            return Response({'message': 'Déconnexion réussie.'})
+            return StandardResponse.render(message='Déconnexion réussie.', status_code=status.HTTP_200_OK)
         except Exception:
-            return Response(
-                {'error': 'Erreur lors de la déconnexion.'},
-                status=status.HTTP_400_BAD_REQUEST
+            return StandardResponse.render(
+                message='Erreur lors de la déconnexion.',
+                status_code=status.HTTP_400_BAD_REQUEST
             )
 
 
@@ -127,7 +135,11 @@ class ProfileView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return Response(UserSerializer(request.user).data)
+        return StandardResponse.render(
+            data=UserSerializer(request.user).data,
+            message="Profil récupéré",
+            status_code=status.HTTP_200_OK
+        )
 
 
 class UpdateUserView(APIView):
@@ -160,15 +172,27 @@ class UpdateUserView(APIView):
                 details=f"{user.first_name} {user.last_name}",
                 categorie="user"
             )
-            return Response(serializer.data)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            return StandardResponse.render(
+                data=serializer.data,
+                message="Utilisateur mis à jour avec succès.",
+                status_code=status.HTTP_200_OK
+            )
+        return StandardResponse.render(
+            data=serializer.errors,
+            message="Données invalides.",
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
 
 
 class CheckAvailabilityView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        return Response(UserSerializer(User.objects.all(), many=True).data)
+        return StandardResponse.render(
+            data=UserSerializer(User.objects.all(), many=True).data,
+            message="Liste des utilisateurs récupérée",
+            status_code=status.HTTP_200_OK
+        )
 
     def post(self, request):
         errors = []
@@ -194,9 +218,10 @@ class CheckAvailabilityView(APIView):
             errors.append('Cette combinaison nom/prénom est déjà utilisée.')
 
         response_data['errors'] = errors
-        return Response(
-            response_data,
-            status=status.HTTP_400_BAD_REQUEST if errors else status.HTTP_200_OK
+        return StandardResponse.render(
+            data=response_data,
+            message='Vérification effectuée' if not errors else 'Données déjà utilisées',
+            status_code=status.HTTP_400_BAD_REQUEST if errors else status.HTTP_200_OK
         )
 
 
