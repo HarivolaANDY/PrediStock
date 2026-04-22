@@ -43,6 +43,42 @@ yarn-error.log*
 *.sln
 *.sw?
 
+# =========================
+# MACHINE LEARNING (CRUCIAL)
+# =========================
+backend/apps/forecasting/sql_model_weights/
+*.pt
+*.pth
+*.bin
+*.pkl
+*.safetensors
+
+# =========================
+# BUILD / DIST
+# =========================
+dist/
+build/
+*.egg-info/
+
+# =========================
+# LOGS
+# =========================
+*.log
+
+# =========================
+# DEBUG / CACHE
+# =========================
+.pytest_cache/
+*.htmlcov/
+
+# =========================
+# IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
 # OS
+# =========================
 .DS_Store
 Thumbs.db
