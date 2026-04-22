@@ -1,16 +1,34 @@
-export async function parseAxiosBlobResponse(res: any, titre="report.pdf"): Promise<{
+import type { AxiosResponse, AxiosRequestConfig } from 'axios';
+import API from "@/services/axios";
+
+export interface BlobParseResult {
 	files: { blob: Blob; filename: string }[];
-	json?: any;
+	json?: unknown;
 	text?: string;
-}> {
+}
+
+export interface AxiosBlobResponse {
+	headers?: Record<string, string | string[]>;
+	data: Blob | string;
+}
+
+/**
+ * Helper to get a string value from headers that may contain string arrays
+ */
+function getHeaderString(headers: Record<string, string | string[]>, key: string): string {
+	const value = headers[key] || headers[key.toLowerCase()] || '';
+	return Array.isArray(value) ? value[0] : value;
+}
+
+export async function parseAxiosBlobResponse(res: AxiosBlobResponse, titre = "report.pdf"): Promise<BlobParseResult> {
 	const headers = res.headers || {};
-	const contentType = headers['content-type'] || headers['Content-Type'] || '';
-	const contentDisp = headers['content-disposition'] || headers['Content-Disposition'] || '';
+	const contentType = getHeaderString(headers, 'content-type');
+	const contentDisp = getHeaderString(headers, 'content-disposition');
 	const files: { blob: Blob; filename: string }[] = [];
 
 	// Si le serveur annonce JSON (même si responseType: 'blob')
 	if (contentType.includes('application/json')) {
-		const text = await res.data.text();
+		const text = typeof res.data === 'string' ? res.data : await (res.data as Blob).text();
 		try {
 			return { files, json: JSON.parse(text) };
 		} catch {
@@ -34,20 +52,20 @@ export async function parseAxiosBlobResponse(res: any, titre="report.pdf"): Prom
 			filename = 'file.bin';
 		}
 
-		const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: contentType || 'application/octet-stream' });
+		const blob = res.data instanceof Blob ? res.data : new Blob([res.data as string], { type: contentType || 'application/octet-stream' });
 		files.push({ blob, filename });
 		return { files };
 	}
 
 	// Fallback : tenter de lire texte et JSON
 	try {
-		const text = await res.data.text();
+		const text = typeof res.data === 'string' ? res.data : await (res.data as Blob).text();
 		try {
 			return { files, json: JSON.parse(text) };
 		} catch {
 			return { files, text };
 		}
-	} catch (err) {
+	} catch {
 		return { files };
 	}
 }
@@ -67,19 +85,11 @@ export function downloadAll(files: { blob: Blob; filename: string }[]) {
 	files.forEach(({ blob, filename }) => downloadBlob(blob, filename));
 }
 
-// ...added exports below...
-
-import API from "@/services/axios";
-
 /**
  * Parsea une réponse Axios (responseType: 'blob') et télécharge immédiatement
  * tous les fichiers détectés. Retourne l'objet parsé pour inspection.
  */
-export async function downloadFromAxiosResponse(res: any): Promise<{
-	files: { blob: Blob; filename: string }[];
-	json?: any;
-	text?: string;
-}> {
+export async function downloadFromAxiosResponse(res: AxiosBlobResponse): Promise<BlobParseResult> {
 	const parsed = await parseAxiosBlobResponse(res);
 
 	if (parsed.files && parsed.files.length) {
@@ -102,22 +112,18 @@ export async function downloadFromAxiosResponse(res: any): Promise<{
 export async function fetchAndDownload(
 	url: string,
 	method: 'get' | 'post' = 'get',
-	data?: any,
-	config: any = {}
-): Promise<{
-	files: { blob: Blob; filename: string }[];
-	json?: any;
-	text?: string;
-}> {
-	const cfg = { ...(config || {}), responseType: 'blob' };
-	let res;
+	data?: unknown,
+	config: AxiosRequestConfig = {}
+): Promise<BlobParseResult> {
+	const cfg: AxiosRequestConfig = { ...config, responseType: 'blob' };
+	let res: AxiosResponse;
 	if (method === 'post') {
 		res = await API.post(url, data, cfg);
 	} else {
 		// pour GET on passe data en params
 		res = await API.get(url, { ...cfg, params: data });
 	}
-	return await downloadFromAxiosResponse(res);
+	return await downloadFromAxiosResponse(res as AxiosBlobResponse);
 }
 
 // Nouvelle fonction utilitaire centrée sur le téléchargement immédiat d'un PDF via une URL API.
@@ -125,13 +131,9 @@ export async function fetchAndDownload(
 export async function downloadPdf(
 	url: string,
 	method: 'get' | 'post' = 'get',
-	data?: any,
-	config: any = {}
-): Promise<{
-	files: { blob: Blob; filename: string }[];
-	json?: any;
-	text?: string;
-}> {
+	data?: unknown,
+	config: AxiosRequestConfig = {}
+): Promise<BlobParseResult> {
 	// fetchAndDownload utilisera responseType: 'blob' et déclenchera le téléchargement si un fichier est reçu
 	const parsed = await fetchAndDownload(url, method, data, config);
 	// parsed.files a déjà été téléchargé par downloadFromAxiosResponse via fetchAndDownload
