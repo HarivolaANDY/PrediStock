@@ -32,7 +32,7 @@ export async function parseAxiosBlobResponse(
 
 	// Si le serveur annonce JSON (même si responseType: 'blob')
 	if (contentType.includes('application/json')) {
-		const text = await res.data.text();
+		const text = typeof res.data === 'string' ? res.data : await (res.data as Blob).text();
 		try {
 			return { files, json: JSON.parse(text) };
 		} catch {
@@ -56,14 +56,14 @@ export async function parseAxiosBlobResponse(
 			filename = 'file.bin';
 		}
 
-		const blob = res.data instanceof Blob ? res.data : new Blob([res.data], { type: contentType || 'application/octet-stream' });
+		const blob = res.data instanceof Blob ? res.data : new Blob([res.data as string], { type: contentType || 'application/octet-stream' });
 		files.push({ blob, filename });
 		return { files };
 	}
 
 	// Fallback : tenter de lire texte et JSON
 	try {
-		const text = await res.data.text();
+		const text = typeof res.data === 'string' ? res.data : await (res.data as Blob).text();
 		try {
 			return { files, json: JSON.parse(text) };
 		} catch {
@@ -88,10 +88,6 @@ export function downloadBlob(blob: Blob, filename: string) {
 export function downloadAll(files: { blob: Blob; filename: string }[]) {
 	files.forEach(({ blob, filename }) => downloadBlob(blob, filename));
 }
-
-// ...added exports below...
-
-import API from "@/services/axios";
 
 /**
  * Parsea une réponse Axios (responseType: 'blob') et télécharge immédiatement
@@ -133,7 +129,7 @@ export async function fetchAndDownload(
 		// pour GET on passe data en params
 		res = (await API.get(url, { ...cfg, params: data })) as AxiosResponseWithBlob;
 	}
-	return await downloadFromAxiosResponse(res);
+	return await downloadFromAxiosResponse(res as AxiosBlobResponse);
 }
 
 // Nouvelle fonction utilitaire centrée sur le téléchargement immédiat d'un PDF via une URL API.

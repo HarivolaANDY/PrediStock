@@ -11,8 +11,26 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
-import { useEffect, useState } from "react"
-import { notificationService } from "@/services/notification.service"
+import { useState } from "react"
+
+interface UserData {
+  last_name?: string;
+  first_name?: string;
+  username?: string;
+}
+
+function getHeaderPseudo(): string {
+  const userStr = localStorage.getItem("user")
+  if (!userStr) return ""
+  
+  try {
+    const user: UserData = JSON.parse(userStr)
+    const pseudo = `${user.last_name || ''} ${user.first_name || ''}`.trim() || user.username || ""
+    return pseudo
+  } catch {
+    return ""
+  }
+}
 
 export function Header() {
 const [ pseudo, setPseudo ] = useState()

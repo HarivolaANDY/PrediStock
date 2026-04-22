@@ -1,5 +1,20 @@
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 
+export interface BarChartDataItem {
+  [key: string]: unknown;
+}
+
+export interface BarChartTooltipProps {
+  active?: boolean;
+  payload?: Array<{
+    dataKey: string;
+    value: number;
+    fill: string;
+    name?: string;
+  }>;
+  label?: string;
+}
+
 interface BarChartProps {
   data: Record<string, unknown>[]
   xAxisKey: string
@@ -26,6 +41,35 @@ interface BarChartProps {
     dx?: number
   }
 }
+
+// CustomTooltip component defined outside of the main component
+const CustomTooltip = ({ active, payload, label }: BarChartTooltipProps) => {
+  if (!active || !payload || !payload.length) {
+    return null;
+  }
+
+  return (
+    <div className="bg-popover p-3 border rounded-lg shadow-lg">
+      <p className="font-medium mb-2">{label}</p>
+      {payload.map((entry, index) => {
+        const tooltipText = `${entry.name}: ${entry.value}`;
+
+        return (
+          <div 
+            key={`tooltip-${index}`}
+            className="flex items-center gap-2 text-sm"
+          >
+            <div 
+              className="w-3 h-3 rounded-full" 
+              style={{ backgroundColor: entry.fill }}
+            />
+            <span>{tooltipText}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 export function BarChart({ 
   data, 

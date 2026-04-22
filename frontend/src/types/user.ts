@@ -13,3 +13,16 @@ export interface User {
   //permissions?: string[];
   biography?: string;
 }
+
+export interface Role {
+  id: string;
+  name: string;
+  description?: string;
+  is_active?: boolean;
+  prioritylevel?: number;
+  permissions?: string[];
+  dashboard_analytics?: string[];
+  inventory_management?: string[];
+  user_management?: string[];
+  ai_datamodels?: string[];
+}

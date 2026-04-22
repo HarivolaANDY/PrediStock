@@ -1,5 +1,9 @@
 import { Line, LineChart as RechartsLineChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 
+export interface LineChartDataItem {
+  [key: string]: unknown;
+}
+
 interface LineChartProps {
   data: Record<string, unknown>[]
   xAxisKey: string

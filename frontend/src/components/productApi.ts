@@ -1,4 +1,3 @@
-
 import { API_BASE_URL, getAuthHeaders } from "@/config/api.config";
 import { unites_mesures } from "@/types/unites_mesures";
 
@@ -74,7 +73,7 @@ export async function saveProduct(data: FormData | Record<string, unknown>, toke
         headers,
       });
       
-      const result = await response.json();
+      const result = await response.json() as ProductApiResponse;
       console.log('Response:', result);
 
       if (!response.ok || result.status === "error") {
@@ -115,7 +114,7 @@ export async function saveProduct(data: FormData | Record<string, unknown>, toke
     body: JSON.stringify(formattedData),
   });
 
-  const result = await response.json();
+  const result = await response.json() as ProductApiResponse;
 
   if (response.ok && (result.status === "success" || result.status === "ok")) {
     return result.data;
