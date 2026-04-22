@@ -3,44 +3,7 @@ import { unites_mesures } from "@/types/unites_mesures";
 
 export const API_URL = `${API_BASE_URL}/catalogue/products/`;
 
-export interface ProductFormData {
-  id?: number | string;
-  name: string;
-  description: string;
-  price: number | string;
-  stock_threshold: number | string;
-  current_stock: number | string;
-  sku: string;
-  is_active?: boolean;
-  category?: number | string | { id: number | string };
-  supplier?: number | string | { id: number | string };
-  est_perissable?: boolean;
-  unite_mesure?: string;
-  image?: File | null;
-}
-
-export interface ProductApiResponse {
-  success: boolean;
-  status: string;
-  message: string;
-  data?: {
-    id: number;
-    name: string;
-    description: string;
-    price: number;
-    current_stock: number;
-    sku: string;
-    is_active: boolean;
-    category?: number;
-    supplier?: number;
-    est_perissable: boolean;
-    unite_mesure: string;
-    created_at: string;
-    updated_at: string;
-  };
-}
-
-export async function saveProduct(data: ProductFormData, token?: string): Promise<unknown> {
+export async function saveProduct(data: FormData | Record<string, unknown>, token?: string) {
   let method = "POST";
   let url = `${API_URL}`;
   
@@ -118,25 +81,26 @@ export async function saveProduct(data: ProductFormData, token?: string): Promis
       }
 
       return result.data;
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Erreur lors de l'enregistrement du produit";
+    } catch (error: unknown) {
       console.error('Erreur détaillée:', error);
+      const errorMessage = error instanceof Error ? error.message : "Erreur lors de l'enregistrement du produit";
       throw new Error(errorMessage);
     }
   }
 
   // Pour les données non-FormData, les formater et les envoyer en JSON
+  const productData = data as Record<string, unknown>;
   const formattedData = {
-    price: data.price?.toString() ?? "0",
-    stock_threshold: typeof data.stock_threshold === 'number' ? data.stock_threshold : parseInt(data.stock_threshold || "0", 10),
-    current_stock: typeof data.current_stock === 'number' ? data.current_stock : parseInt(data.current_stock || "0", 10),
+    price: (productData.price as string)?.toString() ?? "0",
+    stock_threshold: parseInt((productData.stock_threshold as string) || "0", 10),
+    current_stock: parseInt((productData.current_stock as string) || "0", 10),
     is_active: true,
-    sku: data.sku || `SKU-${Date.now()}`,
-    description: data.description || "Aucune description",
-    name: data.name || "",
-    category: data.category ? (typeof data.category === 'object' ? data.category.id : data.category) : null,
-    supplier: data.supplier ? (typeof data.supplier === 'object' ? data.supplier.id : data.supplier) : null,
-    est_perissable: Boolean(data.est_perissable),
+    sku: productData.sku as string || `SKU-${Date.now()}`,
+    description: productData.description as string || "Aucune description",
+    name: productData.name as string || "",
+    category: productData.category ? (typeof productData.category === 'object' && productData.category !== null ? (productData.category as { id: number }).id : productData.category) : null,
+    supplier: productData.supplier ? (typeof productData.supplier === 'object' && productData.supplier !== null ? (productData.supplier as { id: number }).id : productData.supplier) : null,
+    est_perissable: Boolean(productData.est_perissable),
   };
 
   const headers = {

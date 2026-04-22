@@ -37,7 +37,7 @@ export function AlertConfigModal({ children }: AlertConfigModalProps) {
     frequency: "immediate"
   })
 
-  const updateAlertType = (type: keyof typeof alertTypes, field: string, value: boolean | number | string) => {
+  const updateAlertType = (type: keyof typeof alertTypes, field: string, value: boolean | number) => {
     setAlertTypes(prev => ({
       ...prev,
       [type]: {

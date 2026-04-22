@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { X } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -26,7 +26,7 @@ interface StockMouvement {
 
 interface StockMouvementFormProps {
   onClose: () => void
-  onSubmit: (data: any) => void
+  onSubmit: (data: StockMouvement) => void
   initialData?: StockMouvement | null
 }
 
@@ -35,7 +35,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
   const [loading, setLoading] = useState(false)
 
   const [formData, setFormData] = useState<StockMouvement>({
-    id_movement: initialData?.id_movement || null,
+    id_movement: initialData?.id_movement,
     id_product: initialData?.id_product || 0,
     product_name: initialData?.product_name || "",
     quantity: initialData?.quantity || "",
@@ -109,11 +109,12 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
       } else {
         throw new Error(response.message || "Une erreur est survenue");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erreur:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue';
       toast({
         title: "Erreur",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

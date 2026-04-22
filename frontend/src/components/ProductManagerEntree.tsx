@@ -1,21 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import API from "@/services/axios";
-import { PanierItem, ProduitInserer, CreateProductData, DetailsResponseproduit } from '@/types/types';
-import { Select, SelectContent, SelectItem } from '@radix-ui/react-select';
-import { SelectTrigger, SelectValue } from './ui/select';
-import { log } from 'console';
+import { PanierItem, ProduitInserer, CreateProductData, PDV } from '@/types/types';
 import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils";
-
 const ProductManager = () => {
-  const [produitData, setProduitData] = useState<CreateProductData>();
-  const [liste_resultat, setListe_resultat] = useState<[]>([]);
   const [liste_produit, setListe_produit] = useState<CreateProductData[]>([]);
   const [products, setProducts] = useState<ProduitInserer[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [isloading, setIsloading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showProductList, setShowProductList] = useState(false);
-  const [selectProduit_dv, setSelectProduit_dv] = useState<[]>([]);
+  const [selectProduit_dv, setSelectProduit_dv] = useState<PDV[]>([]);
   const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([]); // Nouvelle liste pour accumuler les fichiers
 
   // Formulaire modal states
@@ -87,51 +81,48 @@ const ProductManager = () => {
   };
 
   const sendSaveProducts = async () => {
-    setIsloading(true);
-    const newFiles: { blob: Blob; filename: string }[] = [];
-    const liste_inserer = {
-      "liste_inserer": [
-        ...products.map(product => ({
+    setIsloading(true)
+    try {
+      const liste_inserer = {
+        liste_inserer: products.map(product => ({
           id_produit: product.id_produit,
           panier: product.panier
         }))
-      ]
-    };
-    try {
-      const res = await API.post("produits_dv/entree/", liste_inserer, { responseType: 'blob' });
-      const parsed = await parseAxiosBlobResponse(res, "Rapport_entrée.pdf");
-
-      if (parsed.files && parsed.files.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files]);
-        // downloadAll(parsed.files) // décommenter si téléchargement immédiat désiré
       }
-      if (parsed.json) console.log(parsed.json);
 
-      products.splice(0, products.length);
-      setProducts([...products]); // Forcer le re-render
+      const res = await API.post("catalogue/produits-dv/entree/", liste_inserer)
+      const { url, filename } = res.data.data
+
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      setProducts([])
     } catch (err) {
-      console.log(err);
+      console.error(err)
     } finally {
-      setIsloading(false);
+      setIsloading(false)
     }
-  };
+  }
 
-  const FetchProducts_filtered = async () => {
+  const FetchProducts_filtered = useCallback(async () => {
     try {
       const data = { "chercher": searchTerm };
-      const res = await API.post("/product/", data);
+      const res = await API.post("catalogue/products/", data);
       setListe_produit(res.data.data || []);
     } catch (err) {
       console.log(err);
       setListe_produit([]);
     }
-  };
+  }, [searchTerm]);
 
   const fetch_sousProduits = async (productId: number) => {
     try {
-      const res = await API.get(`/produits_dv/par_produit/?product=${productId}`).then((response)=>{
-        setSelectProduit_dv(response.data.data);        
-      })
+      const response = await API.get(`catalogue/produits-dv/par_produit/?product=${productId}`);
+      setSelectProduit_dv(response.data.data);
     } catch (err) {
       console.log(err);
     }
@@ -139,17 +130,15 @@ const ProductManager = () => {
 
   // Debounce pour éviter trop d'appels API
   useEffect(() => {
-    fetch_sousProduits(0);
     const delayDebounceFn = setTimeout(() => {
       if (searchTerm) {
         FetchProducts_filtered();
       } else {
-        setListe_produit([]); // Efface la liste si searchTerm vide
+        setListe_produit([]);
       }
-    }, 300); // Délai de 300ms
-
+    }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+  }, [searchTerm, FetchProducts_filtered]);
 
   return (
     <div className="bg-white shadow-lg rounded-xl p-8 max-w-5xl mx-auto my-10 border border-gray-100 transition-all duration-300">
@@ -255,15 +244,17 @@ const ProductManager = () => {
               {showProductList && (
                 <div className="absolute z-20 bg-white rounded-lg shadow-xl border border-gray-100 mt-1 w-full max-h-64 overflow-y-auto">
                   {liste_produit.length > 0 ? (
-                    liste_produit.map((prod: any) => (
+                    liste_produit.map((prod: CreateProductData) => (
                       <div
                         key={prod.id}
                         className="px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors text-gray-800"
                         onMouseDown={() => {
-                          setFormProductId(prod.id);
-                          setSearchTerm(prod.name);
-                          setShowProductList(false);
-                          fetch_sousProduits(prod.id);
+                          if (prod.id !== undefined) {
+                            setFormProductId(prod.id);
+                            setSearchTerm(prod.name);
+                            setShowProductList(false);
+                            fetch_sousProduits(prod.id);
+                          }
                         }}
                       >
                         {prod.name} {prod.current_stock !== undefined ? ` (stock: ${prod.current_stock})` : ''} {prod.description ? <span className="text-gray-500 text-sm">– {prod.description}</span> : ''}
@@ -285,19 +276,21 @@ const ProductManager = () => {
                   value={formPanierItem.id || ''}
                   onChange={(e) => {
                     const id = Number(e.target.value);
-                    const sel = selectProduit_dv.find((p: any) => p.id === id) as any;
-                    setFormPanierItem(prev => ({
-                      ...prev,
-                      id: id,
-                      designation: sel ? (sel.designation || sel.name || '') : prev.designation,
-                    }));
+                    const sel = selectProduit_dv.find((p: PDV) => p.id === id);
+                    if (sel) {
+                      setFormPanierItem(prev => ({
+                        ...prev,
+                        id: id,
+                        designation: sel.designation || '',
+                      }));
+                    }
                   }}
                   className="w-full appearance-none px-4 py-3 border border-gray-200 rounded-lg bg-white text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors"
                 >
                   <option value="">-- Sélectionner une variante --</option>
-                  {selectProduit_dv.map((prod: any) => (
+                  {selectProduit_dv.map((prod: PDV) => (
                     <option key={prod.id} value={prod.id}>
-                      {prod.designation || prod.name} {prod.nombre !== undefined ? ` (stock: ${prod.nombre})` : ''}
+                      {prod.designation} {prod.nombre !== undefined ? ` (stock: ${prod.nombre})` : ''}
                     </option>
                   ))}
                 </select>

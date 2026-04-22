@@ -1,0 +1,762 @@
+[
+  {
+    "question": "Quels produits sont en rupture de stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock <= p.stock_threshold AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Liste les articles en rupture",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock <= p.stock_threshold AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Quels articles sont épuisés ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.current_stock <= p.stock_threshold AND p.is_active = 1"
+  },
+  {
+    "question": "Produits dont le stock est nul",
+    "sql": "SELECT p.name, p.current_stock, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.current_stock = 0 AND p.is_active = 1"
+  },
+  {
+    "question": "Quels produits manquent en stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock < p.stock_threshold AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Quels articles sont proches de la rupture ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, ROUND((p.current_stock * 100.0 / NULLIF(p.stock_threshold, 0)), 1) as pct FROM catalogue_product p WHERE p.current_stock > p.stock_threshold AND p.current_stock <= p.stock_threshold * 1.5 AND p.is_active = 1 ORDER BY pct ASC"
+  },
+  {
+    "question": "Produits bientôt en rupture",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock > p.stock_threshold AND p.current_stock <= p.stock_threshold * 1.5 AND p.is_active = 1 ORDER BY p.current_stock ASC LIMIT 15"
+  },
+  {
+    "question": "Articles avec stock faible",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock <= p.stock_threshold * 1.2 AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Produits avec un stock inférieur à 10",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.current_stock < 10 AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Articles dont le stock est en dessous de 5",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock < 5 AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Quel est le stock actuel de Air Fryer ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%' AND p.is_active = 1"
+  },
+  {
+    "question": "Combien reste-t-il de Air Fryer en stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Niveau de stock pour Air Fryer",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Stock de Air Fryer",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Quel est le stock actuel de Banane ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%' AND p.is_active = 1"
+  },
+  {
+    "question": "Combien reste-t-il de Banane en stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Niveau de stock pour Banane",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Stock de Banane",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Quel est le stock actuel de Riz ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%' AND p.is_active = 1"
+  },
+  {
+    "question": "Combien reste-t-il de Riz en stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Niveau de stock pour Riz",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Stock de Riz",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Quel est le stock actuel de Acoustic Guitar ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%acoustic guitar%' AND p.is_active = 1"
+  },
+  {
+    "question": "Combien reste-t-il de Acoustic Guitar en stock ?",
+    "sql": "SELECT p.name, p.current_stock, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%acoustic guitar%'"
+  },
+  {
+    "question": "Stock de Acoustic Guitar",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%acoustic guitar%'"
+  },
+  {
+    "question": "Quel est le stock actuel de Almond Butter ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%almond butter%' AND p.is_active = 1"
+  },
+  {
+    "question": "Stock de Almond Butter",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%almond butter%'"
+  },
+  {
+    "question": "Quel est le stock actuel de Air Mattress ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air mattress%' AND p.is_active = 1"
+  },
+  {
+    "question": "Stock de Air Mattress",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air mattress%'"
+  },
+  {
+    "question": "Quel est le seuil minimum de Air Fryer ?",
+    "sql": "SELECT p.name, p.stock_threshold, p.current_stock, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Stock minimum recommandé pour Banane",
+    "sql": "SELECT p.name, p.stock_threshold as seuil_minimum, p.current_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Quel est le seuil minimum de Riz ?",
+    "sql": "SELECT p.name, p.stock_threshold, p.current_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Seuil de stock pour Acoustic Guitar",
+    "sql": "SELECT p.name, p.stock_threshold, p.current_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%acoustic guitar%'"
+  },
+  {
+    "question": "Quels sont les produits les plus vendus ?",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total_vendu FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-30 days') GROUP BY p.name ORDER BY total_vendu DESC LIMIT 10"
+  },
+  {
+    "question": "Top 10 produits les plus vendus",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total_vendu FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-30 days') GROUP BY p.name ORDER BY total_vendu DESC LIMIT 10"
+  },
+  {
+    "question": "Meilleurs ventes du mois",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total, SUM(dv.montant_total) as chiffre_affaires FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-30 days') GROUP BY p.name ORDER BY total DESC LIMIT 10"
+  },
+  {
+    "question": "Quels articles se vendent le mieux ?",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id GROUP BY p.name ORDER BY total DESC LIMIT 10"
+  },
+  {
+    "question": "Top 5 produits vendus cette semaine",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-7 days') GROUP BY p.name ORDER BY total DESC LIMIT 5"
+  },
+  {
+    "question": "Ventes de Air Fryer ce mois",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' AND dv.date_vente >= date('now', '-30 days') GROUP BY p.name"
+  },
+  {
+    "question": "Combien de Banane vendus cette semaine ?",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%banane%' AND dv.date_vente >= date('now', '-7 days') GROUP BY p.name"
+  },
+  {
+    "question": "Ventes de Riz ce mois",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%riz%' AND dv.date_vente >= date('now', '-30 days') GROUP BY p.name"
+  },
+  {
+    "question": "Ventes de Acoustic Guitar",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total, SUM(dv.montant_total) as ca FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' GROUP BY p.name"
+  },
+  {
+    "question": "Quels produits ne se vendent pas bien ?",
+    "sql": "SELECT p.name, p.current_stock, COALESCE(SUM(dv.quantite_vendu), 0) as total_vendu FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-90 days') WHERE p.is_active = 1 GROUP BY p.id, p.name HAVING total_vendu = 0 ORDER BY p.current_stock DESC LIMIT 15"
+  },
+  {
+    "question": "Produits dormants en stock",
+    "sql": "SELECT p.name, p.current_stock, COALESCE(SUM(dv.quantite_vendu), 0) as total_vendu FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-90 days') WHERE p.is_active = 1 GROUP BY p.id HAVING total_vendu = 0 ORDER BY p.current_stock DESC"
+  },
+  {
+    "question": "Articles qui dorment en stock",
+    "sql": "SELECT p.name, p.current_stock, p.price FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-90 days') WHERE p.is_active = 1 GROUP BY p.id HAVING COALESCE(SUM(dv.quantite_vendu), 0) = 0"
+  },
+  {
+    "question": "Produits invendus depuis 3 mois",
+    "sql": "SELECT p.name, p.current_stock FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-90 days') WHERE p.is_active = 1 GROUP BY p.id HAVING COALESCE(SUM(dv.quantite_vendu), 0) = 0"
+  },
+  {
+    "question": "Quel est le taux de rotation des stocks ?",
+    "sql": "SELECT p.name, COALESCE(SUM(dv.quantite_vendu), 0) as vendu_30j, p.current_stock, ROUND(COALESCE(SUM(dv.quantite_vendu), 0) * 1.0 / NULLIF(p.current_stock, 0), 2) as taux_rotation FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-30 days') WHERE p.is_active = 1 GROUP BY p.id, p.name ORDER BY taux_rotation DESC LIMIT 15"
+  },
+  {
+    "question": "Taux de rotation de Air Fryer",
+    "sql": "SELECT p.name, COALESCE(SUM(dv.quantite_vendu), 0) as vendu, p.current_stock, ROUND(COALESCE(SUM(dv.quantite_vendu), 0) * 1.0 / NULLIF(p.current_stock, 0), 2) as taux FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id WHERE LOWER(p.name) LIKE '%air fryer%' GROUP BY p.id"
+  },
+  {
+    "question": "Taux de rotation de Banane",
+    "sql": "SELECT p.name, COALESCE(SUM(dv.quantite_vendu), 0) as vendu, p.current_stock, ROUND(COALESCE(SUM(dv.quantite_vendu), 0) * 1.0 / NULLIF(p.current_stock, 0), 2) as taux FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id WHERE LOWER(p.name) LIKE '%banane%' GROUP BY p.id"
+  },
+  {
+    "question": "Rotation des stocks par catégorie",
+    "sql": "SELECT cat.name as categorie, ROUND(SUM(COALESCE(dv.quantite_vendu, 0)) * 1.0 / NULLIF(SUM(p.current_stock), 0), 2) as taux FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id AND dv.date_vente >= date('now', '-30 days') GROUP BY cat.name ORDER BY taux DESC"
+  },
+  {
+    "question": "Quelle est la valeur totale du stock ?",
+    "sql": "SELECT cat.name as categorie, COUNT(p.id) as nb_produits, SUM(p.current_stock) as quantite_totale, ROUND(SUM(p.current_stock * p.price), 2) as valeur_totale FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 GROUP BY cat.name ORDER BY valeur_totale DESC"
+  },
+  {
+    "question": "Valeur du stock actuel",
+    "sql": "SELECT ROUND(SUM(p.current_stock * p.price), 2) as valeur_totale, SUM(p.current_stock) as quantite_totale FROM catalogue_product p WHERE p.is_active = 1"
+  },
+  {
+    "question": "Montant total du stock",
+    "sql": "SELECT cat.name, ROUND(SUM(p.current_stock * p.price), 2) as valeur FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id GROUP BY cat.name ORDER BY valeur DESC"
+  },
+  {
+    "question": "Valeur du stock par catégorie",
+    "sql": "SELECT cat.name, SUM(p.current_stock) as quantite, ROUND(SUM(p.current_stock * p.price), 2) as valeur FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 GROUP BY cat.name ORDER BY valeur DESC"
+  },
+  {
+    "question": "Valeur du stock de Air Fryer",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Valeur du stock de Banane",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Mouvements de stock cette semaine",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.reason, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE m.date >= date('now', '-7 days') ORDER BY m.date DESC LIMIT 20"
+  },
+  {
+    "question": "Entrées et sorties de stock",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id ORDER BY m.date DESC LIMIT 20"
+  },
+  {
+    "question": "Mouvements de stock ce mois",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE m.date >= date('now', '-30 days') ORDER BY m.date DESC"
+  },
+  {
+    "question": "Derniers mouvements de stock",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.reason, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id ORDER BY m.timestamp DESC LIMIT 15"
+  },
+  {
+    "question": "Mouvements de Air Fryer",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' ORDER BY m.date DESC"
+  },
+  {
+    "question": "Mouvements de Banane",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%banane%' ORDER BY m.date DESC"
+  },
+  {
+    "question": "Mouvements de Riz cette semaine",
+    "sql": "SELECT p.name, m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%riz%' AND m.date >= date('now', '-7 days') ORDER BY m.date DESC"
+  },
+  {
+    "question": "Entrées de stock cette semaine",
+    "sql": "SELECT p.name, m.quantity, m.date, m.reason FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE m.movement_type = 'IN' AND m.date >= date('now', '-7 days') ORDER BY m.date DESC"
+  },
+  {
+    "question": "Sorties de stock ce mois",
+    "sql": "SELECT p.name, m.quantity, m.date, m.reason FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE m.movement_type = 'OUT' AND m.date >= date('now', '-30 days') ORDER BY m.date DESC"
+  },
+  {
+    "question": "Prédictions à venir",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty, pred.export_qty, CASE WHEN pred.rupture = 1 THEN 'Oui' ELSE 'Non' END as rupture_prevue FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC LIMIT 10"
+  },
+  {
+    "question": "Prédictions du mois prochain",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.rupture FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.date_prediction BETWEEN date('now') AND date('now', '+30 days') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Produits avec rupture prévue",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.rupture = 1 AND pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Prédiction pour Air Fryer",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty, pred.export_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' ORDER BY pred.date_prediction ASC LIMIT 5"
+  },
+  {
+    "question": "Prévision pour Banane",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%banane%' ORDER BY pred.date_prediction ASC LIMIT 5"
+  },
+  {
+    "question": "Prédiction pour Riz",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.rupture FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%riz%' ORDER BY pred.date_prediction ASC LIMIT 5"
+  },
+  {
+    "question": "Prévision de rupture pour Acoustic Guitar",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.rupture FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' AND pred.rupture = 1 ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Stock prévu pour Air Mattress le mois prochain",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%air mattress%' AND pred.date_prediction BETWEEN date('now') AND date('now', '+30 days') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Quelles importations sont prévues ?",
+    "sql": "SELECT p.name, pred.date_prediction, pred.import_qty, pred.import_lower_bound, pred.import_upper_bound FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.import_qty > 0 AND pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC LIMIT 10"
+  },
+  {
+    "question": "Recommandations en attente",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement, r.date_prediction FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.est_applique = 0 ORDER BY r.priority DESC, r.date_prediction ASC LIMIT 10"
+  },
+  {
+    "question": "Quelles sont les recommandations prioritaires ?",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.est_applique = 0 AND r.priority = 'HAUTE' ORDER BY r.date_prediction ASC"
+  },
+  {
+    "question": "Recommandations d'import",
+    "sql": "SELECT p.name, r.quantite_suggeree, r.priority, r.date_prediction, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.type_recommandation = 'import' AND r.est_applique = 0 ORDER BY r.priority DESC"
+  },
+  {
+    "question": "Recommandations d'export",
+    "sql": "SELECT p.name, r.quantite_suggeree, r.priority, r.date_prediction FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.type_recommandation = 'export' AND r.est_applique = 0 ORDER BY r.priority DESC"
+  },
+  {
+    "question": "Recommandation pour Air Fryer",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' AND r.est_applique = 0 ORDER BY r.date_prediction ASC"
+  },
+  {
+    "question": "Que faire pour Banane ?",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement, r.date_prediction FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%banane%' AND r.est_applique = 0 ORDER BY r.date_prediction ASC"
+  },
+  {
+    "question": "Que faire pour Riz le mois prochain ?",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%riz%' AND r.est_applique = 0 AND r.date_prediction BETWEEN date('now') AND date('now', '+30 days')"
+  },
+  {
+    "question": "Alertes non lues",
+    "sql": "SELECT p.name, a.type_alert, a.priorite, a.message, a.creer_le FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE a.est_lu = 0 ORDER BY a.priorite DESC, a.creer_le DESC LIMIT 10"
+  },
+  {
+    "question": "Alertes urgentes",
+    "sql": "SELECT p.name, a.type_alert, a.message, a.creer_le FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE a.est_lu = 0 AND a.priorite = 'HAUTE' ORDER BY a.creer_le DESC"
+  },
+  {
+    "question": "Alertes non résolues",
+    "sql": "SELECT p.name, a.type_alert, a.priorite, a.message FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE a.est_resolu = 0 ORDER BY a.priorite DESC LIMIT 10"
+  },
+  {
+    "question": "Combien d'alertes actives ?",
+    "sql": "SELECT COUNT(*) as nb_alertes, a.priorite FROM notifications_alerte a WHERE a.est_lu = 0 GROUP BY a.priorite ORDER BY a.priorite DESC"
+  },
+  {
+    "question": "Alertes pour Air Fryer",
+    "sql": "SELECT a.type_alert, a.priorite, a.message, a.creer_le FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' AND a.est_lu = 0"
+  },
+  {
+    "question": "Alertes pour Banane",
+    "sql": "SELECT a.type_alert, a.priorite, a.message FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE LOWER(p.name) LIKE '%banane%' AND a.est_lu = 0"
+  },
+  {
+    "question": "Dernières commandes fournisseurs",
+    "sql": "SELECT s.name as fournisseur, bc.numero_commande, bc.status, bc.montant_total, bc.date_commande, bc.livraison_prevue FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id ORDER BY bc.date_commande DESC LIMIT 10"
+  },
+  {
+    "question": "Commandes en cours",
+    "sql": "SELECT s.name, bc.numero_commande, bc.montant_total, bc.date_commande, bc.livraison_prevue FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.status = 'en_cours' ORDER BY bc.date_commande DESC"
+  },
+  {
+    "question": "Commandes en attente de livraison",
+    "sql": "SELECT s.name, bc.numero_commande, bc.montant_total, bc.livraison_prevue FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.status IN ('en_cours', 'confirmé') ORDER BY bc.livraison_prevue ASC"
+  },
+  {
+    "question": "Commandes du mois",
+    "sql": "SELECT s.name, bc.numero_commande, bc.status, bc.montant_total, bc.date_commande FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.date_commande >= date('now', '-30 days') ORDER BY bc.date_commande DESC"
+  },
+  {
+    "question": "Montant total des commandes",
+    "sql": "SELECT SUM(bc.montant_total) as total_commandes, COUNT(*) as nb_commandes FROM commandes_boncommande bc WHERE bc.date_commande >= date('now', '-30 days')"
+  },
+  {
+    "question": "Liste de tous les produits",
+    "sql": "SELECT p.name, p.current_stock, p.price, p.unite_mesure, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY p.name ASC LIMIT 20"
+  },
+  {
+    "question": "Quels sont les produits ?",
+    "sql": "SELECT p.name, p.current_stock, p.price, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY p.name ASC LIMIT 20"
+  },
+  {
+    "question": "Catalogue complet des produits",
+    "sql": "SELECT p.name, p.sku, p.price, p.current_stock, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY cat.name, p.name ASC"
+  },
+  {
+    "question": "Produits de la catégorie instruments",
+    "sql": "SELECT p.name, p.current_stock, p.price FROM catalogue_product p JOIN catalogue_category cat ON p.category_id = cat.id WHERE LOWER(cat.name) LIKE '%instrument%' AND p.is_active = 1"
+  },
+  {
+    "question": "Produits actifs",
+    "sql": "SELECT p.name, p.current_stock, p.price, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY p.name ASC LIMIT 20"
+  },
+  {
+    "question": "Produits inactifs",
+    "sql": "SELECT p.name, p.current_stock, p.price FROM catalogue_product p WHERE p.is_active = 0 ORDER BY p.name ASC"
+  },
+  {
+    "question": "Combien de produits au total ?",
+    "sql": "SELECT COUNT(*) as total_produits, SUM(CASE WHEN is_active = 1 THEN 1 ELSE 0 END) as actifs FROM catalogue_product"
+  },
+  {
+    "question": "Liste des fournisseurs",
+    "sql": "SELECT s.name, s.email, s.phone, s.lead_time, s.min_order_quantity FROM catalogue_supplier s WHERE s.is_active = 1 ORDER BY s.name ASC"
+  },
+  {
+    "question": "Fournisseurs actifs",
+    "sql": "SELECT s.name, s.email, s.phone, s.lead_time FROM catalogue_supplier s WHERE s.is_active = 1 ORDER BY s.name"
+  },
+  {
+    "question": "Combien de fournisseurs ?",
+    "sql": "SELECT COUNT(*) as nb_fournisseurs FROM catalogue_supplier WHERE is_active = 1"
+  },
+  {
+    "question": "Fournisseur avec le délai le plus court",
+    "sql": "SELECT s.name, s.lead_time, s.min_order_quantity FROM catalogue_supplier s WHERE s.is_active = 1 ORDER BY s.lead_time ASC LIMIT 5"
+  },
+  {
+    "question": "Liste des catégories",
+    "sql": "SELECT c.name, c.description, COUNT(p.id) as nb_produits FROM catalogue_category c LEFT JOIN catalogue_product p ON p.category_id = c.id WHERE c.is_active = 1 GROUP BY c.id, c.name ORDER BY nb_produits DESC"
+  },
+  {
+    "question": "Catégories avec le plus de produits",
+    "sql": "SELECT cat.name, COUNT(p.id) as nb_produits FROM catalogue_category cat LEFT JOIN catalogue_product p ON p.category_id = cat.id GROUP BY cat.id, cat.name ORDER BY nb_produits DESC LIMIT 10"
+  },
+  {
+    "question": "Produits périssables",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE p.est_perissable = 1 AND p.is_active = 1 ORDER BY p.current_stock ASC"
+  },
+  {
+    "question": "Produits périssables en rupture",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.est_perissable = 1 AND p.current_stock <= p.stock_threshold AND p.is_active = 1"
+  },
+  {
+    "question": "Chiffre d'affaires du mois",
+    "sql": "SELECT SUM(dv.montant_total) as ca_total, COUNT(*) as nb_ventes FROM commandes_donneevente dv WHERE dv.date_vente >= date('now', '-30 days')"
+  },
+  {
+    "question": "Chiffre d'affaires par produit ce mois",
+    "sql": "SELECT p.name, SUM(dv.montant_total) as ca FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-30 days') GROUP BY p.name ORDER BY ca DESC LIMIT 10"
+  },
+  {
+    "question": "Ventes par canal de distribution",
+    "sql": "SELECT dv.canal_vente, SUM(dv.quantite_vendu) as total_vendu, SUM(dv.montant_total) as ca FROM commandes_donneevente dv GROUP BY dv.canal_vente ORDER BY ca DESC"
+  },
+  {
+    "question": "Ventes par segment client",
+    "sql": "SELECT dv.segment_clientele, SUM(dv.quantite_vendu) as total, SUM(dv.montant_total) as ca FROM commandes_donneevente dv GROUP BY dv.segment_clientele ORDER BY ca DESC"
+  },
+  {
+    "question": "Ventes cette semaine",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total, SUM(dv.montant_total) as ca FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente >= date('now', '-7 days') GROUP BY p.name ORDER BY total DESC"
+  },
+  {
+    "question": "Ventes aujourd'hui",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total, SUM(dv.montant_total) as ca FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.date_vente = date('now') GROUP BY p.name ORDER BY total DESC"
+  },
+  {
+    "question": "Historique des inventaires",
+    "sql": "SELECT h.date, h.etat, h.description FROM stock_historiqueinventaire h ORDER BY h.date DESC LIMIT 10"
+  },
+  {
+    "question": "Dernier inventaire",
+    "sql": "SELECT h.date, h.etat, h.description FROM stock_historiqueinventaire h ORDER BY h.date DESC LIMIT 1"
+  },
+  {
+    "question": "Modèles de prévision disponibles",
+    "sql": "SELECT m.nom_modele, m.mae, m.rmse, m.mape, m.score, m.date_evaluation FROM forecasting_modele m ORDER BY m.score DESC"
+  },
+  {
+    "question": "Meilleur modèle de prévision",
+    "sql": "SELECT m.nom_modele, m.score, m.mae, m.rmse FROM forecasting_modele m ORDER BY m.score DESC LIMIT 1"
+  },
+  {
+    "question": "Performance des modèles",
+    "sql": "SELECT m.nom_modele, m.mae, m.rmse, m.mape, m.score FROM forecasting_modele m WHERE m.score > 0 ORDER BY m.score DESC"
+  },
+  {
+    "question": "Produits les plus chers",
+    "sql": "SELECT p.name, p.price, p.current_stock, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY p.price DESC LIMIT 10"
+  },
+  {
+    "question": "Produits les moins chers",
+    "sql": "SELECT p.name, p.price, p.current_stock FROM catalogue_product p WHERE p.is_active = 1 ORDER BY p.price ASC LIMIT 10"
+  },
+  {
+    "question": "Prix moyen des produits",
+    "sql": "SELECT cat.name as categorie, ROUND(AVG(p.price), 2) as prix_moyen, COUNT(*) as nb FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 GROUP BY cat.name ORDER BY prix_moyen DESC"
+  },
+  {
+    "question": "Prix de Air Fryer",
+    "sql": "SELECT p.name, p.price, p.sku FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Prix de Banane",
+    "sql": "SELECT p.name, p.price, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Prix de Riz",
+    "sql": "SELECT p.name, p.price, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Inventaire complet avec valeurs",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY valeur DESC LIMIT 20"
+  },
+  {
+    "question": "Stock avec seuil dépassé",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, (p.current_stock - p.stock_threshold) as ecart FROM catalogue_product p WHERE p.current_stock > p.stock_threshold * 2 AND p.is_active = 1 ORDER BY ecart DESC LIMIT 15"
+  },
+  {
+    "question": "Produits en surstock",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.current_stock > p.stock_threshold * 3 AND p.is_active = 1 ORDER BY p.current_stock DESC LIMIT 10"
+  },
+  {
+    "question": "Commandes livrées ce mois",
+    "sql": "SELECT s.name, bc.numero_commande, bc.montant_total, bc.livraison_actuelle FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.status = 'livré' AND bc.livraison_actuelle >= date('now', '-30 days') ORDER BY bc.livraison_actuelle DESC"
+  },
+  {
+    "question": "Commandes annulées",
+    "sql": "SELECT s.name, bc.numero_commande, bc.montant_total, bc.date_commande FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.status = 'annulé' ORDER BY bc.date_commande DESC LIMIT 10"
+  },
+  {
+    "question": "Retards de livraison",
+    "sql": "SELECT s.name, bc.numero_commande, bc.livraison_prevue, bc.status FROM commandes_boncommande bc JOIN catalogue_supplier s ON bc.fournisseur_id = s.id WHERE bc.livraison_prevue < date('now') AND bc.status NOT IN ('livré', 'annulé') ORDER BY bc.livraison_prevue ASC"
+  },
+  {
+    "question": "Combien de commandes en attente ?",
+    "sql": "SELECT COUNT(*) as nb_commandes, SUM(bc.montant_total) as total FROM commandes_boncommande bc WHERE bc.status IN ('en_cours', 'confirmé')"
+  },
+  {
+    "question": "Quel est le stock de Almond Flour ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%almond flour%' AND p.is_active = 1"
+  },
+  {
+    "question": "Stock de Air Mattress",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air mattress%'"
+  },
+  {
+    "question": "Ventes de Almond Butter",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%almond butter%' GROUP BY p.name"
+  },
+  {
+    "question": "Prédiction pour Almond Butter",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%almond butter%' ORDER BY pred.date_prediction ASC LIMIT 5"
+  },
+  {
+    "question": "Recommandation pour Almond Flour",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%almond flour%' AND r.est_applique = 0"
+  },
+  {
+    "question": "Seuil minimum de Almond Butter",
+    "sql": "SELECT p.name, p.stock_threshold, p.current_stock FROM catalogue_product p WHERE LOWER(p.name) LIKE '%almond butter%'"
+  },
+  {
+    "question": "Taux de rotation de Riz",
+    "sql": "SELECT p.name, COALESCE(SUM(dv.quantite_vendu), 0) as vendu, p.current_stock, ROUND(COALESCE(SUM(dv.quantite_vendu), 0) * 1.0 / NULLIF(p.current_stock, 0), 2) as taux FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id WHERE LOWER(p.name) LIKE '%riz%' GROUP BY p.id"
+  },
+  {
+    "question": "Valeur du stock de Riz",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur FROM catalogue_product p WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Alertes pour Riz",
+    "sql": "SELECT a.type_alert, a.priorite, a.message FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE LOWER(p.name) LIKE '%riz%' AND a.est_lu = 0"
+  },
+  {
+    "question": "Mouvements de Acoustic Guitar",
+    "sql": "SELECT m.movement_type, m.quantity, m.date, m.reason FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' ORDER BY m.date DESC LIMIT 10"
+  },
+  {
+    "question": "Prédiction pour Acoustic Guitar",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' ORDER BY pred.date_prediction ASC LIMIT 5"
+  },
+  {
+    "question": "Ventes de Air Mattress",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%air mattress%' GROUP BY p.name"
+  },
+  {
+    "question": "Mouvements de Almond Butter",
+    "sql": "SELECT m.movement_type, m.quantity, m.date FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%almond butter%' ORDER BY m.date DESC"
+  },
+  {
+    "question": "Produits avec le plus grand stock",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 ORDER BY p.current_stock DESC LIMIT 10"
+  },
+  {
+    "question": "Produits avec le moins de stock",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE p.is_active = 1 AND p.current_stock > 0 ORDER BY p.current_stock ASC LIMIT 10"
+  },
+  {
+    "question": "Résumé du stock par catégorie",
+    "sql": "SELECT cat.name, COUNT(p.id) as nb_produits, SUM(p.current_stock) as stock_total, ROUND(AVG(p.current_stock), 1) as stock_moyen FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.is_active = 1 GROUP BY cat.name ORDER BY stock_total DESC"
+  },
+  {
+    "question": "Produits ajoutés récemment",
+    "sql": "SELECT p.name, p.price, p.current_stock, p.created_at FROM catalogue_product p WHERE p.created_at >= date('now', '-30 days') ORDER BY p.created_at DESC LIMIT 10"
+  },
+  {
+    "question": "Produits modifiés récemment",
+    "sql": "SELECT p.name, p.current_stock, p.price, p.updated_at FROM catalogue_product p ORDER BY p.updated_at DESC LIMIT 10"
+  },
+  {
+    "question": "Ventes par catégorie ce mois",
+    "sql": "SELECT cat.name, SUM(dv.quantite_vendu) as total_vendu, SUM(dv.montant_total) as ca FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id JOIN catalogue_category cat ON p.category_id = cat.id WHERE dv.date_vente >= date('now', '-30 days') GROUP BY cat.name ORDER BY ca DESC"
+  },
+  {
+    "question": "Quel produit génère le plus de revenus ?",
+    "sql": "SELECT p.name, SUM(dv.montant_total) as ca_total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id GROUP BY p.name ORDER BY ca_total DESC LIMIT 5"
+  },
+  {
+    "question": "Produits avec remise appliquée",
+    "sql": "SELECT p.name, dv.remise_applique, dv.quantite_vendu, dv.date_vente FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE dv.remise_applique > 0 ORDER BY dv.date_vente DESC LIMIT 15"
+  },
+  {
+    "question": "Inventaire avec écart de stock",
+    "sql": "SELECT p.name, s.quantite_theo, s.quantite_phy, s.ecart FROM stock_inventaire s JOIN catalogue_product p ON s.produit_id = p.id WHERE s.ecart != 0 ORDER BY ABS(s.ecart) DESC LIMIT 15"
+  },
+  {
+    "question": "Produits avec écart d'inventaire",
+    "sql": "SELECT p.name, s.quantite_theo, s.quantite_phy, s.ecart FROM stock_inventaire s JOIN catalogue_product p ON s.produit_id = p.id WHERE s.ecart < 0 ORDER BY s.ecart ASC LIMIT 10"
+  },
+  {
+    "question": "Combien de ventes ce mois ?",
+    "sql": "SELECT COUNT(*) as nb_ventes, SUM(quantite_vendu) as total_quantite, SUM(montant_total) as ca FROM commandes_donneevente WHERE date_vente >= date('now', '-30 days')"
+  },
+  {
+    "question": "Nombre de produits par fournisseur",
+    "sql": "SELECT s.name as fournisseur, COUNT(p.id) as nb_produits FROM catalogue_supplier s LEFT JOIN catalogue_product p ON p.supplier_id = s.id WHERE s.is_active = 1 GROUP BY s.id, s.name ORDER BY nb_produits DESC"
+  },
+  {
+    "question": "Fournisseur de Air Fryer",
+    "sql": "SELECT s.name, s.email, s.phone, s.lead_time FROM catalogue_supplier s JOIN catalogue_product p ON p.supplier_id = s.id WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Fournisseur de Banane",
+    "sql": "SELECT s.name, s.email, s.phone FROM catalogue_supplier s JOIN catalogue_product p ON p.supplier_id = s.id WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Délai de livraison par fournisseur",
+    "sql": "SELECT s.name, s.lead_time, s.min_order_quantity, s.max_order_quantity FROM catalogue_supplier s WHERE s.is_active = 1 ORDER BY s.lead_time ASC"
+  },
+  {
+    "question": "Recommandations appliquées",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.appliquee_le FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.est_applique = 1 ORDER BY r.appliquee_le DESC LIMIT 10"
+  },
+  {
+    "question": "Recommandations haute priorité",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.raisonnement, r.date_prediction FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE r.priority = 'HAUTE' AND r.est_applique = 0 ORDER BY r.date_prediction ASC"
+  },
+  {
+    "question": "Prédictions avec rupture prévue ce mois",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.rupture = 1 AND pred.date_prediction BETWEEN date('now') AND date('now', '+30 days') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Import prévu pour Banane",
+    "sql": "SELECT p.name, pred.date_prediction, pred.import_qty, pred.import_lower_bound, pred.import_upper_bound FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%banane%' AND pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Export prévu pour Air Fryer",
+    "sql": "SELECT p.name, pred.date_prediction, pred.export_qty, pred.export_lower_bound FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%' AND pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Combien de ruptures prévues ?",
+    "sql": "SELECT COUNT(*) as nb_ruptures, COUNT(DISTINCT pred.product_id) as nb_produits FROM forecasting_prediction pred WHERE pred.rupture = 1 AND pred.date_prediction >= date('now')"
+  },
+  {
+    "question": "Produits avec rupture prévue ce trimestre",
+    "sql": "SELECT p.name, MIN(pred.date_prediction) as premiere_rupture, pred.stock_prevu FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.rupture = 1 AND pred.date_prediction BETWEEN date('now') AND date('now', '+90 days') GROUP BY p.name ORDER BY premiere_rupture ASC"
+  },
+  {
+    "question": "Quel est le stock de Adjustable Laptop Stand ?",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, p.unite_mesure FROM catalogue_product p WHERE LOWER(p.name) LIKE '%adjustable laptop stand%' AND p.is_active = 1"
+  },
+  {
+    "question": "Stock de Almond Flour Cookies",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold FROM catalogue_product p WHERE LOWER(p.name) LIKE '%almond flour cookies%'"
+  },
+  {
+    "question": "Ventes de Almond Flour ce mois",
+    "sql": "SELECT p.name, SUM(dv.quantite_vendu) as total FROM commandes_donneevente dv JOIN commandes_produitdonneevente pdv ON pdv.donnee_vente_id = dv.id JOIN catalogue_product p ON pdv.produit_id = p.id WHERE LOWER(p.name) LIKE '%almond flour%' AND dv.date_vente >= date('now', '-30 days') GROUP BY p.name"
+  },
+  {
+    "question": "Prédiction pour Air Mattress le mois prochain",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.import_qty FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE LOWER(p.name) LIKE '%air mattress%' AND pred.date_prediction BETWEEN date('now') AND date('now', '+30 days') ORDER BY pred.date_prediction ASC"
+  },
+  {
+    "question": "Alertes pour Acoustic Guitar",
+    "sql": "SELECT a.type_alert, a.priorite, a.message, a.creer_le FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' ORDER BY a.creer_le DESC"
+  },
+  {
+    "question": "Mouvements de Air Mattress",
+    "sql": "SELECT m.movement_type, m.quantity, m.date, m.reason FROM MOVEMENT_STOCK m JOIN catalogue_product p ON m.produit_id = p.id WHERE LOWER(p.name) LIKE '%air mattress%' ORDER BY m.date DESC LIMIT 10"
+  },
+  {
+    "question": "Valeur du stock de Acoustic Guitar",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur FROM catalogue_product p WHERE LOWER(p.name) LIKE '%acoustic guitar%'"
+  },
+  {
+    "question": "Taux de rotation de Air Mattress",
+    "sql": "SELECT p.name, COALESCE(SUM(dv.quantite_vendu), 0) as vendu, p.current_stock, ROUND(COALESCE(SUM(dv.quantite_vendu), 0) * 1.0 / NULLIF(p.current_stock, 0), 2) as taux FROM catalogue_product p LEFT JOIN commandes_produitdonneevente pdv ON pdv.produit_id = p.id LEFT JOIN commandes_donneevente dv ON dv.id = pdv.donnee_vente_id WHERE LOWER(p.name) LIKE '%air mattress%' GROUP BY p.id"
+  },
+  {
+    "question": "Fournisseur de Riz",
+    "sql": "SELECT s.name, s.email, s.lead_time FROM catalogue_supplier s JOIN catalogue_product p ON p.supplier_id = s.id WHERE LOWER(p.name) LIKE '%riz%'"
+  },
+  {
+    "question": "Fournisseur de Acoustic Guitar",
+    "sql": "SELECT s.name, s.email, s.phone FROM catalogue_supplier s JOIN catalogue_product p ON p.supplier_id = s.id WHERE LOWER(p.name) LIKE '%acoustic guitar%'"
+  },
+  {
+    "question": "Recommandation pour Air Mattress",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%air mattress%' AND r.est_applique = 0"
+  },
+  {
+    "question": "Que faire pour Acoustic Guitar ?",
+    "sql": "SELECT p.name, r.type_recommandation, r.quantite_suggeree, r.priority, r.raisonnement FROM forecasting_recommandation r JOIN catalogue_product p ON r.product_id = p.id WHERE LOWER(p.name) LIKE '%acoustic guitar%' AND r.est_applique = 0"
+  },
+  {
+    "question": "Inventaire de Air Fryer",
+    "sql": "SELECT p.name, s.quantite_theo, s.quantite_phy, s.ecart FROM stock_inventaire s JOIN catalogue_product p ON s.produit_id = p.id WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Inventaire de Banane",
+    "sql": "SELECT p.name, s.quantite_theo, s.quantite_phy, s.ecart FROM stock_inventaire s JOIN catalogue_product p ON s.produit_id = p.id WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Produits avec écart négatif en inventaire",
+    "sql": "SELECT p.name, s.quantite_theo, s.quantite_phy, s.ecart FROM stock_inventaire s JOIN catalogue_product p ON s.produit_id = p.id WHERE s.ecart < 0 ORDER BY s.ecart ASC LIMIT 10"
+  },
+  {
+    "question": "SKU de Air Fryer",
+    "sql": "SELECT p.name, p.sku, p.price FROM catalogue_product p WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Informations complètes sur Air Fryer",
+    "sql": "SELECT p.name, p.sku, p.price, p.current_stock, p.stock_threshold, p.unite_mesure, p.est_perissable, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE LOWER(p.name) LIKE '%air fryer%'"
+  },
+  {
+    "question": "Informations complètes sur Banane",
+    "sql": "SELECT p.name, p.sku, p.price, p.current_stock, p.stock_threshold, p.unite_mesure, p.est_perissable, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE LOWER(p.name) LIKE '%banane%'"
+  },
+  {
+    "question": "Produits avec stock entre 10 et 50",
+    "sql": "SELECT p.name, p.current_stock, p.stock_threshold, cat.name as categorie FROM catalogue_product p LEFT JOIN catalogue_category cat ON p.category_id = cat.id WHERE p.current_stock BETWEEN 10 AND 50 AND p.is_active = 1 ORDER BY p.current_stock ASC LIMIT 20"
+  },
+  {
+    "question": "Produits avec stock supérieur à 100",
+    "sql": "SELECT p.name, p.current_stock, p.price, ROUND(p.current_stock * p.price, 2) as valeur FROM catalogue_product p WHERE p.current_stock > 100 AND p.is_active = 1 ORDER BY p.current_stock DESC"
+  },
+  {
+    "question": "Nombre d'alertes par type",
+    "sql": "SELECT a.type_alert, COUNT(*) as nb FROM notifications_alerte a WHERE a.est_lu = 0 GROUP BY a.type_alert ORDER BY nb DESC"
+  },
+  {
+    "question": "Alertes résolues cette semaine",
+    "sql": "SELECT p.name, a.type_alert, a.resolu_le FROM notifications_alerte a JOIN catalogue_product p ON a.produit_id = p.id WHERE a.est_resolu = 1 AND a.resolu_le >= date('now', '-7 days') ORDER BY a.resolu_le DESC"
+  },
+  {
+    "question": "Prédictions horizon long terme",
+    "sql": "SELECT p.name, pred.date_prediction, pred.stock_prevu, pred.horizon FROM forecasting_prediction pred JOIN catalogue_product p ON pred.product_id = p.id WHERE pred.horizon > 30 AND pred.date_prediction >= date('now') ORDER BY pred.date_prediction ASC LIMIT 10"
+  },
+  {
+    "question": "Quel modèle a été utilisé pour les prédictions ?",
+    "sql": "SELECT pred.modele_utilise, COUNT(*) as nb_predictions FROM forecasting_prediction pred GROUP BY pred.modele_utilise ORDER BY nb_predictions DESC"
+  }
+]

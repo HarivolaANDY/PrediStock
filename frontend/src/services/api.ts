@@ -1,40 +1,5 @@
-import {
-  CreateUserData,
-  UserResponse,
-  CreateProductData,
-  ProductResponse,
-  CreateSupplierData,
-  SupplierResponse,
-  Category,
-  CategoryCreateData,
-  ApiResponse,
-} from "@/types/types";
+import { CreateUserData, UserResponse, CreateProductData, ProductResponse, CreateSupplierData, SupplierResponse, Category, CategoryCreateData, ApiResponse, User, Role } from "@/types/types";
 
-export interface RoleData {
-  name: string;
-  description?: string;
-  permissions?: string[];
-  [key: string]: unknown;
-}
-
-export interface RoleResponse {
-  success: boolean;
-  message: string;
-  data?:
-    | {
-        id: string;
-        name: string;
-        description?: string;
-        permissions?: string[];
-      }
-    | {
-        id: string;
-        name: string;
-        description?: string;
-        permissions?: string[];
-      }[];
-}
-import { API_BASE_URL } from "@/config/api.config";
 import { ToastService } from "./toast.service";
 import { LoginData } from "@/types/login";
 
@@ -93,25 +58,23 @@ export const handleHttpErrors = async (response: Response) => {
   return data;
 };
 
-export const UserService = {
-  createUser: async (userData: CreateUserData): Promise<UserResponse> => {
-    try {
-      const response = await fetch(`${API_BASE_URLS}api/accounts/register/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          //Tsy azoko
-          //'Authorization': `Token ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(userData),
-      });
-      // console.log(response)
-      return handleHttpErrors(response);
-    } catch (error) {
-      console.error("Creation d'utilisateur échouée;", error);
-      throw error;
-    }
-  },
+    getUsers: async (): Promise<User[]> => {
+        try {
+            const response = await fetch(`${API_BASE_URLS}api/accounts/check-availability/`, {
+                method: "GET",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Token ${localStorage.getItem('token')}`
+                },
+            });
+            const data = await handleHttpErrors(response);
+            return data.results || data; // Handle both paginated and non-paginated responses
+        }
+        catch (error) {
+            console.error("Récupération des utilisateurs échouée:", error);
+            throw error;
+        }
+    },
 
   getUsers: async (): Promise<UserResponse[]> => {
     try {
@@ -260,7 +223,8 @@ export const SupplierService = {
         min_order_quantity: supplierData.minOrderQuantity,
         max_order_quantity: supplierData.maxOrderQuantity,
         is_active: supplierData.isActive,
-      };
+        products: supplierData.products || '',   // ← ajouter
+        };
 
       const response = await fetch(`${API_BASE_URLS}api/catalogue/suppliers/`, {
         method: "POST",
@@ -293,7 +257,8 @@ export const SupplierService = {
         min_order_quantity: supplierData.minOrderQuantity,
         max_order_quantity: supplierData.maxOrderQuantity,
         is_active: supplierData.isActive,
-      };
+        products: supplierData.products || '',   // ← ajouter
+        };
 
       const response = await fetch(
         `${API_BASE_URLS}api/catalogue/suppliers/${supplierId}/`,
@@ -332,77 +297,84 @@ export const SupplierService = {
   },
 };
 
-//Api Role
+  //Api Role
+export interface RoleData {
+    name?: string;
+    description?: string;
+    permissions?: string[];
+    [key: string]: unknown;
+}
+
 export const RoleService = {
-  createRole: async (roleData: RoleData): Promise<RoleResponse> => {
-    try {
-      const response = await fetch(`${API_BASE_URLS}api/role/`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Token ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify(roleData),
-      });
-      return handleHttpErrors(response);
-    } catch (error) {
-      console.error("Création du rôle échouée:", error);
-      throw error;
-    }
-  },
-  updateRole: async (
-    roleId: string,
-    roleData: RoleData,
-  ): Promise<RoleResponse> => {
-    try {
-      const response = await fetch(`${API_BASE_URLS}api/role/${roleId}/`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Token ${localStorage.getItem("token")}`,
-        },
-        body: JSON.stringify(roleData),
-      });
-      return handleHttpErrors(response);
-    } catch (error) {
-      console.error("Mise à jour du rôle échouée:", error);
-      throw error;
-    }
-  },
-  getAllRoles: async (): Promise<RoleResponse> => {
-    try {
-      const response = await fetch(`${API_BASE_URLS}api/role/`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-          Authorization: `Token ${localStorage.getItem("token")}`,
-        },
-      });
-      return handleHttpErrors(response);
-    } catch (error) {
-      console.error("Récupération des rôles échouée:", error);
-      throw error;
-    }
-  },
-  getRoles: async (): Promise<RoleResponse> => {
-    try {
-      const response = await fetch(`${API_BASE_URLS}api/role/`, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Token ${localStorage.getItem("token")}`,
-        },
-      });
-      return handleHttpErrors(response);
-    } catch (error) {
-      console.error("Récupération des rôles échouée:", error);
-      throw error;
-    }
-  },
-};
+    createRole: async (roleData: RoleData): Promise<unknown> => {
+        try {
+            const response = await fetch(`${API_BASE_URLS}api/accounts/roles/`, {
+                method: "POST",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Token ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify(roleData),
+            });
+            return handleHttpErrors(response);
+        } catch (error) {
+            console.error("Création du rôle échouée:", error);
+            throw error;
+        }
+    },
+    updateRole: async (roleId: string, roleData: RoleData): Promise<unknown> => {
+        // console.log("Updating role with ID:", roleId, "and data:", roleData);
+        try {
+            const response = await fetch(`${API_BASE_URLS}api/roles/${roleId}/`, {
+                method: "PATCH",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Token ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify(roleData),
+            });
+            return handleHttpErrors(response);
+        } catch (error) {
+            console.error("Mise à jour du rôle échouée:", error);
+            throw error;
+        }
+    },
+    getAllRoles: async (): Promise<Role[]> => {
+        try {
+            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
+                method: "GET",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json',
+                    'Authorization': `Token ${localStorage.getItem('token')}`
+                }
+            });
+            const data = await handleHttpErrors(response);
+            return data.results || data;
+        } catch (error) {
+            console.error("Récupération des rôles échouée:", error);
+            throw error;
+        }
+    },
+    getRoles: async (): Promise<Role[]> => {
+        try {
+            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
+                method: "GET",
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Token ${localStorage.getItem('token')}`
+                },
+            });
+            const data = await handleHttpErrors(response);
+            return data.results || data;
+        } catch (error) {
+            console.error("Récupération des rôles échouée:", error);
+            throw error;
+        }
+    },
+}
 
 //Category API Service
 class CategoryAPI {

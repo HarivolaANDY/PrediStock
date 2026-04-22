@@ -16,7 +16,7 @@ export interface BarChartTooltipProps {
 }
 
 interface BarChartProps {
-  data: BarChartDataItem[]
+  data: Record<string, unknown>[]
   xAxisKey: string
   bars: {
     key: string
@@ -83,6 +83,37 @@ export function BarChart({
   barGap = 4,
   barSize = 32
 }: BarChartProps) {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; fill: string }>; label?: string }) => {
+    if (!active || !payload || !payload.length) {
+      return null;
+    }
+
+    return (
+      <div className="bg-popover p-3 border rounded-lg shadow-lg">
+        <p className="font-medium mb-2">{label}</p>
+        {payload.map((entry: { dataKey: string; value: number; fill: string }, index: number) => {
+          const bar = bars.find(b => b.key === entry.dataKey);
+          const tooltipText = bar?.tooltip 
+            ? bar.tooltip(entry.value)
+            : `${bar?.name}: ${entry.value}`;
+
+          return (
+            <div 
+              key={`tooltip-${index}`}
+              className="flex items-center gap-2 text-sm"
+            >
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: entry.fill }}
+              />
+              <span>{tooltipText}</span>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
   return (
     <div className={className}>
       <ResponsiveContainer width="100%" height={height}>

@@ -7,22 +7,13 @@ import secrets
 import string
 
 
-class User(AbstractUser):
-    ROLE_CHOICES = (
-        ('Administrateur', 'Administrateur'),
-        ('Utilisateur', 'Utilisateur'),
-        ('Invité', 'Invité'),
-        ('Fournisseur', 'Fournisseur'),
-        ('Analyste', 'Analyste'),
-        ('Gestionnaire de Stock', 'Gestionnaire de Stock'),
-        ('Utilisateur professionnel', 'Utilisateur professionnel'),
-        ('Analyste de Données', 'Analyste de Données'),
-    )
+class User(AbstractUser): # Supprimer le "ROLE_CHOICES" et mettre par defaut "Utilisateur" en "Administrateur".
+    
     email = models.EmailField(unique=True, blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, unique=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    role = models.CharField(max_length=100, choices=ROLE_CHOICES, default='Utilisateur')
+    role = models.CharField(max_length=100, default='Administrateur')
     historique_activite = models.TextField(blank=True, null=True)
     biography = models.TextField(blank=True, null=True)
     avatar = models.ImageField(upload_to='users/avatar/', blank=True, null=True)

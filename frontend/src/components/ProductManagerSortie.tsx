@@ -1,10 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import API from "@/services/axios";
-import { PanierItem, ProduitInserer, CreateProductData } from '@/types/types';
-import { Select, SelectContent, SelectItem } from '@radix-ui/react-select';
-import { SelectTrigger, SelectValue } from './ui/select';
+import { CreateProductData, PDV } from '@/types/types';
 import { Input } from './ui/input';
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils";
 
 interface StockExitItem {
   id_produit: number;
@@ -21,7 +18,7 @@ const ProductManagerSortie = () => {
   const [isloading, setIsloading] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
   const [showProductList, setShowProductList] = useState(false);
-  const [liste_deriv, setListe_deriv] = useState<any[]>([]);
+  const [liste_deriv, setListe_deriv] = useState<PDV[]>([]);
   const [selectedDerivId, setSelectedDerivId] = useState<number | ''>('');
   const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([]); // Nouvelle liste pour accumuler les fichiers
 
@@ -49,7 +46,7 @@ const ProductManagerSortie = () => {
       let designation = formExitItem.designation?.trim() || '';
       if (!designation && selectedDerivId !== '') {
         const deriv = liste_deriv.find(d => d.id === Number(selectedDerivId));
-        if (deriv) designation = deriv.designation || deriv.name || '';
+        if (deriv) designation = deriv.designation || '';
       }
 
       if (!designation) return; // ne rien faire si pas de désignation
@@ -103,10 +100,9 @@ const ProductManagerSortie = () => {
   const sendStockExits = async () => {
     if (stockExits.length === 0) return;
     setIsloading(true);
-    const newFiles: { blob: Blob; filename: string }[] = [];
 
     // Grouper par produit parent pour correspondre au backend
-    const grouped: Record<number, any[]> = {};
+    const grouped: Record<number, { id: number | null; quantite: number; designation: string; ref?: string }[]> = {};
     stockExits.forEach(item => {
       const pid = Number(item.id_produit);
       if (!grouped[pid]) grouped[pid] = [];
@@ -128,24 +124,19 @@ const ProductManagerSortie = () => {
     };
 
     try {
-      const res = await API.post("/produits_dv/sortie/", liste_sortie_payload, { responseType: 'blob' });
-      const parsed = await parseAxiosBlobResponse(res, "Ordre_de_sorite.pdf");
+      const res = await API.post("catalogue/produits-dv/sortie/", liste_sortie_payload)
+      const { url, filename } = res.data.data
 
-      if (parsed.files && parsed.files.length) {
-        // accumuler fichiers et (optionnel) déclencher le téléchargement immédiat
-        setDownloadedFiles(prev => [...prev, ...parsed.files]);
-        // downloadAll(parsed.files) // décommenter si téléchargement immédiat désiré
-      }
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', filename)
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
 
-      if (parsed.json) {
-        console.log("JSON response:", parsed.json);
-      }
-
-      // Vider les stockExits après succès
-      stockExits.splice(0, stockExits.length);
-      setStockExits([...stockExits]); // Forcer le re-render
-      setRaison('');
-      setShowModal(false); // fermer le modal après envoi réussi
+      setStockExits([])
+      setRaison('')
+      setShowModal(false)
     } catch (err) {
       console.log(err);
     } finally {
@@ -154,24 +145,23 @@ const ProductManagerSortie = () => {
   };
 
   // Recherche de produits
-  const FetchProducts_filtered = async () => {
+  const FetchProducts_filtered = useCallback(async () => {
     try {
       const data = { chercher: searchTerm };
-      const res = await API.post("/product/", data);
+      const res = await API.post("catalogue/products/", data);
       setListe_produit(res.data.data || []);
     } catch (err) {
       console.log(err);
       setListe_produit([]);
     }
-  };
+  }, [searchTerm]);
 
   const FetchDerivproduit = async(id?:number) =>{
     if (id){
       try{
-        const res = await API.get(`produits_dv/par_produit/?product=${id}`).then((reponse)=>{
-          setListe_deriv(reponse.data.data);
-          setSelectedDerivId(''); // reset selection when changing product
-        })
+        const response = await API.get(`catalogue/produits-dv/par_produit/?product=${id}`);
+        setListe_deriv(response.data.data);
+        setSelectedDerivId(''); // reset selection when changing product
       }
       catch(err){
         console.log(err);
@@ -191,7 +181,7 @@ const ProductManagerSortie = () => {
     }, 300);
 
     return () => clearTimeout(delayDebounceFn);
-  }, [searchTerm]);
+  }, [searchTerm, FetchProducts_filtered]);
 
   return (
     <div className="bg-white shadow-lg rounded-xl p-8 max-w-5xl mx-auto my-10 border border-gray-100 transition-all duration-300">
@@ -298,16 +288,20 @@ const ProductManagerSortie = () => {
               {showProductList && (
                 <div className="absolute z-20 bg-white rounded-lg shadow-xl border border-gray-100 mt-1 w-full max-h-64 overflow-y-auto">
                   {liste_produit.length > 0 ? (
-                    liste_produit.map((prod: any) => (
+                    liste_produit.map((prod: CreateProductData) => (
                       <div
                         key={prod.id}
                         className="px-4 py-3 hover:bg-blue-50 cursor-pointer transition-colors text-gray-800"
                         onMouseDown={() => {
-                          setFormProductId(prod.id);
-                          setSearchTerm(prod.name + ' (' + prod.unite_mesure + ')');
-                          setFormExitItem({ ...formExitItem, designation: prod.name + ' (' + prod.unite_mesure + ')' });
-                          setShowProductList(false);
-                          FetchDerivproduit(prod.id);
+                          if (prod.id !== undefined) {
+                            const name = prod.name || 'Produit sans nom';
+                            const unite = prod.unite_mesure || '';
+                            setFormProductId(prod.id);
+                            setSearchTerm(name + ' (' + unite + ')');
+                            setFormExitItem({ ...formExitItem, designation: name + ' (' + unite + ')' });
+                            setShowProductList(false);
+                            FetchDerivproduit(prod.id);
+                          }
                         }}
                       >
                         {prod.name} {prod.description ? <span className="text-gray-500 text-sm">– {prod.description}</span> : ''} 
@@ -331,15 +325,15 @@ const ProductManagerSortie = () => {
                   const deriv = liste_deriv.find(d => d.id === Number(id));
                   if (deriv) {
                     // pré-remplit la désignation pour l'utilisateur
-                    setFormExitItem(prev => ({ ...prev, designation: deriv.designation || deriv.name || '' }));
+                    setFormExitItem(prev => ({ ...prev, designation: deriv.designation || '' }));
                   }
                 }}
                 className="w-full px-3 py-2 border rounded-lg"
               >
                 <option value="">-- Choisir une dérivée --</option>
-                {liste_deriv.map((deriv)=>(
+                {liste_deriv.map((deriv: PDV) => (
                   <option key={deriv.id} value={deriv.id}>
-                    {deriv.designation || deriv.name} (en stock: {deriv.nombre})
+                    {deriv.designation} (en stock: {deriv.nombre})
                   </option>
                 ))}
               </select>

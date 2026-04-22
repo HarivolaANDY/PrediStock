@@ -73,19 +73,21 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
 
       // Préparer les données pour l'envoi
       const categoryData: {
+        id?: string;
         name: string;
         description: string;
         is_active: boolean;
-        subcategories: Array<{ name: string; description: string }>;
-        id?: string;
+        subcategories: { name: string; description: string; }[];
       } = {
         name: formData.name.trim(),
         description: formData.description?.trim() || "",
-        is_active: true,
-        subcategories: formData.subcategories?.filter(sub => sub.name.trim() !== "").map(sub => ({
-          name: sub.name.trim(),
-          description: sub.description?.trim() || ""
-        })) || []
+        is_active: formData.is_active,
+        subcategories: (formData.subcategories || [])
+          .filter(sub => sub.name.trim() !== "")
+          .map(sub => ({
+            name: sub.name.trim(),
+            description: sub.description?.trim() || ""
+          }))
       };
 
       // Ajouter l'ID si c'est une mise à jour
@@ -134,9 +136,9 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
       } else {
         throw new Error(data.message || "Une erreur est survenue");
       }
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue";
+    } catch (error: unknown) {
       console.error("Erreur:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue';
       toast({
         title: "Erreur",
         description: errorMessage,

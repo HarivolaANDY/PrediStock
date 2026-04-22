@@ -1,6 +1,6 @@
-import React, { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
-import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2 } from "lucide-react"
+import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -14,23 +14,9 @@ import {
   TableRow 
 } from "@/components/ui/table"
 import { MetricCard } from "@/components/MetricCard"
-import { ImportDataModal } from "@/components/ImportDataModal"
+import recommendationService from "@/services/recommendationService"
+import { toast } from "@/components/ui/use-toast"
 
-import { useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
-
-const importHistory = [
-  { id: "1", file: "ventes_jan.csv", status: "completed", date: "2024-01-15", records: "15,230" },
-  { id: "2", file: "maj_inventaire.xlsx", status: "processing", date: "2024-01-15", records: "3,450" },
-  { id: "3", file: "retours_q4.csv", status: "failed", date: "2024-01-14", records: "890" },
-  { id: "4", file: "catalogue_produits.json", status: "completed", date: "2024-01-14", records: "2,100" }
-]
-
-type DataSource = {
-  id: number,
-  name: string,
-  file
-}
 
 interface DataImport {
   id: number;
@@ -45,14 +31,17 @@ interface DataImport {
 
 export default function GestionDonnees() {
   const navigate = useNavigate()
-  const [uploadProgress, setUploadProgress] = useState(0)
   const [showImportDataModal, setShowImportDataModal] = useState(false)
   const [dataSources, setDataSources] = useState<DataImport[]>([])
   const [loading, setLoading] = useState(true)
 
   // Filtrer les données selon leur statut
-  const pendingSources = dataSources.filter(source => source.status === "PENDING")
-  const historySources = dataSources.filter(source => ["DONE", "ERR"].includes(source.status))
+  const pendingSources = dataSources.filter(source => 
+    source.status.toUpperCase() === "PENDING"
+  )
+  const historySources = dataSources.filter(source => 
+    ["DONE", "ERR", "FAILED"].includes(source.status.toUpperCase())
+  )
 
   const getTotalDataSize = () => {
     const totalBytes = dataSources.reduce((acc, source) => acc + source.file_size, 0);
@@ -61,19 +50,19 @@ export default function GestionDonnees() {
   }
 
   const getSourceDescription = (target_table: string): string => {
+    // Keys updated to match backend's TargetTable choices: 'produit', 'categorie', 'supplier', 'generer'
     const descriptions: { [key: string]: string } = {
       'supplier': 'Données des fournisseurs',
-      'product': 'Catalogue de produits',
-      'category': 'Catégories de produits',
+      'produit': 'Catalogue de produits',
+      'categorie': 'Catégories de produits',
       'generer': 'Données de génération de stock',
     }
     return descriptions[target_table] || `Données de ${target_table}`
   }
 
-  const fetchDataSources = async () => {
+  const fetchDataSources = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token')
-      const response = await fetch('http://localhost:8000/api/data-import/', {
+      const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
         headers: {
           'Authorization': `Token ${localStorage.getItem('token')}`,
           'Content-Type': 'application/json'
@@ -85,8 +74,9 @@ export default function GestionDonnees() {
       }
 
       const data = await response.json()
-      console.log('Response data:', data) // Pour déboguer
-      const formattedData = data.results.map((item: DataImport) => ({
+      console.log('Response data:', data)
+      const items = data.data ?? data.results ?? data ?? []
+      const formattedData = items.map((item: DataImport) => ({
         ...item,
         sourceName: getSourceDescription(item.target_table)
       }))
@@ -96,44 +86,45 @@ export default function GestionDonnees() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchDataSources()
-  }, [])
+  }, [fetchDataSources])
 
   const getStatusBadge = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "connected":
-      case "completed":
-        return <Badge className="bg-success text-success-foreground">Connecté</Badge>
-      case "err":
-      case "failed":
-        return <Badge variant="destructive">Erreur</Badge>
-      case "syncing":
+    // Use uppercase for consistency with backend status values
+    switch (status.toUpperCase()) {
+      case "DONE":
+        return <Badge className="bg-success text-success-foreground">Terminé</Badge>
+      case "PENDING":
+        return <Badge variant="secondary">En attente</Badge>
+      case "SYNC":
+      case "RUNNING":
       case "processing":
         return <Badge className="bg-warning text-warning-foreground">Synchronisation</Badge>
-      case "pending":
-        return <Badge variant="secondary">En attente</Badge>
-      case "done":
-        return <Badge className="bg-success text-success-foreground">Réussi</Badge>
+      case "FAILED":
+      case "ERR":
+      case "ERROR":
+        return <Badge variant="destructive">Erreur</Badge>
       default:
         return <Badge variant="outline">Inconnu</Badge>
     }
   }
 
   const getStatusIcon = (status: string) => {
-    switch (status.toLowerCase()) {
-      case "connected":
-      case "completed":
+    switch (status.toUpperCase()) {
+      case "DONE":
         return <CheckCircle className="h-4 w-4 text-success" />
-      case "error":
-      case "failed":
+      case "FAILED":
+      case "ERR":
+      case "ERROR":
         return <AlertCircle className="h-4 w-4 text-destructive" />
-      case "syncing":
+      case "SYNC":
+      case "RUNNING":
       case "processing":
         return <Database className="h-4 w-4 text-warning animate-pulse" />
-      case "pending":
+      case "PENDING":
         return <RefreshCw className="h-4 w-4 text-muted-foreground" />
       default:
         return <Database className="h-4 w-4" />
@@ -144,16 +135,153 @@ export default function GestionDonnees() {
     navigate(`/data/${id}`)
   }
 
-  const handleImportData = () => {
-    setShowImportDataModal(true)
+  const exportToCSV = (data: any[], filename: string, separator: string = ";") => {
+    if (data.length === 0) {
+      toast({
+        title: "Erreur",
+        description: "Aucune donnée à exporter",
+        variant: "destructive"
+      })
+      return
+    }
+
+    const headers = Object.keys(data[0])
+    const csvRows = [
+      headers.join(separator),
+      ...data.map(row =>
+        headers.map(header => {
+          const val = row[header] === null || row[header] === undefined ? "" : row[header]
+          // Échapper les guillemets et gérer les retours à la ligne
+          const escaped = String(val).replace(/"/g, '""')
+          return `"${escaped}"`
+        }).join(separator)
+      )
+    ]
+
+    const csvString = csvRows.join("\n")
+    const blob = new Blob([csvString], { type: "text/csv;charset=utf-8;" })
+    const link = document.createElement("a")
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob)
+      link.setAttribute("href", url)
+      link.setAttribute("download", filename)
+      link.style.visibility = "hidden"
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+    }
+  }
+
+  const handleExportDataSources = () => {
+    const exportData = dataSources.map(source => ({
+      ID: source.id,
+      Nom: source.name,
+      Statut: source.status,
+      Table: source.target_table,
+      Type: source.file_type,
+      Taille: `${(source.file_size / 1024).toFixed(2)} KB`,
+      Date: new Date(source.uploaded_at).toLocaleString("fr-FR")
+    }))
+    exportToCSV(exportData, `export_sources_donnees_${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.csv`)
+  }
+
+  const handleExportInventory = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/api/catalogue/products/", {
+        headers: {
+          "Authorization": `Token ${localStorage.getItem("token")}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const items = data.data ?? data.results ?? data ?? []
+        const exportData = items.map((p: any) => ({
+          Nom: p.name,
+          SKU: p.sku,
+          Prix: p.price,
+          "Stock Actuel": p.current_stock,
+          "Seuil Alerte": p.stock_threshold,
+          Statut: p.is_active ? "Actif" : "Inactif"
+        }))
+        exportToCSV(exportData, `inventaire_export_${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.csv`)
+      } else {
+        toast({ title: "Erreur", description: "Impossible de récupérer l'inventaire", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erreur export inventaire:", error)
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'export de l'inventaire", variant: "destructive" })
+    }
+  }
+
+  const handleExportSales = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/api/catalogue/revenues/mensuel/", {
+        headers: {
+          "Authorization": `Token ${localStorage.getItem("token")}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const items = data.data ?? data.results ?? data ?? []
+        exportToCSV(items, `historique_ventes_${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.csv`)
+      } else {
+        toast({ title: "Erreur", description: "Impossible de récupérer l'historique des ventes", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erreur export ventes:", error)
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'export des ventes", variant: "destructive" })
+    }
+  }
+
+  const handleExportMovements = async () => {
+    try {
+      const response = await fetch("http://localhost:8000/api/stock/mouvements/", {
+        headers: {
+          "Authorization": `Token ${localStorage.getItem("token")}`
+        }
+      })
+      if (response.ok) {
+        const data = await response.json()
+        const items = data.data ?? data.results ?? data ?? []
+        exportToCSV(items, `mouvements_stock_${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.csv`)
+      } else {
+        toast({ title: "Erreur", description: "Impossible de récupérer les mouvements de stock", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erreur export mouvements:", error)
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'export", variant: "destructive" })
+    }
+  }
+
+  const handleExportForecasts = async () => {
+    try {
+      const preds = await recommendationService.getPredictions()
+      if (preds && preds.length > 0) {
+        const exportData = preds.map(p => ({
+          Produit: p.product_name || `ID: ${p.product}`,
+          Date: new Date(p.date_prediction).toLocaleDateString("fr-FR"),
+          "Stock Prévu": p.stock_prevu?.toFixed(2),
+          "Import Prévu": p.import_qty?.toFixed(2),
+          "Export Prévu": p.export_qty?.toFixed(2),
+          Rupture: p.rupture ? "OUI" : "NON",
+          Modèle: p.modele_utilise
+        }))
+        exportToCSV(exportData, `previsions_export_${new Date().toLocaleDateString("fr-FR").replace(/\//g, "-")}.csv`)
+      } else {
+        toast({ title: "Erreur", description: "Aucune prévision à exporter", variant: "destructive" })
+      }
+    } catch (error) {
+      console.error("Erreur export prévisions:", error)
+      toast({ title: "Erreur", description: "Une erreur est survenue lors de l'export des prévisions", variant: "destructive" })
+    }
   }
 
   const handleSync = async (sourceId: number) => {
     try {
-      // Mettre à jour le statut en "syncing"
+      // Mettre à jour le statut en "SYNC" (matching backend status)
       setDataSources(prev =>
         prev.map(src =>
-          src.id === sourceId ? { ...src, status: "processing" } : src
+          src.id === sourceId ? { ...src, status: "SYNC" } : src
         )
       )
 
@@ -184,9 +312,63 @@ export default function GestionDonnees() {
       // En cas d'erreur, mettre le statut en erreur
       setDataSources(prev =>
         prev.map(src =>
-          src.id === sourceId ? { ...src, status: "failed" } : src
+          src.id === sourceId ? { ...src, status: "FAILED" } : src
         )
       )
+    }
+  }
+
+  const handleImport = async (config: {
+    source: File | null
+    format: string
+    destination: string
+    compression?: boolean
+    includeHeaders?: boolean
+  }) => {
+    // Connect the import modal to the actual backend upload endpoint
+    if (!config.source) {
+      throw new Error('Aucun fichier sélectionné')
+    }
+
+    // Map frontend format to backend target_table
+    const formatToTargetTable: { [key: string]: string } = {
+      'csv': 'produit',
+      'excel': 'produit',
+      'json': 'produit',
+      'parquet': 'produit',
+    }
+
+    const formData = new FormData()
+    formData.append('name', config.destination || config.source.name || 'import_' + Date.now())
+    formData.append('file_uploaded', config.source)
+    formData.append('target_table', formatToTargetTable[config.format] || 'produit')
+    if (config.compression !== undefined) {
+      formData.append('update_table', config.compression.toString())
+    }
+
+    try {
+      const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Token ${localStorage.getItem('token')}`
+          // Note: Don't set Content-Type for FormData, browser sets it automatically with boundary
+        },
+        body: formData
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(errorData.message || 'Erreur lors de l\'import')
+      }
+
+      const result = await response.json()
+      console.log('Import réussi:', result)
+      
+      // Rafraîchir les données
+      fetchDataSources()
+    } catch (error) {
+      console.error('Erreur lors de l\'import:', error)
+      throw error // Re-throw to let the modal handle the error
     }
   }
 
@@ -197,17 +379,13 @@ export default function GestionDonnees() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Gestion des données</h1>
           <p className="text-muted-foreground">
-            Importez, exportez et gérez vos sources de données d'inventaire
+            Exportez et gérez vos sources de données d'inventaire
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline">
+          <Button onClick={handleExportDataSources} variant="outline" className="text-white bg-bouton hover:bg-bouton-hover border-none">
             <Upload className="h-4 w-4 mr-2" />
             Exporter les données
-          </Button>
-          <Button onClick={handleImportData} className="text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-            <Download className="h-4 w-4 mr-2" />
-            Importer des données
           </Button>
         </div>
       </div>
@@ -309,9 +487,9 @@ export default function GestionDonnees() {
                                 size="sm" 
                                 variant="outline"
                                 onClick={() => handleSync(source.id)}
-                                disabled={source.status.toLowerCase() === "processing"}
+                                disabled={source.status.toUpperCase() === "SYNC" || source.status.toUpperCase() === "RUNNING"}
                               >
-                                {source.status.toLowerCase() === "processing" ? "En cours..." : "Synchroniser"}
+                                {source.status.toUpperCase() === "SYNC" || source.status.toUpperCase() === "RUNNING" ? "En cours..." : "Synchroniser"}
                               </Button>
                             </div>
                           </TableCell>
@@ -397,19 +575,19 @@ export default function GestionDonnees() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-4">
-                <Button className="w-full justify-start">
+                <Button onClick={handleExportInventory} className="w-full justify-start">
                   <Download className="h-4 w-4 mr-2" />
                   Exporter l'inventaire actuel
                 </Button>
-                <Button className="w-full justify-start" variant="outline">
+                <Button onClick={handleExportSales} className="w-full justify-start" variant="outline">
                   <Download className="h-4 w-4 mr-2" />
                   Exporter l'historique des ventes
                 </Button>
-                <Button className="w-full justify-start" variant="outline">
+                <Button onClick={handleExportForecasts} className="w-full justify-start" variant="outline">
                   <Download className="h-4 w-4 mr-2" />
                   Exporter les données de prévision
                 </Button>
-                <Button className="w-full justify-start" variant="outline">
+                <Button onClick={handleExportMovements} className="w-full justify-start" variant="outline">
                   <Download className="h-4 w-4 mr-2" />
                   Exporter les mouvements de stock
                 </Button>
@@ -425,7 +603,7 @@ export default function GestionDonnees() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="text-sm text-muted-foreground">
-                  Créez des configurations d’export avec des plages de dates, filtres et formats spécifiques.
+                  Créez des configurations d'export avec des plages de dates, filtres et formats spécifiques.
                 </div>
                 <Button className="w-full">
                   Créer un export personnalisé
@@ -434,7 +612,7 @@ export default function GestionDonnees() {
                   <h4 className="font-medium mb-2">Exports planifiés</h4>
                   <div className="space-y-2 text-sm">
                     <div className="flex justify-between">
-                      <span>Rapport hebdomadaire d’inventaire</span>
+                      <span>Rapport hebdomadaire d'inventaire</span>
                       <Badge variant="outline">Actif</Badge>
                     </div>
                     <div className="flex justify-between">
@@ -449,15 +627,6 @@ export default function GestionDonnees() {
         </TabsContent>
       </Tabs>
 
-      {showImportDataModal && (
-        <ImportDataModal
-          onClose={() => setShowImportDataModal(false)}
-          onImport={async (config) => {
-            console.log("Importation avec la config :", config)
-            return new Promise((resolve) => setTimeout(resolve, 2000))
-          }}
-        />
-      )}
     </div>
   )
 }

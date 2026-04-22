@@ -16,22 +16,21 @@ export const transformSupplier = (supplier: Supplier): SupplierLike => ({
   id: supplier.id,
   name: supplier.name,
   email: supplier.email,
-  phone: supplier.phone,
-  leadTime: supplier.lead_time,
-  minOrderQuantity: supplier.min_order_quantity,
-  maxOrderQuantity: supplier.max_order_quantity,
-  isActive: supplier.is_active,
-  createdAt: supplier.created_at,
+  phone: supplier.phone ?? '',
+  leadTime: supplier.lead_time ?? 0,
+  minOrderQuantity: supplier.min_order_quantity ?? 0,
+  maxOrderQuantity: supplier.max_order_quantity ?? 0,
+  isActive: Boolean(supplier.is_active),
+  createdAt: supplier.created_at
 })
 
-// ── Helper : normalise is_active en booléen quelle que soit la valeur de l'API
 const isActive = (supplier: Supplier): boolean => supplier.is_active === true
 
 const formatDateSafe = (date?: string) => {
-    if (!date) return "—"
-    const d = new Date(date)
-    return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("fr-FR")
-  }
+  if (!date) return "—"
+  const d = new Date(date)
+  return isNaN(d.getTime()) ? "—" : d.toLocaleDateString("fr-FR")
+}
 
 interface SupplierStatsProps {
   suppliers: Supplier[]
@@ -53,6 +52,7 @@ export function SupplierStats({
   onEditSupplier,
 }: SupplierStatsProps) {
   const [currentPage, setCurrentPage] = useState(1)
+  const [productFilter, setProductFilter] = useState("")
   const pageSize = 30
 
   const activeCount = suppliers.filter(isActive).length
@@ -60,18 +60,31 @@ export function SupplierStats({
     ? suppliers.reduce((sum, s) => sum + (s.lead_time ?? 0), 0) / suppliers.length
     : 0
 
+  // ── Liste de tous les produits uniques pour le filtre ──────────────────────
+  const allProducts = Array.from(
+    new Map(
+      suppliers
+        .flatMap(s => s.products ?? [])
+        .map(p => [p.id, p])
+    ).values()
+  ).sort((a, b) => a.name.localeCompare(b.name))
+
   const filteredSuppliers = suppliers
     .filter(supplier => {
-      // ── Filtre statut — robuste aux strings "true"/"false" de certaines API ──
       if (selectedSupplier === 'active') return isActive(supplier)
       if (selectedSupplier === 'inactive') return !isActive(supplier)
-      return true // 'all'
+      return true
     })
     .filter(supplier =>
       supplier.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       supplier.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
       (supplier.phone ?? '').includes(searchTerm)
     )
+    // ── Filtre par produit ─────────────────────────────────────────────────
+    .filter(supplier => {
+      if (!productFilter || productFilter === 'all') return true
+      return (supplier.products ?? []).some(p => String(p.id) === productFilter)
+    })
 
   const totalPages = Math.ceil(filteredSuppliers.length / pageSize)
   const paginatedSuppliers = filteredSuppliers.slice(
@@ -89,9 +102,9 @@ export function SupplierStats({
         <MetricCard title="Inactifs" value={suppliers.length - activeCount} icon={<FaCircle />} variant="destructive" />
       </div>
 
-      {/* Search and Filter */}
-      <div className="flex items-center space-x-2 mb-4">
-        <div className="relative flex-1 max-w-sm">
+      {/* Search and Filters */}
+      <div className="flex flex-wrap items-center gap-2 mb-4">
+        <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Recherche de Fournisseur..."
@@ -100,6 +113,8 @@ export function SupplierStats({
             className="pl-10"
           />
         </div>
+
+        {/* Filtre statut */}
         <Select value={selectedSupplier} onValueChange={onStatusChange}>
           <SelectTrigger className="w-48">
             <SelectValue placeholder="Filtrer par statut" />
@@ -108,6 +123,21 @@ export function SupplierStats({
             <SelectItem value="all">Tous les fournisseurs</SelectItem>
             <SelectItem value="active">Fournisseurs actifs</SelectItem>
             <SelectItem value="inactive">Fournisseurs inactifs</SelectItem>
+          </SelectContent>
+        </Select>
+
+        {/* Filtre produit */}
+        <Select value={productFilter} onValueChange={(v) => { setProductFilter(v); setCurrentPage(1) }}>
+          <SelectTrigger className="w-56">
+            <SelectValue placeholder="Filtrer par produit" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">Tous les produits</SelectItem>
+            {allProducts.map(p => (
+              <SelectItem key={p.id} value={String(p.id)}>
+                {p.name} {p.unite_mesure ? `(${p.unite_mesure})` : ''}
+              </SelectItem>
+            ))}
           </SelectContent>
         </Select>
       </div>
@@ -122,6 +152,7 @@ export function SupplierStats({
                 <TableHead>Contact</TableHead>
                 <TableHead>Délai de livraison</TableHead>
                 <TableHead>Plage de commandes</TableHead>
+                <TableHead>Produits fournis</TableHead>
                 <TableHead>Statut</TableHead>
                 <TableHead>Créé</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
@@ -130,7 +161,7 @@ export function SupplierStats({
             <TableBody>
               {paginatedSuppliers.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                     Aucun fournisseur trouvé.
                   </TableCell>
                 </TableRow>
@@ -147,6 +178,24 @@ export function SupplierStats({
                     <TableCell>{supplier.lead_time ?? 0} jours</TableCell>
                     <TableCell>
                       {(supplier.min_order_quantity ?? 0).toLocaleString()} – {(supplier.max_order_quantity ?? 0).toLocaleString()}
+                    </TableCell>
+                    <TableCell>
+                      {(supplier.products ?? []).length === 0 ? (
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <div className="flex flex-wrap gap-1">
+                          {(supplier.products ?? []).slice(0, 3).map(p => (
+                            <Badge key={p.id} variant="outline" className="text-xs">
+                              {p.name}
+                            </Badge>
+                          ))}
+                          {(supplier.products ?? []).length > 3 && (
+                            <Badge variant="secondary" className="text-xs">
+                              +{(supplier.products ?? []).length - 3}
+                            </Badge>
+                          )}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Badge variant={isActive(supplier) ? "default" : "destructive"}>

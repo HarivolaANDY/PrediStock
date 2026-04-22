@@ -154,7 +154,6 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
             status_code=400
         )
 
-
 class PDFHistoriqueViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = PDFHistorique.objects.all()
     serializer_class = PDFHistoriqueSerializer

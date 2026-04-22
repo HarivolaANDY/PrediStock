@@ -70,11 +70,23 @@ class CategoryListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'is_active', 'product_count', 'created_at']
 
 
-# ─── Supplier ───────────────────────────────────────────────
 class SupplierSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(default="")
+    email = serializers.CharField(default="")
+    phone = serializers.CharField(default="")
+    min_order_quantity = serializers.IntegerField(default=0)
+    max_order_quantity = serializers.IntegerField(default=0)
+    lead_time = serializers.IntegerField(default=0)
+    products = serializers.SerializerMethodField()
+
+    def get_products(self, obj):
+        return list(
+            obj.products.all().values('id', 'name', 'sku', 'unite_mesure')
+        )
+
     class Meta:
         model = Supplier
-        fields = '__all__'
+        fields = "__all__"
 
 
 # ─── Product ────────────────────────────────────────────────

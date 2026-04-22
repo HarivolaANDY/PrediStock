@@ -5,7 +5,7 @@ export interface LineChartDataItem {
 }
 
 interface LineChartProps {
-  data: LineChartDataItem[]
+  data: Record<string, unknown>[]
   xAxisKey: string
   lines: {
   key: string

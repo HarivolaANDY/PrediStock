@@ -1,5 +1,6 @@
 import { useState } from "react"
-import { User, Mail, Phone, MapPin, Calendar, Shield, Edit, Save, X } from "lucide-react"
+import { Mail, Phone, MapPin, Calendar, Edit, Save, X } from "lucide-react"
+import { User, CreateUserData } from "@/types/types"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -9,7 +10,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Switch } from "@/components/ui/switch"
-import { useSettings } from "@/hooks/useSettings"
 import { UserService } from "@/services/api"
 
 const productImages = [
@@ -17,10 +17,9 @@ const productImages = [
 ]
 export default function Profile() {
   const [isEditing, setIsEditing] = useState(false)
-  const { settings } = useSettings()
-  const [userData, setUserData] = useState(localStorage.getItem('user'))
+  const [userData] = useState(localStorage.getItem('user') || '{}')
   
-  const [userInfo, setUserInfo] = useState(JSON.parse(userData))
+  const [userInfo, setUserInfo] = useState<User>(JSON.parse(userData))
 
   const [preferences, setPreferences] = useState({
     emailNotifications: true,
@@ -32,8 +31,18 @@ export default function Profile() {
   const handleSave = () => {
     setIsEditing(false)
     // setUserData(JSON.stringify(userInfo))
-    localStorage.setItem('user', JSON.stringify(userInfo))
-    UserService.updateUser(userInfo.id, userInfo)
+    const getRoleName = (role: User['role']): string => {
+      if (typeof role === 'object' && role !== null && 'name' in role) {
+        return (role as Role).name;
+      }
+      return String(role);
+    };
+    const updateData: CreateUserData = {
+      ...userInfo,
+      role: getRoleName(userInfo.role),
+      permissions: Array.isArray(userInfo.permissions) ? userInfo.permissions : (userInfo.permissions ? [userInfo.permissions] : [])
+    };
+    UserService.updateUser(String(userInfo.id), updateData)
     // setUserInfo(JSON.parse(userData))
     alert('Profile updated successfully!')
   }
@@ -110,7 +119,7 @@ export default function Profile() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
-                    <span>Joined {new Date(userInfo.updated_at).toLocaleDateString()}</span>
+                    <span>Joined {userInfo.updated_at ? new Date(userInfo.updated_at).toLocaleDateString() : 'Unknown'}</span>
                   </div>
                 </div>
               </div>
@@ -169,7 +178,7 @@ export default function Profile() {
                       <Input
                         id="full-name"
                         value={userInfo.first_name}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, first_name: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, first_name: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -178,7 +187,7 @@ export default function Profile() {
                       <Input
                         id="full-name"
                         value={userInfo.last_name}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, last_name: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, last_name: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -188,7 +197,7 @@ export default function Profile() {
                         id="email"
                         type="email"
                         value={userInfo.email}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, email: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, email: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -198,7 +207,7 @@ export default function Profile() {
                         id="departement"
                         type="text"
                         value={userInfo.department}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, department: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, department: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -210,7 +219,7 @@ export default function Profile() {
                       <Input
                         id="phone"
                         value={userInfo.phone}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, phone: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, phone: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -219,7 +228,7 @@ export default function Profile() {
                       <Input
                         id="location"
                         value={userInfo.location}
-                        onChange={(e) => setUserInfo(prev => ({ ...prev, location: e.target.value }))}
+                        onChange={(e) => setUserInfo((prev: User) => ({ ...prev, location: e.target.value }))}
                         disabled={!isEditing}
                       />
                     </div>
@@ -231,7 +240,7 @@ export default function Profile() {
                       id="bio"
                       rows={4}
                       value={userInfo.biography}
-                      onChange={(e) => setUserInfo(prev => ({ ...prev, biography: e.target.value }))}
+                      onChange={(e) => setUserInfo((prev: User) => ({ ...prev, biography: e.target.value }))}
                       disabled={!isEditing}
                       placeholder="Tell us about yourself..."
                     />
@@ -259,7 +268,7 @@ export default function Profile() {
                     <Switch
                       checked={preferences.emailNotifications}
                       onCheckedChange={(checked) => 
-                        setPreferences(prev => ({ ...prev, emailNotifications: checked }))
+                        setPreferences((prev: typeof preferences) => ({ ...prev, emailNotifications: checked }))
                       }
                     />
                   </div>
@@ -274,7 +283,7 @@ export default function Profile() {
                     <Switch
                       checked={preferences.pushNotifications}
                       onCheckedChange={(checked) => 
-                        setPreferences(prev => ({ ...prev, pushNotifications: checked }))
+                        setPreferences((prev: typeof preferences) => ({ ...prev, pushNotifications: checked }))
                       }
                     />
                   </div>
@@ -289,7 +298,7 @@ export default function Profile() {
                     <Switch
                       checked={preferences.weeklyReports}
                       onCheckedChange={(checked) => 
-                        setPreferences(prev => ({ ...prev, weeklyReports: checked }))
+                        setPreferences((prev: typeof preferences) => ({ ...prev, weeklyReports: checked }))
                       }
                     />
                   </div>
@@ -304,7 +313,7 @@ export default function Profile() {
                     <Switch
                       checked={preferences.alertsOnly}
                       onCheckedChange={(checked) => 
-                        setPreferences(prev => ({ ...prev, alertsOnly: checked }))
+                        setPreferences((prev: typeof preferences) => ({ ...prev, alertsOnly: checked }))
                       }
                     />
                   </div>

@@ -81,6 +81,9 @@ class ExecutionPipelineSerializer(serializers.ModelSerializer):
 
 
 class PredictionSerializer(serializers.ModelSerializer):
+    # Expose le nom du produit pour le frontend
+    product_name = serializers.CharField(source='product.name', read_only=True)
+
     class Meta:
         model = Prediction
         fields = '__all__'
@@ -92,10 +95,35 @@ class RuptureStockSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
+# ── Serializer imbriqué pour les détails produit ──────────────────────────────
+class ProductDetailsSerializer(serializers.Serializer):
+    name = serializers.CharField(source='product.name')
+    current_stock = serializers.IntegerField(source='product.current_stock')
+
+    def to_representation(self, instance):
+        if instance.product:
+            return {
+                'name': instance.product.name,
+                'current_stock': instance.product.current_stock,
+            }
+        return None
+
+
 class RecommandationSerializer(serializers.ModelSerializer):
+    # ← Champ calculé exposant name + current_stock du produit lié
+    product_details = serializers.SerializerMethodField()
+
     class Meta:
         model = Recommandation
         fields = '__all__'
+
+    def get_product_details(self, obj):
+        if obj.product:
+            return {
+                'name': obj.product.name,
+                'current_stock': obj.product.current_stock,
+            }
+        return None
 
 
 class CreateRecommandationSerializer(serializers.ModelSerializer):
