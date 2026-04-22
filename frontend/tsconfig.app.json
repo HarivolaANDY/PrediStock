@@ -3,7 +3,7 @@
     "target": "ES2020",
     "useDefineForClassFields": true,
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "ignoreDeprecations": "6.0",
+    "ignoreDeprecations": "6.0",  // Add this line to silence the baseUrl deprecation warning
     "module": "ESNext",
     "skipLibCheck": true,
 
