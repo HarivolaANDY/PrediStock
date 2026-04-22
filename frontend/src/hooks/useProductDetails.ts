@@ -37,15 +37,12 @@ export const useProductDetails = (productId: string | undefined) => {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/product/${productId}/`, {
+        const { handleHttpErrors } = await import('@/services/api');
+        const response = await fetch(`${API_BASE_URL}/catalogue/products/${productId}/`, {
           headers: getAuthHeaders(),
         });
 
-        if (!response.ok) {
-          throw new Error('Failed to fetch product details');
-        }
-
-        const data = await response.json();
+        const data = await handleHttpErrors(response);
         setProduct(data);
         setError(null);
       } catch (err) {
