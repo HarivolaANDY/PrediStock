@@ -84,15 +84,18 @@ export function MetricCard({
         )}
       </CardHeader>
       <CardContent className="relative z-10">
-        <div className="text-3xl font-bold bg-gradient-to-r bg-clip-text text-transparent" 
-             style={{ background: variant === "blue" ? "linear-gradient(135deg, #1e3a8a, #3b82f6)" : 
-                             variant === "success" ? "linear-gradient(135deg, #059669, #10b981)" :
-                             variant === "warning" ? "linear-gradient(135deg, #b45309, #f59e0b)" :
-                             variant === "destructive" ? "linear-gradient(135deg, #991b1b, #ef4444)" :
-                             variant === "prediction" ? "linear-gradient(135deg, #4338ca, #6366f1)" :
-                             "linear-gradient(135deg, #334155, #64748b)" }}>
+        <div className={cn(
+          "text-3xl font-bold transition-all duration-300",
+          variant === "blue" ? "text-blue-700" : 
+          variant === "success" ? "text-green-700" :
+          variant === "warning" ? "text-yellow-700" :
+          variant === "destructive" ? "text-red-700" :
+          variant === "prediction" ? "text-indigo-700" :
+          "text-slate-900"
+        )}>
           {value}
         </div>
+
         {trend && (
           <div className="flex items-center space-x-2 text-xs mt-2">
             <div className={cn(
