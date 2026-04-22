@@ -16,7 +16,7 @@ export function PlaningReportModal({ onClose }: GenerateReportModalProps) {
   const [freq, setFreq] = useState("Daily")
   const [time, setTime] = useState('06:00')
 
-  const handleCreate = (e: any) => {
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
     alert('Planning créé')
     onClose()

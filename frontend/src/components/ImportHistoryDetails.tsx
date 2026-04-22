@@ -3,10 +3,9 @@ import { Edit, Eye, Trash2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { ProductForm } from "@/components/ProductForm"
+import { ProductForm, type ProductFormData } from "@/components/ProductForm"
 import { useState } from "react"
 import { useSettings } from "@/hooks/useSettings"
-import { dataTagErrorSymbol } from "@tanstack/react-query"
 
 // Type Report
 type Data = {
@@ -154,7 +153,7 @@ export default function ReportsDetails() {
         <ProductForm
           onClose={handleCloseForm}
           onSubmit={() => {}}
-          initialData={editingReport ?? data}
+          initialData={(editingReport ?? data) as unknown as Partial<ProductFormData>}
         />
       )}
     </div>

@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { Link, NavLink, useNavigate } from "react-router-dom"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -54,12 +54,30 @@ export default function Register() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 to-prediction/5 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary">
-              <Package2 className="h-6 w-6 text-primary-foreground" />
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-indigo-900 flex items-center justify-center p-4 relative overflow-hidden">
+      {/* Background decorative elements */}
+      <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.03%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')]" />
+      
+      {/* Floating elements */}
+      <div className="absolute top-20 left-20 w-32 h-32 bg-blue-500/10 rounded-full blur-xl animate-pulse" />
+      <div className="absolute bottom-20 right-20 w-40 h-40 bg-indigo-500/10 rounded-full blur-xl animate-pulse delay-1000" />
+      <div className="absolute top-1/2 left-10 w-24 h-24 bg-purple-500/10 rounded-full blur-xl animate-pulse delay-500" />
+
+      <div className="w-full flex items-center justify-center relative z-10">
+        <Card className="w-full max-w-xl shadow-2xl border-0 bg-white/95 backdrop-blur-xl p-2 h-fit">
+          <CardHeader className="space-y-3 text-center relative pb-6 pt-6">
+            <NavLink 
+              to="/" 
+              className="absolute top-4 right-4 flex items-center gap-2 text-sm text-slate-600 hover:text-blue-600 transition-colors duration-200 group"
+            >
+              <ArrowLeft className="h-5 w-5 group-hover:-translate-x-0.5 transition-transform duration-200" />
+              Retour
+            </NavLink>
+            
+            <div className="flex justify-center mb-8 lg:hidden">
+              <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-lg">
+                <Package2 className="h-8 w-8 text-white" />
+              </div>
             </div>
           </div>
           <CardTitle className="text-2xl font-bold">Créer un compte</CardTitle>
@@ -75,11 +93,9 @@ export default function Register() {
                 <AlertCircle className="h-4 w-4 text-red-500" />
                 <span>{error}</span>
               </div>
-            )}
 
-            <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label htmlFor="firstName">Prénom</Label>
+                <Label htmlFor="email" className="text-sm font-medium text-slate-700">Email</Label>
                 <Input
                   id="firstName"
                   placeholder="Jean"
@@ -89,8 +105,9 @@ export default function Register() {
                   <p className="text-red-500 text-sm">{formErrors.firstName.message}</p>
                 )}
               </div>
+
               <div className="space-y-2">
-                <Label htmlFor="lastName">Nom</Label>
+                <Label htmlFor="department" className="text-sm font-medium text-slate-700">Département</Label>
                 <Input
                   id="lastName"
                   placeholder="Dupont"
@@ -100,7 +117,6 @@ export default function Register() {
                   <p className="text-red-500 text-sm">{formErrors.lastName.message}</p>
                 )}
               </div>
-            </div>
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -143,27 +159,14 @@ export default function Register() {
                 </Select>
               </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="password">Mot de passe</Label>
-              <div className="relative">
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">Confirmer le mot de passe</Label>
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
                   placeholder="Créez un mot de passe fort"
                   {...register("password")}
                 />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  className="absolute right-0 top-0 h-full px-3"
-                  onClick={() => setShowPassword(!showPassword)}
-                >
-                  {showPassword
-                    ? <EyeOff className="h-4 w-4 text-muted-foreground" />
-                    : <Eye className="h-4 w-4 text-muted-foreground" />
-                  }
-                </Button>
               </div>
               {formErrors.password && (
                 <p className="text-red-500 text-sm">{formErrors.password.message}</p>
@@ -183,25 +186,26 @@ export default function Register() {
               )}
             </div>
 
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? (
-                <div className="flex items-center space-x-2">
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Création en cours...</span>
-                </div>
-              ) : "Créer mon compte"}
-            </Button>
+              <Button type="submit" className="w-full h-12 text-sm bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-0.5" disabled={isLoading}>
+                {isLoading ? (
+                  <div className="flex items-center space-x-4">
+                    <div className="w-6 h-6 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    <span>Création en cours...</span>
+                  </div>
+                ) : "Créer mon compte"}
+              </Button>
 
-            <div className="text-center text-sm">
-              Déjà un compte ?{" "}
-              <Link to="/login" className="text-primary hover:underline font-medium">
-                Se connecter
-              </Link>
-            </div>
+              <div className="text-center">
+                <span className="text-slate-600 text-sm">Déjà un compte ? </span>
+                <Link to="/login" className="text-sm text-blue-600 hover:text-blue-800 font-semibold transition-colors duration-200">
+                  Se connecter
+                </Link>
+              </div>
 
-          </form>
-        </CardContent>
-      </Card>
+            </form>
+          </CardContent>
+        </Card>
+      </div>
     </div>
   )
 }
