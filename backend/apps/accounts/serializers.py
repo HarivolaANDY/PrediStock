@@ -45,7 +45,7 @@ class RegisterSerializer(serializers.ModelSerializer):
         return value
 
     def validate_role(self, value):
-        valid_roles = [choice[0] for choice in User.ROLE_CHOICES]
+        valid_roles = ["Administrateur", "Gestionnaire de Stock", "Analyste de Données", "Utilisateur", "Invité"]
         if value not in valid_roles:
             raise serializers.ValidationError(
                 f"Le rôle doit être l'un des suivants : {valid_roles}"
