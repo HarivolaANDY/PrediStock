@@ -1,3 +1,5 @@
+import API from "@/services/axios";
+
 export interface AxiosResponseWithBlob {
 	headers?: Record<string, string | number | undefined> | { get?(key: string): string | number | undefined };
 	data: Blob;
@@ -129,7 +131,7 @@ export async function fetchAndDownload(
 		// pour GET on passe data en params
 		res = (await API.get(url, { ...cfg, params: data })) as AxiosResponseWithBlob;
 	}
-	return await downloadFromAxiosResponse(res as AxiosBlobResponse);
+	return await downloadFromAxiosResponse(res);
 }
 
 // Nouvelle fonction utilitaire centrée sur le téléchargement immédiat d'un PDF via une URL API.
