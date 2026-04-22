@@ -7,8 +7,8 @@
  * @param keys - The keys to extract from each data object. Supports nested keys with dot notation.
  * @param separator - The CSV separator (default: ';').
  */
-export function exportToCSV(
-  data: any[],
+export function exportToCSV<T extends Record<string, unknown>>(
+  data: T[],
   filename: string,
   headers: string[],
   keys: string[],
