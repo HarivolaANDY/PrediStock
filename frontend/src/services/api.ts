@@ -3,8 +3,8 @@ import { CreateUserData, UserResponse, CreateProductData, ProductResponse, Creat
 import { ToastService } from "./toast.service";
 import { LoginData } from "@/types/login";
 
-const API_BASE_URLS = import.meta.env.VITE_API_URL || "http://localhost:8000/";
-export const API_URL = "http://localhost:8000/api/catalogue";
+export const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const API_URL = `${API_BASE_URL}/api/catalogue`;
 
 export const handleHttpErrors = async (response: Response) => {
   const text = await response.text();
@@ -24,18 +24,21 @@ export const handleHttpErrors = async (response: Response) => {
   }
 
   if (!response.ok) {
-    let errorMessage =
-      data.message || data.detail || "Une erreur s'est produite";
+    let errorMessage = data.message || data.detail || "Une erreur s'est produite";
+    const errorDetails = data.data || data.errors || data;
 
-    if (typeof data === "object" && !data.message && !data.detail) {
-      errorMessage = Object.entries(data)
-        .map(([key, value]) => `${key}: ${value}`)
+    if (typeof errorDetails === "object" && !Array.isArray(errorDetails)) {
+      const details = Object.entries(errorDetails)
+        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
         .join("\n");
+      if (details) errorMessage = `${errorMessage}\n${details}`;
+    } else if (Array.isArray(errorDetails)) {
+      errorMessage = `${errorMessage}\n${errorDetails.join("\n")}`;
     }
 
     switch (response.status) {
       case 400:
-        ToastService.error(`Données invalides - ${errorMessage}`);
+        ToastService.error(errorMessage);
         break;
       case 401:
         ToastService.error(`Non autorisé - ${errorMessage}`);
@@ -52,34 +55,24 @@ export const handleHttpErrors = async (response: Response) => {
     throw new Error(errorMessage);
   }
 
+  if (data.success === true && data.data !== undefined) {
+    if (data.message) {
+      ToastService.success(data.message);
+    }
+    return data.data;
+  }
+
   if (data.message) {
     ToastService.success(data.message);
   }
   return data;
 };
 
-    getUsers: async (): Promise<User[]> => {
-        try {
-            const response = await fetch(`${API_BASE_URLS}api/accounts/check-availability/`, {
-                method: "GET",
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Token ${localStorage.getItem('token')}`
-                },
-            });
-            const data = await handleHttpErrors(response);
-            return data.results || data; // Handle both paginated and non-paginated responses
-        }
-        catch (error) {
-            console.error("Récupération des utilisateurs échouée:", error);
-            throw error;
-        }
-    },
-
+export const UserService = {
   getUsers: async (): Promise<UserResponse[]> => {
     try {
       const response = await fetch(
-        `${API_BASE_URLS}api/accounts/check-availability/`,
+        `${API_BASE_URL}/api/accounts/check-availability/`,
         {
           method: "GET",
           headers: {
@@ -89,7 +82,7 @@ export const handleHttpErrors = async (response: Response) => {
         },
       );
       const data = await handleHttpErrors(response);
-      return data.results || data; // Handle both paginated and non-paginated responses
+      return data.results || data; 
     } catch (error) {
       console.error("Récupération des utilisateurs échouée:", error);
       throw error;
@@ -101,7 +94,7 @@ export const handleHttpErrors = async (response: Response) => {
     userData: CreateUserData,
   ): Promise<UserResponse> => {
     try {
-      const response = await fetch(`${API_BASE_URLS}api/users/${userId}/`, {
+      const response = await fetch(`${API_BASE_URL}/api/users/${userId}/`, {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -120,7 +113,7 @@ export const handleHttpErrors = async (response: Response) => {
   },
   Login: async (userData: LoginData): Promise<UserResponse> => {
     try {
-      const response = await fetch(`${API_BASE_URLS}api/accounts/login/`, {
+      const response = await fetch(`${API_BASE_URL}/api/accounts/login/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -129,7 +122,7 @@ export const handleHttpErrors = async (response: Response) => {
       });
       return handleHttpErrors(response);
     } catch (error) {
-      console.error("Mise à jour de l'utilisateur échouée;", error);
+      console.error("Connexion échouée:", error);
       throw error;
     }
   },
@@ -139,7 +132,7 @@ export const handleHttpErrors = async (response: Response) => {
         [parameter]: value,
       };
       const response = await fetch(
-        `${API_BASE_URLS}/user/check-availability/`,
+        `${API_BASE_URL}/api/accounts/check-availability/`,
         {
           method: "POST",
           headers: {
@@ -148,10 +141,11 @@ export const handleHttpErrors = async (response: Response) => {
           body: JSON.stringify(data),
         },
       );
-      return handleHttpErrors(response);
+      await handleHttpErrors(response);
+      return true;
     } catch (error) {
-      console.error("Vérification de l'utilisateur échouée;", error);
-      throw error;
+      console.error("Vérification de l'utilisateur échouée:", error);
+      return false;
     }
   },
   verifyItems: async (nom: string, prenom: string): Promise<boolean> => {
@@ -160,9 +154,8 @@ export const handleHttpErrors = async (response: Response) => {
         last_name: nom,
         first_name: prenom,
       };
-      // console.log(JSON.stringify(data))
       const response = await fetch(
-        `${API_BASE_URLS}/user/check-availability/`,
+        `${API_BASE_URL}/api/accounts/check-availability/`,
         {
           method: "POST",
           headers: {
@@ -172,9 +165,25 @@ export const handleHttpErrors = async (response: Response) => {
           body: JSON.stringify(data),
         },
       );
+      await handleHttpErrors(response);
+      return true;
+    } catch (error) {
+      console.error("Vérification de l'utilisateur échouée:", error);
+      return false;
+    }
+  },
+  createUser: async (userData: CreateUserData): Promise<UserResponse> => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/accounts/register/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(userData),
+      });
       return handleHttpErrors(response);
     } catch (error) {
-      console.error("Vérification de l'utilisateur échouée;", error);
+      console.error("Création de l'utilisateur échouée:", error);
       throw error;
     }
   },
@@ -196,7 +205,7 @@ export const ProductService = {
         }
       });
 
-      const response = await fetch(`${API_BASE_URLS}product/add/`, {
+      const response = await fetch(`${API_BASE_URL}/api/catalogue/products/`, {
         method: "POST",
         body: formData,
       });
@@ -226,7 +235,7 @@ export const SupplierService = {
         products: supplierData.products || '',   // ← ajouter
         };
 
-      const response = await fetch(`${API_BASE_URLS}api/catalogue/suppliers/`, {
+      const response = await fetch(`${API_BASE_URL}/api/catalogue/suppliers/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -261,7 +270,7 @@ export const SupplierService = {
         };
 
       const response = await fetch(
-        `${API_BASE_URLS}api/catalogue/suppliers/${supplierId}/`,
+        `${API_BASE_URL}/api/catalogue/suppliers/${supplierId}/`,
         {
           method: "PUT",
           headers: {
@@ -281,7 +290,7 @@ export const SupplierService = {
 
   getAllSuppliers: async (): Promise<SupplierResponse> => {
     try {
-      const response = await fetch(`${API_BASE_URLS}api/catalogue/suppliers/`, {
+      const response = await fetch(`${API_BASE_URL}/api/catalogue/suppliers/`, {
         method: "GET",
         headers: {
           "Content-Type": "application/json",
@@ -308,7 +317,7 @@ export interface RoleData {
 export const RoleService = {
     createRole: async (roleData: RoleData): Promise<unknown> => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/accounts/roles/`, {
+            const response = await fetch(`${API_BASE_URL}/api/accounts/roles/`, {
                 method: "POST",
                 headers: {
                     'Content-Type': 'application/json',
@@ -326,7 +335,7 @@ export const RoleService = {
     updateRole: async (roleId: string, roleData: RoleData): Promise<unknown> => {
         // console.log("Updating role with ID:", roleId, "and data:", roleData);
         try {
-            const response = await fetch(`${API_BASE_URLS}api/roles/${roleId}/`, {
+            const response = await fetch(`${API_BASE_URL}/api/accounts/roles/${roleId}/`, {
                 method: "PATCH",
                 headers: {
                     'Content-Type': 'application/json',
@@ -343,7 +352,7 @@ export const RoleService = {
     },
     getAllRoles: async (): Promise<Role[]> => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
+            const response = await fetch(`${API_BASE_URL}/api/accounts/roles/`, {
                 method: "GET",
                 headers: {
                     'Content-Type': 'application/json',
@@ -360,7 +369,7 @@ export const RoleService = {
     },
     getRoles: async (): Promise<Role[]> => {
         try {
-            const response = await fetch(`${API_BASE_URLS}api/roles/`, {
+            const response = await fetch(`${API_BASE_URL}/api/accounts/roles/`, {
                 method: "GET",
                 headers: {
                     'Content-Type': 'application/json',
