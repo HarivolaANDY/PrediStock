@@ -21,8 +21,9 @@ import {
 import { MetricCard } from "@/components/MetricCard";
 import { UserManagementForm } from "@/components/UserManagementForm";
 import { RoleManagementForm } from "@/components/RoleManagementForm";
-import { UserService, RoleService } from "@/services/api";
-import { User } from "@/types/user";
+import { UserService, RoleService, RoleResponse } from "@/services/api";
+import { User, Role } from "@/types/user";
+import { UserData } from "@/types/types";
 import { useNavigate } from "react-router-dom";
 
 // Fonctions utilitaires
@@ -32,30 +33,32 @@ import { useNavigate } from "react-router-dom";
 
 // Fonctions utilitaires
 // const getNumbers = (users: any[]) => users.map((user) => user.id);
-const getNumbers = (users: any[]) => users.map((user) => user.id);
+const getNumbers = (users) => users.map((user) => user.id);
 
-const getActiveUsers = (users: any[]) => users.filter((user) => user.status === "active");
+const getActiveUsers = (users) => users.filter((user) => user.status === "active");
 
-const getAdminUsers = (users: any[]) => users.filter((user) => user.role === "Administrator");
+const getAdminUsers = (users) => users.filter((user) => user.role === "Administrator");
 
-const getPendingUsers = (users: any[]) => users.filter((user) => user.status === "pending");
+const getPendingUsers = (users) => users.filter((user) => user.status === "pending");
 
 async function getUsers() {
-  const users = await UserService.getUsers();
-  const personnes = users.map((user: any) => ({
-    id: user.id,
-    first_name: user.first_name, // Garder first_name au lieu de firstname
-    last_name: user.last_name, // Garder last_name au lieu de lastname
+  const response = await UserService.getUsers();
+  // The API returns UserResponse[] but the actual data has user properties directly
+  // We need to extract the user data from the response
+  const usersData = (response as unknown as UserData[]);
+  const personnes: User[] = usersData.map((user: UserData) => ({
+    id: user.id as string,
+    first_name: user.first_name as string,
+    last_name: user.last_name as string,
     name: `${user.first_name} ${user.last_name}`,
-    email: user.email,
-    phone: user.phone || '', // Ajout du champ phone
-    role: user.role,
-    department: user.department || '', // Ajout du champ department
-    location: user.location || '', // Ajout du champ location
-    status: user.status,
-    lastLogin: user.updated_at,
-    permissions: user.permissions || [], // S'assurer que permissions est un tableau
-    biography: user.biography || '', // Ajout du champ biography
+    email: user.email as string,
+    phone: (user.phone as string) || '',
+    role: user.role as string,
+    department: (user.department as string) || '',
+    location: (user.location as string) || '',
+    status: (user.status as string) || 'inactive',
+    updated_at: user.updated_at as string | undefined,
+    biography: (user.biography as string) || '',
   }));
   return personnes;
 }
@@ -69,7 +72,7 @@ export default function Users() {
   const [selectedRole, setSelectedRole] = useState(null);
   const [roleFormMode, setRoleFormMode] = useState<"create" | "edit">("create");
   const [users, setUsers] = useState<User[]>([]); // État pour stocker les utilisateurs
-  const [roles, setRoles] = useState<any[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   
   const [isLoading, setIsLoading] = useState(true); // État pour gérer le chargement
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
@@ -131,7 +134,7 @@ export default function Users() {
     FecthRoles()
   };
 
-  const handleEditRole = (role: any) => {
+  const handleEditRole = (role) => {
     // Formater les données du rôle pour correspondre à la structure du formulaire
     const formattedRole = {
       id: role.id,
@@ -285,7 +288,7 @@ export default function Users() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredUsers.map((user: any) => (
+                      filteredUsers.map((user: User) => (
                         <TableRow key={user.id}>
                           <TableCell>
                             <div>
@@ -455,8 +458,11 @@ export default function Users() {
         const response = await RoleService.getRoles();
         console.log("Response from getRoles:", response); // Pour debug
         
-        // Si les données sont dans response.data, utilisez-les
-        const rolesData = response.data || response;
+        // Extraire les rôles de la réponse
+        let rolesData: Role[] = [];
+        if (response.data) {
+          rolesData = Array.isArray(response.data) ? response.data : [response.data];
+        }
         setRoles(rolesData);
         // console.log("reloaded");
       } catch (error) {
