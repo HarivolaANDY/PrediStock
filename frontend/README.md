@@ -77,7 +77,81 @@ frontend/
 | `src/utils/` | Helper utilities (i18n, blob handling, etc.) |
 | `locales/` | Translation files for multi-language support |
 
-## 📋 Prerequisites
+## �️ Routes & Pages
+
+The application includes the following routes and pages:
+
+### Public Routes (No Authentication Required)
+
+| Route | Page Component | Description |
+|-------|---|---|
+| `/` | `Index.tsx` | Landing/Home page - Welcome screen for unauthenticated users |
+| `/login` | `Login.tsx` | User login page |
+| `/register` | `Register.tsx` | User registration page |
+
+### Application Routes (Authentication Required)
+
+#### Dashboard & Analytics
+| Route | Page Component | Description |
+|-------|---|---|
+| `/dashboard` | `Dashboard.tsx` | User dashboard - Overview with metrics, charts, and activity |
+| `/dashboard-admin` | `DashboardAdmin.tsx` | Admin-only dashboard with advanced metrics and management options |
+| `/activite` | `Activite.tsx` | Activity log and tracking page |
+
+#### Stock Management
+| Route | Page Component | Description |
+|-------|---|---|
+| `/stock` | `Stock.tsx` | Stock management interface - View and manage inventory movements |
+| `/product-manager` | `ProductManagerPage.tsx` | Product manager interface for handling stock entries/exits |
+
+#### Products & Catalog
+| Route | Page Component | Description |
+|-------|---|---|
+| `/products` | `Products.tsx` | Product catalog - Browse all available products |
+| `/product/:id` | `ProductDetails.tsx` | Product detail page - View detailed information for a specific product |
+
+#### Forecasting & AI Models
+| Route | Page Component | Description |
+|-------|---|---|
+| `/forecasting` | `Forecasting.tsx` | Demand forecasting interface - AI-powered predictions |
+| `/models` | `AIModels.tsx` | AI Models management - Configure and manage forecasting models |
+
+#### Alerts & Notifications
+| Route | Page Component | Description |
+|-------|---|---|
+| `/alerts` | `Alerts.tsx` | Alerts management - Set up and manage stock level alerts |
+| `/notifications` | `Notifications.tsx` | Notifications center - View and manage all notifications |
+
+#### Reports & Data
+| Route | Page Component | Description |
+|-------|---|---|
+| `/reports` | `Reports.tsx` | Reports generation - Create and view various reports |
+| `/data` | `DataManagement.tsx` | Data management - Import, export, and manage data |
+
+#### Administration & User Management
+| Route | Page Component | Description |
+|-------|---|---|
+| `/users` | `Users.tsx` | User management - Manage application users and permissions |
+| `/suppliers` | `Suppliers.tsx` | Supplier management - Manage supplier directory and information |
+
+#### User Settings
+| Route | Page Component | Description |
+|-------|---|---|
+| `/profile` | `Profile.tsx` | User profile page - View and edit user information |
+| `/settings` | `Settings.tsx` | Application settings - Configure user preferences and options |
+
+### Error Routes
+
+| Route | Page Component | Description |
+|-------|---|---|
+| `*` | `NotFound.tsx` | 404 Not Found - Displayed for unmatched routes |
+
+### Special Features
+
+- **Chatbot** - Floating AI assistant available on all authenticated pages (hidden on `/`, `/login`, `/register`)
+- **Layout Wrapper** - All protected routes are wrapped with the `Layout` component providing the sidebar, header, and navigation
+
+## �📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
 
