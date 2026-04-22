@@ -37,5 +37,5 @@ export interface StockForecaster {
     getModelStatus: (modelName: string) => Promise<string>;
     getPredictions: (modelName: string) => Promise<number[]>;
     updateConfig: (config: Partial<ModelConfig>) => Promise<void>;
-    updateModelConfig: (modelName: string, config: any) => Promise<void>;
+    updateModelConfig: (modelName: string, config: Partial<ModelConfig['individual'][string]>) => Promise<void>;
 }

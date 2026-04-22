@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react"
-import { User, Mail, Phone, Shield, UserPlus, X, Loader2 } from "lucide-react"
+import { useState, useEffect, useRef, useCallback } from "react"
+import { User, Mail, Phone, Shield, UserPlus, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,17 +11,33 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from "@/components/ui/use-toast"
 import { UserService } from "@/services/api"
 import { ToastService } from "@/services/toast.service"
-import { Toast } from "@radix-ui/react-toast"
+import { User } from "@/types/types"
+import { isAxiosError } from "axios"
 
 interface UserManagementFormProps {
   open: boolean
   onClose: () => void
-  user?: any
+  user?: User
   mode: 'create' | 'edit'
   onSuccess?: () => void
 }
 
-const defaultFormData = {
+interface UserFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  role: string;
+  department: string;
+  location: string;
+  biography: string;
+  status: string;
+  permissions: string[];
+  sendInvite: boolean;
+  temporaryPassword: boolean;
+}
+
+const defaultFormData: UserFormData = {
   first_name: '',
   last_name: '',
   email: '',
@@ -36,19 +52,17 @@ const defaultFormData = {
   temporaryPassword: true
 }
 
-export function Users () {
-  const { getUsers } = useAuth()
-  const users = getUsers()
-  return (
-    users
-  )
-}
+// Removed redundant Users component
 
-export function UserManagementForm({ open, onClose, user, mode }: UserManagementFormProps) {
-  const { createUser, updateUser, isLoading , verifyItem, verifyItems} = useAuth()
+export function UserManagementForm({ open, onClose, user, mode, onSuccess }: UserManagementFormProps): React.JSX.Element {
+  const { createUser, updateUser, isLoading } = useAuth()
   const { toast } = useToast()
-  const [formData, setFormData] = useState(() => {
+  const [formData, setFormData] = useState<UserFormData>(() => {
     if (mode === 'edit' && user) {
+      const permissions = typeof user.permissions === 'string' 
+            ? user.permissions.split(',').filter(Boolean)
+            : (Array.isArray(user.permissions) ? user.permissions.map(String) : []);
+            
       return {
         first_name: user.first_name || '',
         last_name: user.last_name || '',
@@ -59,7 +73,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
         location: user.location || '',
         biography: user.biography || '',
         status: user.status || 'active',
-        permissions: user.permissions || [],
+        permissions: permissions,
         sendInvite: false,
         temporaryPassword: false
       }
@@ -72,7 +86,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
     if (mode === 'edit' && user) {
       const permissions = typeof user.permissions === 'string' 
             ? user.permissions.split(',').filter(Boolean)
-            : user.permissions || [];
+            : (Array.isArray(user.permissions) ? user.permissions.map(String) : []);
 
       setFormData({
         first_name: user.first_name || '',
@@ -121,59 +135,160 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
     { id: 'models_configure', label: "Modèles d'IA", description: "Configurer les modèles d'IA" }
   ]
 
+  // États pour la gestion du téléphone
   const [phoneError, setPhoneError] = useState<string>("");
+  const [phoneValidationState, setPhoneValidationState] = useState<'empty' | 'valid' | 'invalid'>('empty');
+  const phoneInputRef = useRef<HTMLInputElement>(null);
+  const isDeletingRef = useRef(false);
 
+  /**
+   * Valide un numéro de téléphone malgache
+   * Format attendu : +261 3X XX XXX XX (où 3X est 32, 33, 34, 37, 38 ou 39)
+   */
   const validatePhoneNumber = (phone: string): boolean => {
     const phoneRegex = /^\+261\s(32|33|34|37|38|39)\s\d{2}\s\d{3}\s\d{2}$/;
     return phoneRegex.test(phone);
   };
 
-  const formatPhoneNumber = (value: string): string => {
-    // Si la valeur est vide ou uniquement "+", retourner une chaîne vide
-    if (!value || value === '+') return '';
+  /**
+   * Formate un numéro de téléphone avec le format malgache standard
+   * Gère la position du curseur pour une expérience de saisie optimale
+   * @param value - La valeur brute saisie
+   * @param previousValue - La valeur précédente (pour la gestion du curseur)
+   * @returns La valeur formatée
+   */
+  const formatPhoneNumber = useCallback((value: string, previousValue?: string): string => {
+    // Si la valeur est vide, retourner une chaîne vide
+    if (!value) return '';
     
-    // Supprime tous les espaces et caractères non désirés
+    // Supprime tous les caractères non numériques (sauf le +)
     let cleaned = value.replace(/[^\d+]/g, '');
     
-    // Si l'utilisateur essaie de supprimer des chiffres après +261
-    if (cleaned.length <= 4) {
-      // Garder seulement +261b
-      cleaned = '+261';
+    // Gestion de la suppression (backspace)
+    if (previousValue && value.length < previousValue.length) {
+      isDeletingRef.current = true;
     }
     
-    // Ajoute +261 au début si ce n'est pas déjà présent
-    if (!cleaned.startsWith('+261')) {
-      if (cleaned.startsWith('0')) {
-        cleaned = '+261' + cleaned.slice(1);
-      } else if (!cleaned.startsWith('+')) {
-        cleaned = '+261' + cleaned;
+    // Si la valeur est trop courte, retourner telle quelle
+    if (cleaned.length <= 1) return cleaned;
+    
+    // Convertir les numéros commençant par 0 en format international
+    if (cleaned.startsWith('0') && cleaned.length > 1) {
+      cleaned = '+261' + cleaned.slice(1);
+    }
+    // Si ne commence pas par +261, ajouter le préfixe
+    else if (!cleaned.startsWith('+261')) {
+      // Si commence par 261 sans +
+      if (cleaned.startsWith('261')) {
+        cleaned = '+' + cleaned;
+      } else {
+        cleaned = '+261' + cleaned.replace(/^\+?/, '');
       }
     }
-
-    // Format: +261 XX XX XXX XX
-    if (cleaned.length >= 4) {
-      cleaned = cleaned.slice(0, 4) + ' ' + cleaned.slice(4);
-    }
-    if (cleaned.length >= 7) {
-      cleaned = cleaned.slice(0, 7) + ' ' + cleaned.slice(7);
-    }
-    if (cleaned.length >= 10) {
-      cleaned = cleaned.slice(0, 10) + ' ' + cleaned.slice(10);
-    }
-    if (cleaned.length >= 14) {
-      cleaned = cleaned.slice(0, 14) + ' ' + cleaned.slice(14);
-    }
-
-    // Si on a moins que +261, retourner +261
-    if (cleaned.length < 4) {
+    
+    // S'assurer qu'on a au moins +261
+    if (!cleaned.startsWith('+261')) {
       return '+261';
     }
+    
+    // Limiter la longueur maximale (14 caractères : +261 + 9 chiffres + 3 espaces)
+    const digits = cleaned.replace(/\D/g, '');
+    if (digits.length > 10) {
+      cleaned = '+261' + digits.slice(3, 10);
+    }
+    
+    // Appliquer le format : +261 XX XX XXX XX
+    let formatted = cleaned.slice(0, 4); // +261
+    
+    if (cleaned.length > 4) {
+      formatted += ' ' + cleaned.slice(4, Math.min(6, cleaned.length));
+    }
+    if (cleaned.length > 6) {
+      formatted += ' ' + cleaned.slice(6, Math.min(8, cleaned.length));
+    }
+    if (cleaned.length > 8) {
+      formatted += ' ' + cleaned.slice(8, Math.min(11, cleaned.length));
+    }
+    if (cleaned.length > 11) {
+      formatted += ' ' + cleaned.slice(11, Math.min(13, cleaned.length));
+    }
+    
+    return formatted;
+  }, []);
 
-    return cleaned;
+  /**
+   * Calcule la position optimale du curseur après formatage
+   */
+  const calculateCursorPosition = (
+    newValue: string, 
+    oldValue: string, 
+    cursorPosition: number
+  ): number => {
+    // Compter les espaces ajoutés avant la position du curseur
+    const digitsBeforeCursor = oldValue.slice(0, cursorPosition).replace(/\D/g, '').length;
+    
+    // Nouvelle position basée sur le nombre de chiffres
+    let newPosition = 0;
+    let digitCount = 0;
+    
+    for (let i = 0; i < newValue.length; i++) {
+      if (/\d/.test(newValue[i])) {
+        digitCount++;
+      }
+      if (digitCount > digitsBeforeCursor) {
+        break;
+      }
+      newPosition = i + 1;
+    }
+    
+    return newPosition;
   };
 
+  /**
+   * Retourne l'icône appropriée selon l'état de validation
+   */
+  const getPhoneIcon = () => {
+    switch (phoneValidationState) {
+      case 'valid':
+        return <CheckCircle2 className="h-4 w-4 text-green-500" />;
+      case 'invalid':
+        return <AlertCircle className="h-4 w-4 text-red-500" />;
+      default:
+        return <Phone className="h-4 w-4 text-muted-foreground" />;
+    }
+  };
+
+  /**
+   * Retourne le message d'aide selon l'état
+   */
+  const getPhoneHelperText = () => {
+    if (phoneError) {
+      return (
+        <p className="text-sm text-red-500 flex items-center gap-1">
+          <AlertCircle className="h-3 w-3" />
+          {phoneError}
+        </p>
+      );
+    }
+    
+    if (phoneValidationState === 'valid') {
+      return (
+        <p className="text-sm text-green-600 flex items-center gap-1">
+          <CheckCircle2 className="h-3 w-3" />
+          Numéro de téléphone valide
+        </p>
+      );
+    }
+    
+    return (
+      <p className="text-xs text-muted-foreground">
+        Format : +261 3X XX XXX XX (ex: +261 32 12 345 67)
+      </p>
+    );
+  };
+  
   // Modifier la fonction validateForm existante
-  const validateForm = async () => {
+  const validateForm = async (): Promise<boolean> => {
     const errors: string[] = [];
 
     if (!formData.first_name.trim()) {
@@ -225,22 +340,16 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
     return true
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!(await validateForm())) return
 
     try {
-        // Utiliser permissions comme tableau de chaînes
-        // S'assurer que permissions est toujours un tableau de chaînes
-        let permissionsArray: string[] = [];
-        if (Array.isArray(formData.permissions)) {
-            permissionsArray = formData.permissions.map(p => String(p));
-        } else if (typeof formData.permissions === 'string') {
-            permissionsArray = formData.permissions.split(',').filter(Boolean);
-        }
+        const permissionsArray = Array.isArray(formData.permissions) 
+            ? formData.permissions.map(p => String(p))
+            : [];
 
         const userData = { 
-            id : user?.id,
             first_name: formData.first_name.trim(),
             last_name: formData.last_name.trim(),
             email: formData.email.trim(),
@@ -250,7 +359,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
             location: formData.location.trim(),
             biography: formData.biography.trim(),
             status: formData.status,
-            permissions: permissionsArray, // Toujours un tableau de chaînes
+            permissions: permissionsArray,
             sendInvite: Boolean(formData.sendInvite),
             temporaryPassword: mode === 'create' ? true : Boolean(formData.temporaryPassword)
         };
@@ -258,108 +367,54 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
         if (mode === 'create') {
             const response = await createUser(userData);
             if (response) {
-              // Réinitialiser le formulaire
-              setFormData(defaultFormData)
-              // Réinitialiser les permissions
-              setFormData(prev => ({
-                ...defaultFormData,
-                permissions: []
-              }))
               toast({
                 title: "Succès",
                 description: "L'utilisateur a été créé avec succès"
               })
+              if (onSuccess) onSuccess()
               onClose()
-              // onSuccess()
             }
         } else if (mode === 'edit' && user?.id) {
-            console.log(user.permissions);
-            const response = await updateUser(user.id, userData);
+            const response = await updateUser(String(user.id), userData);
             if (response) {
-              // Réinitialiser le formulaire
-              setFormData(defaultFormData)
               toast({
                 title: "Succès",
                 description: "L'utilisateur a été mis à jour avec succès"
               })
+              if (onSuccess) onSuccess()
               onClose()
             }
         }
-        // onSuccess()
-        onClose()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur:', error)
-      let errorMessages: string[] = []
-
-      // Traduire les noms des champs pour l'affichage
-      const fieldTranslations: { [key: string]: string } = {
-        email: "Adresse e-mail",
-        first_name: "Prénom",
-        last_name: "Nom",
-        role: "Rôle",
-        department: "Département",
-        // permissions: "Autorisations",
-        password: "Mot de passe",
-        sendInvite: "Invitation par e-mail",
-        temporaryPassword: "Mot de passe temporaire"
-      }
-
-      // Extraire les erreurs du backend
-      if (error.message) {
-        try {
-          const errorData = JSON.parse(error.message)
-          if (errorData.errors) {
-            // Cas où le backend renvoie un objet errors
-            Object.entries(errorData.errors).forEach(([field, messages]: [string, any]) => {
-              const fieldName = fieldTranslations[field] || field
-              if (Array.isArray(messages)) {
-                messages.forEach((msg: string) => errorMessages.push(`${fieldName}: ${msg}`))
-              } else {
-                errorMessages.push(`${fieldName}: ${messages}`)
-              }
-            })
-          } else if (errorData.message) {
-            // Cas où le backend renvoie un message global
-            errorMessages.push(errorData.message)
-          } else {
-            // Autres erreurs non structurées
-            errorMessages.push(error.message)
-          }
-        } catch (e) {
-          // Si l'erreur n'est pas un JSON valide, utiliser le message brut
-          errorMessages.push(error.message || "Une erreur inconnue est survenue")
+      let message = "Une erreur est survenue lors de l'enregistrement."
+      
+      if (isAxiosError(error)) {
+        const data = error.response?.data
+        if (data && typeof data === 'object') {
+          const errors = data.errors || data
+          const errorList = Object.entries(errors).map(([f, m]) => `${f}: ${m}`)
+          message = errorList.length > 0 ? errorList.join(', ') : message
         }
-      } else {
-        errorMessages.push("Une erreur inconnue est survenue")
+      } else if (error instanceof Error) {
+        message = error.message
       }
 
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: (
-          <ul className="list-disc pl-4">
-            {errorMessages.map((msg, index) => (
-              <li key={index}>{msg}</li>
-            ))}
-          </ul>
-        )
+        description: message
       })
     }
   }
 
-  const verify_item = async (parameter: string, value:string) =>{
-    console.log("Verifying", parameter, value)
-    const response = await verifyItem(parameter, value)
-  }
-  const verify_names = async (value_nom:string, value_prenom:string) =>{
-    const response = await verifyItems(value_nom, value_prenom)
-  }
+  // Component logic ends here
 
-  const togglePermission = (permissionId: string) => {
+  const togglePermission = (permissionId: string): void => {
     setFormData(prev => ({
       ...prev,
       permissions: prev.permissions.includes(permissionId)
-        ? prev.permissions.filter(p => p !== permissionId)
+        ? prev.permissions.filter((p: string) => p !== permissionId)
         : [...prev.permissions, permissionId]
     }))
   }
@@ -435,39 +490,98 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
             <div className="grid gap-4 md:grid-cols-2">
               <div className="space-y-2">
                 <Label htmlFor="phone">Numéro de téléphone</Label>
-                <Input
-                  id="phone"
-                  value={formData.phone}
-                  onChange={async (e) => {
-                    const formattedNumber = formatPhoneNumber(e.target.value);
-
-                    if (mode === 'create')
-                    {
-                      const verification = await UserService.verifyItem("phone", formattedNumber);
-                      if (!verification) {
-                        ToastService.error("Numéro de téléphone déjà utilisé");
+                <div className="relative">
+                  <Input
+                    ref={phoneInputRef}
+                    id="phone"
+                    value={formData.phone}
+                    onChange={async (e) => {
+                      const currentValue = e.target.value;
+                      const cursorPosition = e.target.selectionStart;
+                      const previousValue = formData.phone;
+                      
+                      // Formater le numéro
+                      const formattedNumber = formatPhoneNumber(currentValue, previousValue);
+                      
+                      // Vérification d'unicité en mode création
+                      if (mode === 'create' && formattedNumber.length >= 13) {
+                        const verification = await UserService.verifyItem("phone", formattedNumber);
+                        if (!verification) {
+                          ToastService.error("Numéro de téléphone déjà utilisé");
+                        }
                       }
-                    }
-                    setFormData(prev => ({ ...prev, phone: formattedNumber }));
-                    
-                    if (formattedNumber.length >= 13) {
-                      if (!validatePhoneNumber(formattedNumber)) {
-                        setPhoneError("Le numéro doit commencer par +261 suivi de 32, 33, 34, 37, 38 ou 39");
+                      
+                      // Mettre à jour l'état
+                      setFormData(prev => ({ ...prev, phone: formattedNumber }));
+                      
+                      // Validation et mise à jour de l'état de validation
+                      if (formattedNumber.length === 0) {
+                        setPhoneValidationState('empty');
+                        setPhoneError('');
+                      } else if (formattedNumber.length < 14) {
+                        setPhoneValidationState('invalid');
+                        setPhoneError(`Numéro incomplet (${formattedNumber.length}/14 caractères)`);
+                      } else if (!validatePhoneNumber(formattedNumber)) {
+                        setPhoneValidationState('invalid');
+                        setPhoneError("Format invalide. Le numéro doit commencer par +261 32, 33, 34, 37, 38 ou 39");
                       } else {
-                        setPhoneError("");
+                        setPhoneValidationState('valid');
+                        setPhoneError('');
                       }
-                    } else {
-                      setPhoneError("Le numéro doit contenir 13 caractères");
-                    }
-                  }}
-                  placeholder="+261 3X XXXXXXX"
-                  className={phoneError ? "border-red-500" : ""}
-                />
-                {phoneError && (
-                  <p className="text-sm text-red-500 mt-1">
-                    {phoneError}
-                  </p>
-                )}
+                      
+                      // Ajuster la position du curseur
+                      requestAnimationFrame(() => {
+                        if (phoneInputRef.current) {
+                          const newPosition = calculateCursorPosition(formattedNumber, previousValue, cursorPosition);
+                          phoneInputRef.current.setSelectionRange(newPosition, newPosition);
+                        }
+                      });
+                    }}
+                    onKeyDown={(e) => {
+                      // Autoriser : chiffres, +, backspace, delete, tab, flèches
+                      const allowedKeys = ['Backspace', 'Delete', 'Tab', 'Escape', 'Enter', 'ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'];
+                      if (!allowedKeys.includes(e.key) && !/[\d+]/.test(e.key) && !e.ctrlKey && !e.metaKey) {
+                        e.preventDefault();
+                      }
+                    }}
+                    onPaste={(e) => {
+                      // Gérer le collage
+                      e.preventDefault();
+                      const pastedText = e.clipboardData.getData('text');
+                      const formatted = formatPhoneNumber(pastedText);
+                      setFormData(prev => ({ ...prev, phone: formatted }));
+                    }}
+                    placeholder="+261 3X XX XXX XX"
+                    className={`pr-10 ${phoneValidationState === 'invalid' ? 'border-red-500 focus-visible:ring-red-500' : phoneValidationState === 'valid' ? 'border-green-500 focus-visible:ring-green-500' : ''}`}
+                    aria-invalid={phoneValidationState === 'invalid'}
+                    aria-describedby="phone-helper-text"
+                    autoComplete="tel"
+                    inputMode="tel"
+                  />
+                  {/* Icône de statut et bouton d'effacement */}
+                  <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                    {formData.phone && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, phone: '' }));
+                          setPhoneValidationState('empty');
+                          setPhoneError('');
+                          phoneInputRef.current?.focus();
+                        }}
+                        className="p-1 hover:bg-muted rounded-full transition-colors"
+                        aria-label="Effacer le numéro de téléphone"
+                        tabIndex={-1}
+                      >
+                        <X className="h-3 w-3 text-muted-foreground hover:text-foreground" />
+                      </button>
+                    )}
+                    {getPhoneIcon()}
+                  </div>
+                </div>
+                <div id="phone-helper-text" className="min-h-[1.25rem]">
+                  {getPhoneHelperText()}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="email">Adresse e-mail</Label>

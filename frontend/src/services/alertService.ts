@@ -25,7 +25,17 @@ export const fetchAlerts = async (): Promise<AlertData[]> => {
   const data = await response.json();
   const results = Array.isArray(data) ? data : data.results || [];
 
-  return results.map((item: any) => ({
+  return results.map((item: {
+    id: string;
+    type_alert: string;
+    product_name?: string;
+    sku_alert: string;
+    compteur?: number;
+    message: string;
+    priorite: string;
+    creer_le: string;
+    est_resolu: boolean;
+  }) => ({
     id: item.id,
     type_alert: item.type_alert,
     product: item.product_name || "-",

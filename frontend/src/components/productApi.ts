@@ -1,10 +1,9 @@
-
 import { API_BASE_URL, getAuthHeaders } from "@/config/api.config";
 import { unites_mesures } from "@/types/unites_mesures";
 
 export const API_URL = `${API_BASE_URL}/catalogue/products/`;
 
-export async function saveProduct(data: any, token?: string) {
+export async function saveProduct(data: FormData | Record<string, unknown>, token?: string) {
   let method = "POST";
   let url = `${API_URL}`;
   
@@ -20,7 +19,7 @@ export async function saveProduct(data: any, token?: string) {
   // Si les données sont déjà dans un FormData, les convertir en JSON
   if (data instanceof FormData) {
     try {
-      const jsonData: any = {};
+      const jsonData: Record<string, unknown> = {};
       
       // Convertir les données du FormData en objet JSON
       data.forEach((value, key) => {
@@ -74,7 +73,7 @@ export async function saveProduct(data: any, token?: string) {
         headers,
       });
       
-      const result = await response.json();
+      const result = await response.json() as ProductApiResponse;
       console.log('Response:', result);
 
       if (!response.ok || result.status === "error") {
@@ -82,24 +81,26 @@ export async function saveProduct(data: any, token?: string) {
       }
 
       return result.data;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur détaillée:', error);
-      throw new Error(error.message || "Erreur lors de l'enregistrement du produit");
+      const errorMessage = error instanceof Error ? error.message : "Erreur lors de l'enregistrement du produit";
+      throw new Error(errorMessage);
     }
   }
 
   // Pour les données non-FormData, les formater et les envoyer en JSON
+  const productData = data as Record<string, unknown>;
   const formattedData = {
-    price: data.price?.toString() ?? "0",
-    stock_threshold: parseInt(data.stock_threshold || "0", 10),
-    current_stock: parseInt(data.current_stock || "0", 10),
+    price: (productData.price as string)?.toString() ?? "0",
+    stock_threshold: parseInt((productData.stock_threshold as string) || "0", 10),
+    current_stock: parseInt((productData.current_stock as string) || "0", 10),
     is_active: true,
-    sku: data.sku || `SKU-${Date.now()}`,
-    description: data.description || "Aucune description",
-    name: data.name || "",
-    category: data.category ? (typeof data.category === 'object' ? data.category.id : data.category) : null,
-    supplier: data.supplier ? (typeof data.supplier === 'object' ? data.supplier.id : data.supplier) : null,
-    est_perissable: Boolean(data.est_perissable),
+    sku: productData.sku as string || `SKU-${Date.now()}`,
+    description: productData.description as string || "Aucune description",
+    name: productData.name as string || "",
+    category: productData.category ? (typeof productData.category === 'object' && productData.category !== null ? (productData.category as { id: number }).id : productData.category) : null,
+    supplier: productData.supplier ? (typeof productData.supplier === 'object' && productData.supplier !== null ? (productData.supplier as { id: number }).id : productData.supplier) : null,
+    est_perissable: Boolean(productData.est_perissable),
   };
 
   const headers = {
@@ -113,7 +114,7 @@ export async function saveProduct(data: any, token?: string) {
     body: JSON.stringify(formattedData),
   });
 
-  const result = await response.json();
+  const result = await response.json() as ProductApiResponse;
 
   if (response.ok && (result.status === "success" || result.status === "ok")) {
     return result.data;
