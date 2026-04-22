@@ -235,7 +235,7 @@ export default function Suppliers() {
                     <div className="col-span-2">
                       <label className="text-sm font-medium text-muted-foreground">Produits fournis</label>
                       <div className="flex flex-wrap gap-2 mt-1">
-                        {viewingSupplier.products.map((p: any) => (
+                        {viewingSupplier.products.map((p) => (
                           <Badge key={p.id} variant="outline">
                             {p.name} {p.unite_mesure ? `(${p.unite_mesure})` : ''}
                           </Badge>
