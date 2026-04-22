@@ -215,8 +215,9 @@ export const SupplierService = {
         lead_time: supplierData.leadTime,
         min_order_quantity: supplierData.minOrderQuantity,
         max_order_quantity: supplierData.maxOrderQuantity,
-        is_active: supplierData.isActive
-      };
+        is_active: supplierData.isActive,
+        products: supplierData.products || '',   // ← ajouter
+        };
 
       const response = await fetch(`${API_BASE_URLS}api/catalogue/suppliers/`, {
         method: "POST",
@@ -246,8 +247,9 @@ export const SupplierService = {
         lead_time: supplierData.leadTime,
         min_order_quantity: supplierData.minOrderQuantity,
         max_order_quantity: supplierData.maxOrderQuantity,
-        is_active: supplierData.isActive
-      };
+        is_active: supplierData.isActive,
+        products: supplierData.products || '',   // ← ajouter
+        };
 
       const response = await fetch(`${API_BASE_URLS}api/catalogue/suppliers/${supplierId}/`, {
         method: "PUT",

@@ -4,9 +4,12 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
+import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import { useSupplier } from "@/contexts/SupplierContext"
 import { Supplier, SupplierFormData } from "@/types/types"
+import API from "@/services/axios"
+import { X } from "lucide-react"
 
 interface SupplierFormProps {
   supplier?: Supplier | null;
@@ -14,10 +17,22 @@ interface SupplierFormProps {
   onCancel: () => void;
 }
 
+interface ProductOption {
+  id: number
+  name: string
+  sku: string
+  unite_mesure: string
+}
+
 export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps) {
   const { isLoading } = useSupplier()
   const { toast } = useToast()
   const [phoneError, setPhoneError] = useState<string>("")
+  const [allProducts, setAllProducts] = useState<ProductOption[]>([])
+  const [productSearch, setProductSearch] = useState("")
+  const [selectedProducts, setSelectedProducts] = useState<ProductOption[]>([])
+  const [showProductDropdown, setShowProductDropdown] = useState(false)
+
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -26,9 +41,20 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
     leadTime: 7,
     minOrderQuantity: 1,
     maxOrderQuantity: 1000,
-    isActive: true, // ← toujours initialisé à true (booléen garanti)
+    isActive: true,
   })
 
+  // ── Charger tous les produits disponibles ──────────────────────────────────
+  useEffect(() => {
+    API.get('catalogue/products/?page_size=1000')
+      .then(res => {
+        const results = res.data?.data?.results || res.data?.results || res.data || []
+        setAllProducts(Array.isArray(results) ? results : [])
+      })
+      .catch(err => console.error('Erreur chargement produits:', err))
+  }, [])
+
+  // ── Pré-remplir en mode édition ────────────────────────────────────────────
   useEffect(() => {
     if (supplier) {
       setFormData({
@@ -39,9 +65,12 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
         leadTime: supplier.lead_time ?? 7,
         minOrderQuantity: supplier.min_order_quantity ?? 1,
         maxOrderQuantity: supplier.max_order_quantity ?? 1000,
-        // ← Forcer booléen : l'API peut retourner "true"/"false" en string
         isActive: Boolean(supplier.is_active),
       })
+      // Pré-sélectionner les produits déjà associés
+      if (supplier.products && supplier.products.length > 0) {
+        setSelectedProducts(supplier.products as ProductOption[])
+      }
     }
   }, [supplier])
 
@@ -58,6 +87,7 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
         minOrderQuantity: formData.minOrderQuantity,
         maxOrderQuantity: formData.maxOrderQuantity,
         isActive: formData.isActive,
+        products: selectedProducts.map(p => p.name).join(';'),
       }
       onSubmit(supplierData)
     } catch (error: any) {
@@ -73,6 +103,23 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
   const handleInputChange = (field: string, value: string | number | boolean) => {
     setFormData(prev => ({ ...prev, [field]: value }))
   }
+
+  const toggleProduct = (product: ProductOption) => {
+    setSelectedProducts(prev =>
+      prev.some(p => p.id === product.id)
+        ? prev.filter(p => p.id !== product.id)
+        : [...prev, product]
+    )
+  }
+
+  const removeProduct = (id: number) => {
+    setSelectedProducts(prev => prev.filter(p => p.id !== id))
+  }
+
+  const filteredProducts = allProducts.filter(p =>
+    p.name.toLowerCase().includes(productSearch.toLowerCase()) &&
+    !selectedProducts.some(s => s.id === p.id)
+  )
 
   const validatePhoneNumber = (phone: string): boolean => {
     const phoneRegex = /^\+261\s(32|33|34|37|38|39)\s\d{2}\s\d{3}\s\d{2}$/
@@ -214,11 +261,61 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
         </div>
       </div>
 
-      {/* Switch toujours contrôlé — checked ne peut jamais être undefined */}
+      {/* ── Sélection des produits fournis ────────────────────────────────── */}
+      <div className="space-y-2">
+        <Label>Produits fournis</Label>
+
+        {/* Tags des produits sélectionnés */}
+        {selectedProducts.length > 0 && (
+          <div className="flex flex-wrap gap-2 p-2 border rounded-md bg-muted/30 min-h-[40px]">
+            {selectedProducts.map(p => (
+              <Badge key={p.id} variant="secondary" className="gap-1 pr-1">
+                {p.name} {p.unite_mesure ? `(${p.unite_mesure})` : ''}
+                <button
+                  type="button"
+                  onClick={() => removeProduct(p.id)}
+                  className="ml-1 hover:text-destructive"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+
+        {/* Champ de recherche produit */}
+        <div className="relative">
+          <Input
+            placeholder="Rechercher un produit à ajouter..."
+            value={productSearch}
+            onChange={(e) => { setProductSearch(e.target.value); setShowProductDropdown(true) }}
+            onFocus={() => setShowProductDropdown(true)}
+            onBlur={() => setTimeout(() => setShowProductDropdown(false), 200)}
+          />
+          {showProductDropdown && filteredProducts.length > 0 && (
+            <div className="absolute z-50 w-full mt-1 bg-background border rounded-md shadow-lg max-h-48 overflow-y-auto">
+              {filteredProducts.slice(0, 20).map(p => (
+                <button
+                  key={p.id}
+                  type="button"
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-accent flex items-center justify-between"
+                  onMouseDown={() => { toggleProduct(p); setProductSearch("") }}
+                >
+                  <span>{p.name}</span>
+                  {p.unite_mesure && (
+                    <span className="text-xs text-muted-foreground">{p.unite_mesure}</span>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
       <div className="flex items-center space-x-2">
         <Switch
           id="active"
-          checked={formData.isActive}  // ← toujours un booléen grâce à Boolean() dans useEffect
+          checked={formData.isActive}
           onCheckedChange={(checked) => handleInputChange("isActive", checked)}
         />
         <Label htmlFor="active">Fournisseur actif</Label>

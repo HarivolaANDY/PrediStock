@@ -165,3 +165,104 @@ Liste synthétique des fichiers et changements importants :
 
 44) `requirements.txt` (racine) — Nouveau/updated
   - Un fichier `requirements.txt` a été ajouté à la racine du dépôt (duplicate possible du backend/requirements.txt) — nécessite harmonisation (préférer un seul fichier ou un `requirements/backend.txt` + `requirements/worker.txt`).
+
+---
+
+## 2026-04-14 — Améliorations Documentation Backend & ML Training
+
+Résumé : enrichissement massif de la documentation backend et ajout du système de training T5 pour SQL NLQ-to-SQL.
+
+### Changements au `backend/README.md`
+
+Le README a été significativement enrichi depuis la snapshot 2026-04-03. Les sections suivantes ont été ajoutées ou largement développées :
+
+45) `backend/README.md` — Section "Prérequis"
+  - Ajout des exigences Python (3.10+), mention des dépendances ML et compatibilité CUDA. But : clarifier les prérequis matériels/logiciels avant installation.
+
+46) `backend/README.md` — Section "Installation rapide (développement)"
+  - Instructions détaillées pour création venv, activation sous Windows PowerShell, pip upgrade, installation `requirements.txt`. Inclut avertissement sur dépendances ML volumineuses. Tester : suivre les étapes et vérifier activation du venv.
+
+47) `backend/README.md` — Section "Configuration"
+  - Variables d'environnement clés : `SECRET_KEY` (production), `DEBUG`, `GOOGLE_API_KEY`, DB parameters. Explique `.env.example` (créer `.env` avec valeurs réelles). Détails CORS (restreindre en prod), médias (`MEDIA_ROOT`, `MEDIA_URL`, serveur cloud en prod). Impact : facilite setup production-ready.
+
+48) `backend/README.md` — Section "Base de données & migrations"
+  - Instructions `migrate`, `createsuperuser`, optionnalité de `db.sqlite3` (supprimer et recréer si fresh start). Tester : lancer migrations et créer admin.
+
+49) `backend/README.md` — Section "Lancer le serveur (développement)"
+  - Commande `runserver 0.0.0.0:8000`, vérifications pré-lancement (migrations, admin). Test simple : `python manage.py runserver` puis accès à `http://localhost:8000/`.
+
+50) `backend/README.md` — Section "Authentification API" complète
+  - Explication Token Authentication (`rest_framework.authtoken`). Trois méthodes génération token : Django admin, endpoint `/api/accounts/login/`, script Python direct. Exemples curl complets : listing produits, recommandations, création alerte. Impact : devs peuvent tester l'API immédiatement.
+
+51) `backend/README.md` — Section "Pipeline ML & Prédictions (Forecasting)" enrichie
+  - Détail complet de la commande `prevision` : collecte 180j, features (lags, rolling), 4 modèles (XGBoost/LightGBM/Linear/Ridge), sélection best model, horizon configurable (défaut 30j), heuristique fallback, stockage des résultats (`Prediction`, `Recommandation`). Explique appel API POST `/api/forecasting/predict/`. Tester : `python manage.py prevision --horizon 60`.
+
+52) `backend/README.md` — Section "Tâches asynchrones / files d'attente"
+  - Documentation `django-q`, `celery` (présents mais configuration absent). Suggestion d'intégration `prevision` via tasks backgroundées. Tester : configurer Celery et relancer pipeline asynchrone.
+
+53) `backend/README.md` — Section "Tests"
+  - Commandes `manage.py test` global ou par app (`apps.accounts`). Note : tests ML peuvent prendre temps. Tester : lancer suite et vérifier couverture.
+
+54) `backend/README.md` — Section "Structure importante" détaillée
+  - Description de chaque app : accounts (auth, tokens, rôles), catalogue (produits, catégories, fournisseurs), stock (inventaire, mouvements, seuils, historiques), commandes (bons, contenus, données vente, retours), forecasting (prédictions, recommandations, modèles, IA, ETL), notifications (activités, alertes, notifications), core (PDF, CRUD, réponses). Fichiers structures clés (`manage.py`, `config/`, `apps/`, `media/`). Tester : explorer chaque app et vérifier structure matches description.
+
+55) `backend/README.md` — Section "Fichiers générés & rapports"
+  - Explique stockage PDF (`media/rapports/`), génération ReportLab, retour JSON API (url + filename). Exemple JSON avec lien `/media/rapports/<filename>`. Tester : générer rapport mouvement et vérifier structure réponse.
+
+56) `backend/README.md` — Section "Développement et bonnes pratiques"
+  - Conseils sécurité (DEBUG=False, SECRET_KEY en env, CORS restrictif prod). Recommandations architecture (venv isolé, GPU/CUDA pour ML, Docker reproductibilité, S3/cloud médias prod). Note testing `prevision` standalone avant Celery. Tester : relire avant déploiement prod.
+
+57) `backend/README.md` — Section "Dépannage rapide"
+  - Problèmes courants : imports Django (activer venv), auth API (token présent), CORS (checkORIGINS), pipeline crash (`MouvementStock`, ML dépendances). Solutions incluses. Tester : consulter en cas d'erreur.
+
+58) `backend/README.md` — Endpoints API : section "Remarques"
+  - Explique pattern détail routes (DRF routers), routes personnalisées (`/predict/`, `/chat/`), possibilité checker endpoints via `show_urls`. Impact : clarté sur architecture routing.
+
+### Changements ML Training System
+
+59) `backend/apps/forecasting/training/dataset.json` — Nouveau dataset T5-NLQ
+  - 762 exemples question-SQL français : requêtes stock (ruptures, mouvements, seuils), ventes (top sellers, non-vendus, taux rotation), prédictions (ruptures prévues, imports/exports recommandés), alertes (non lues, urgentes), commandes (fournisseurs, retards). Couvre tous les use-cases inventaire/prévisions. Tester : consulter file et vérifier couverture questions.
+
+60) `backend/apps/forecasting/training/train.py` — Nouveau script training T5
+  - Entraîne modèle T5-small pour NLQ → SQL generation. Charge dataset, tokénise inputs/targets, split train/test (90/10), entraîne 20 epochs, batch size 4. Sauvegarde modèle et tokenizer. Tester : `python train.py` (attention : temps long + GPU recommandé, ~10-20 min CPU).
+
+61) `backend/apps/forecasting/training/generate_dataset.py` — Script génération dataset
+  - Génère 762 exemples via templates + produits cibles (Air Fryer, Banane, Riz, Acoustic Guitar, Almond Butter, Air Mattress). Produit `dataset.json`. Tester : `python generate_dataset.py` et vérifier output JSON.
+
+62) `backend/apps/forecasting/sql_model_weights/` — Dossier poids modèle T5
+  - Racine contient config/tokenizer/modèle final (config.json, generation_config.json, model.safetensors, tokenizer.json).
+
+63) `backend/apps/forecasting/sql_model_weights/config.json` — Config T5 model
+  - Architecture T5ForConditionalGeneration : 6 layers encoder/decoder, 512 d_model, 8 heads, task-specific params (summarization, translation EN-DE/FR/RO). Impact : définit capacité du modèle pour SQL generation.
+
+64) `backend/apps/forecasting/sql_model_weights/generation_config.json` — Generation params
+  - Tokens spéciaux (pad, eos, decoder_start). Utilisé lors inférence pour contrôler output generation.
+
+65) `backend/apps/forecasting/sql_model_weights/model.safetensors` — Poids modèle (236 MB)
+  - Modèle T5 entraîné sauvegardé en format safetensors. Téléchargeable mais volumineux. Tester : charger via Hugging Face transformers et vérifier génération SQL.
+
+66) `backend/apps/forecasting/sql_model_weights/tokenizer.json` — Tokenizer T5 (2.3 MB)
+  - Vocabulaire T5 et config tokenization. Utilisé pour encoder questions NLQ avant passage au modèle.
+
+67) `backend/apps/forecasting/sql_model_weights/tokenizer_config.json` — Config tokenizer
+  - 32K vocab, T5Tokenizer class, special tokens (extra_ids 0-99), max_length 512. Format tokens JSON BPE.
+
+68) `backend/apps/forecasting/sql_model_weights/checkpoint-86/` — Checkpoint early training
+  - Sauvegarde epoch 2 (43 steps) : config, generation_config, model, optimizer, scheduler, rng_state, training metadata. Pour debug/resume si besoin.
+
+69) `backend/apps/forecasting/sql_model_weights/checkpoint-860/` — Final checkpoint
+  - Sauvegarde epoch 20 (860 steps, FINAL) : même structure que checkpoint-86 mais poids finaux, eval_loss=0.351 (meilleur modèle trouvé). Utilisé pour inférence production.
+
+70) `backend/apps/forecasting/training/logs/` — Logs training
+  - Logs tensorboard/training pendant entraînement (optionnel si loggings configurés).
+
+### Impact & Recommandations
+
+**Documentation** : Le README est maintenant une ressource auto-suffisante pour developers. Setup dev/prod, troubleshooting, API examples, ML pipeline — tout couvert.
+
+**ML Training** : T5 model capable NLQ → SQL generation pour requêtes inventaire français. Checkpoint-860 (final) à utiliser en prod. Temps training : ~15-20 min CPU (⚡ recommandé GPU : NVIDIA CUDA 11.8+).
+
+**Testing** :
+- Doc : Suivre README sections dans l'ordre pour setup complet.
+- ML : Charger modelT5 et tester sur questions du dataset.json.
+- Integration : POST `/api/forecasting/predict/` doit utiliser modèle final (checkpoint-860).

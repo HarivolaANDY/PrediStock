@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 interface ImportSupplierFormProps {
   onClose: () => void
   onImport: (data: ImportedSupplier[]) => Promise<void>
-  onSuccess?: () => void  // ← callback pour rafraîchir la liste après import
+  onSuccess?: () => void
 }
 
 interface ImportedSupplier {
@@ -22,6 +22,7 @@ interface ImportedSupplier {
   lead_time?: number
   min_order_quantity?: number
   max_order_quantity?: number
+  products?: string  // ex: "Riz;Maïs;Farine"
 }
 
 interface ImportError {
@@ -59,7 +60,8 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
       address: ['address', 'adresse'],
       lead_time: ['delai', 'lead time', 'lead_time'],
       min_order_quantity: ['quantité minimale de commande', 'minimum order quantity', 'min_order_quantity'],
-      max_order_quantity: ['quantité maximale de commande', 'maximum order quantity', 'max_order_quantity']
+      max_order_quantity: ['quantité maximale de commande', 'maximum order quantity', 'max_order_quantity'],
+      products: ['products', 'produits', 'articles'],
     }
 
     const findValueByAliases = (row: any, aliases: string[]): string | undefined => {
@@ -127,6 +129,9 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
         supplier.max_order_quantity = maxOrderNum
       }
 
+      const products = findValueByAliases(row, fieldAliases.products)
+      if (products) supplier.products = products
+
       valid.push(supplier as ImportedSupplier)
     })
 
@@ -138,12 +143,21 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     if (lines.length === 0) return []
     const headers = includeHeaders
       ? lines[0].split(',').map(h => h.trim().replace(/"/g, ''))
-      : ['name', 'contact_email', 'contact_phone', 'address', 'lead_time_days', 'minimum_order', 'is_active']
+      : ['name', 'email', 'phone', 'address', 'lead_time', 'min_order_quantity', 'max_order_quantity', 'products']
     const dataLines = includeHeaders ? lines.slice(1) : lines
     return dataLines.map(line => {
-      const values = line.split(',').map(v => v.trim().replace(/"/g, ''))
+      // Gère les valeurs entre guillemets contenant des virgules (ex: "Riz;Maïs")
+      const values: string[] = []
+      let current = ''
+      let inQuotes = false
+      for (const char of line) {
+        if (char === '"') { inQuotes = !inQuotes }
+        else if (char === ',' && !inQuotes) { values.push(current.trim()); current = '' }
+        else { current += char }
+      }
+      values.push(current.trim())
       const row: any = {}
-      headers.forEach((header, index) => { row[header] = values[index] || '' })
+      headers.forEach((header, index) => { row[header] = values[index]?.replace(/"/g, '') || '' })
       return row
     })
   }
@@ -167,7 +181,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
           const firstSheetName = workbook.SheetNames[0]
           const worksheet = workbook.Sheets[firstSheetName]
           const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-            header: includeHeaders ? undefined : ['name', 'contact_email', 'contact_phone', 'address', 'lead_time_days', 'minimum_order', 'is_active'],
+            header: includeHeaders ? undefined : ['name', 'email', 'phone', 'address', 'lead_time', 'min_order_quantity', 'max_order_quantity', 'products'],
             blankrows: false
           })
           resolve(jsonData)
@@ -220,7 +234,6 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
       const token = localStorage.getItem('token')
       const results = { success: 0, errors: 0 }
 
-      // Insérer chaque fournisseur directement via l'API catalogue
       for (const supplier of previewData) {
         try {
           const response = await fetch('http://localhost:8000/api/catalogue/suppliers/', {
@@ -237,7 +250,8 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
               lead_time: supplier.lead_time ?? 0,
               min_order_quantity: supplier.min_order_quantity ?? 0,
               max_order_quantity: supplier.max_order_quantity ?? 0,
-              is_active: true
+              is_active: true,
+              products: supplier.products || '',
             })
           })
 
@@ -258,7 +272,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
 
       if (results.success > 0) {
         setStep('success')
-        if (onSuccess) onSuccess() // ← rafraîchit la liste dans Suppliers.tsx
+        if (onSuccess) onSuccess()
       }
 
       if (results.errors > 0) {
@@ -330,8 +344,11 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
         <AlertCircle className="h-4 w-4" />
         <AlertDescription>
           <strong>Format attendu (CSV):</strong><br />
-          name,contact_email,contact_phone,address,lead_time_days,minimum_order,is_active<br />
-          <strong>Champs obligatoires:</strong> name, lead_time_days, minimum_order
+          <code className="text-xs">name,email,phone,address,lead_time,min_order_quantity,max_order_quantity,products</code><br /><br />
+          <strong>Exemple:</strong><br />
+          <code className="text-xs">Fournisseur A,a@mail.com,032...,Antananarivo,7,10,500,Riz;Maïs;Farine</code><br /><br />
+          <strong>Champs obligatoires:</strong> name, email<br />
+          <strong>Produits:</strong> séparés par <code>;</code> dans la colonne <code>products</code>
         </AlertDescription>
       </Alert>
 
@@ -395,6 +412,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
                   <TableHead>Adresse</TableHead>
                   <TableHead>Délai</TableHead>
                   <TableHead>Qté min/max</TableHead>
+                  <TableHead>Produits</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -406,6 +424,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
                     <TableCell>{supplier.address || '-'}</TableCell>
                     <TableCell>{supplier.lead_time ? `${supplier.lead_time} jours` : '-'}</TableCell>
                     <TableCell>{supplier.min_order_quantity || '-'} / {supplier.max_order_quantity || '-'}</TableCell>
+                    <TableCell>{supplier.products?.replace(/;/g, ', ') || '-'}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

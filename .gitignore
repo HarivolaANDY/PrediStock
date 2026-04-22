@@ -55,8 +55,6 @@ local_settings.py
 
 # Django Extensions / Static Analysis outputs
 *.dot
-*.png
-*.svg
 celerybeat-schedule
 
 # --- Editor / IDE ---
@@ -72,3 +70,7 @@ celerybeat-schedule
 # --- OS ---
 .DS_Store
 Thumbs.db
+
+# --- Frontend Assets (ne pas ignorer) ---
+!frontend/src/image/
+!frontend/public/

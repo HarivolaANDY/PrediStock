@@ -147,6 +147,24 @@ export interface CreateProductData {
     image?: File | null;
 }
 
+export interface Product {
+  id: number
+  product_img: string | null
+  name: string
+  sku: string
+  description: string
+  price: string
+  stock_threshold: number
+  current_stock: number
+  unite_mesure: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  category: number | null
+  supplier: number | null
+  suppliers?: { id: string; name: string }[]
+}
+
 export interface ProductResponse {
     success: boolean;
     message: string;
@@ -170,17 +188,18 @@ export interface SupplierResponse {
     data?: Supplier | Supplier[]; // Modifié pour accepter un fournisseur ou un tableau
 }
 
-export interface Supplier {  // Ajout du mot-clé export
-    id: string;
-    name: string;
-    email: string;
-    phone: string;
-    address: string;
-    lead_time: number;
-    min_order_quantity: number;
-    max_order_quantity: number;
-    created_at: string;
-    is_active: boolean;
+export interface Supplier {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+  lead_time: number;
+  min_order_quantity: number;
+  max_order_quantity: number;
+  created_at: string;
+  is_active: boolean;
+  products?: { id: number; name: string; sku: string; unite_mesure: string }[];  // ← ajouter
 }
 
 export interface SupplierFormData {
@@ -192,6 +211,7 @@ export interface SupplierFormData {
   minOrderQuantity: number;
   maxOrderQuantity: number;
   isActive: boolean;
+  products?: string;   // ← ajouter
 }
 
 export interface CreateSupplierData extends SupplierFormData {}
