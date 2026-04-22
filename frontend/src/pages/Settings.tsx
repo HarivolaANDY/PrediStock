@@ -45,11 +45,7 @@ export default function Settings() {
 
   // ✅ Thème couleur
   useEffect(() => {
-    // Retirer toutes les classes de thème précédentes
-    document.body.classList.remove('blue', 'green', 'purple', 'orange');
-    // Ajouter la nouvelle classe de thème
-    document.body.classList.add(themeColor);
-    // Sauvegarder dans les settings
+    // Sauvegarder dans les settings (le hook useSettings s'occupe d'appliquer la classe au body)
     updateSettings({ themeColor: themeColor });
   }, [themeColor, updateSettings])
 
