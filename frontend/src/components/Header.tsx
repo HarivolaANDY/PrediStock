@@ -18,19 +18,6 @@ interface UserData {
   username?: string;
 }
 
-function getHeaderPseudo(): string {
-  const userStr = localStorage.getItem("user")
-  if (!userStr) return ""
-  
-  try {
-    const user: UserData = JSON.parse(userStr)
-    const pseudo = `${user.last_name || ''} ${user.first_name || ''}`.trim() || user.username || ""
-    return pseudo
-  } catch {
-    return ""
-  }
-}
-
 export function Header() {
   const [pseudo, setPseudo] = useState("")
   
@@ -38,7 +25,7 @@ export function Header() {
     const user = localStorage.getItem("user");
     if (user) {
       try {
-        const userData = JSON.parse(user);
+        const userData: UserData = JSON.parse(user);
         const name = (userData.last_name && userData.first_name) 
           ? `${userData.last_name} ${userData.first_name}` 
           : (userData.username || "Utilisateur");
