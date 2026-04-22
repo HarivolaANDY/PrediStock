@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
-import { useSupplier } from "@/contexts/SupplierContext"
+import { useSupplier } from "@/hooks/useSupplier"
 import { Supplier, SupplierFormData } from "@/types/types"
 import API from "@/services/axios"
 import { X } from "lucide-react"
@@ -90,12 +90,13 @@ export function SupplierForm({ supplier, onSubmit, onCancel }: SupplierFormProps
         products: selectedProducts.map(p => p.name).join(';'),
       }
       onSubmit(supplierData)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur:', error)
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors de l'opération";
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de l'opération",
+        description: errorMessage,
       })
     }
   }

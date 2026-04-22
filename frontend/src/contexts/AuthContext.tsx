@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { UserService } from "@/services/api";
-import { CreateUserData, UserResponse } from "@/types/types";
-import { toast, useToast } from "@/components/ui/use-toast";
+import { CreateUserData, User } from "@/types/types";
+import { useToast } from "@/components/ui/use-toast";
 
 interface LoginData {
     email: string;
@@ -14,8 +14,8 @@ interface AuthContextType {
     isLoading: boolean;
     verifyItem : (parameter:string, value:string) => Promise<boolean>;
     verifyItems : (nom:string, prenom:string) => Promise<boolean>;
-    getUsers : () => Promise<UserResponse[]>;
-    user: UserResponse | null;
+    getUsers : () => Promise<User[]>;
+    user: User | null;
     login: (loginData: LoginData) => Promise<boolean>;
     logout: () => void;
 }
@@ -23,7 +23,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-    const [user, setUser] = useState<UserResponse | null>(null);
+    const [user, setUser] = useState<User | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const {toast} = useToast();
 
@@ -205,7 +205,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return false;
         }
     }
-    const getUsers = async (): Promise<UserResponse[]> => {
+    const getUsers = async (): Promise<User[]> => {
         setIsLoading(true);
         try {
             const response = await UserService.getUsers();

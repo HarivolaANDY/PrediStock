@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { User, Mail, Phone, Shield, UserPlus, X, Loader2 } from "lucide-react"
+import { UserPlus, Loader2 } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,17 +11,33 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from "@/components/ui/use-toast"
 import { UserService } from "@/services/api"
 import { ToastService } from "@/services/toast.service"
-import { Toast } from "@radix-ui/react-toast"
+import { User } from "@/types/types"
+import { isAxiosError } from "axios"
 
 interface UserManagementFormProps {
   open: boolean
   onClose: () => void
-  user?: any
+  user?: User
   mode: 'create' | 'edit'
   onSuccess?: () => void
 }
 
-const defaultFormData = {
+interface UserFormData {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone: string;
+  role: string;
+  department: string;
+  location: string;
+  biography: string;
+  status: string;
+  permissions: string[];
+  sendInvite: boolean;
+  temporaryPassword: boolean;
+}
+
+const defaultFormData: UserFormData = {
   first_name: '',
   last_name: '',
   email: '',
@@ -36,19 +52,17 @@ const defaultFormData = {
   temporaryPassword: true
 }
 
-export function Users () {
-  const { getUsers } = useAuth()
-  const users = getUsers()
-  return (
-    users
-  )
-}
+// Removed redundant Users component
 
-export function UserManagementForm({ open, onClose, user, mode }: UserManagementFormProps) {
-  const { createUser, updateUser, isLoading , verifyItem, verifyItems} = useAuth()
+export function UserManagementForm({ open, onClose, user, mode, onSuccess }: UserManagementFormProps): React.JSX.Element {
+  const { createUser, updateUser, isLoading } = useAuth()
   const { toast } = useToast()
-  const [formData, setFormData] = useState(() => {
+  const [formData, setFormData] = useState<UserFormData>(() => {
     if (mode === 'edit' && user) {
+      const permissions = typeof user.permissions === 'string' 
+            ? user.permissions.split(',').filter(Boolean)
+            : (Array.isArray(user.permissions) ? user.permissions.map(String) : []);
+            
       return {
         first_name: user.first_name || '',
         last_name: user.last_name || '',
@@ -59,7 +73,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
         location: user.location || '',
         biography: user.biography || '',
         status: user.status || 'active',
-        permissions: user.permissions || [],
+        permissions: permissions,
         sendInvite: false,
         temporaryPassword: false
       }
@@ -72,7 +86,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
     if (mode === 'edit' && user) {
       const permissions = typeof user.permissions === 'string' 
             ? user.permissions.split(',').filter(Boolean)
-            : user.permissions || [];
+            : (Array.isArray(user.permissions) ? user.permissions.map(String) : []);
 
       setFormData({
         first_name: user.first_name || '',
@@ -173,7 +187,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
   };
 
   // Modifier la fonction validateForm existante
-  const validateForm = async () => {
+  const validateForm = async (): Promise<boolean> => {
     const errors: string[] = [];
 
     if (!formData.first_name.trim()) {
@@ -225,22 +239,16 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
     return true
   }
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent): Promise<void> => {
     e.preventDefault()
     if (!(await validateForm())) return
 
     try {
-        // Utiliser permissions comme tableau de chaînes
-        // S'assurer que permissions est toujours un tableau de chaînes
-        let permissionsArray: string[] = [];
-        if (Array.isArray(formData.permissions)) {
-            permissionsArray = formData.permissions.map(p => String(p));
-        } else if (typeof formData.permissions === 'string') {
-            permissionsArray = formData.permissions.split(',').filter(Boolean);
-        }
+        const permissionsArray = Array.isArray(formData.permissions) 
+            ? formData.permissions.map(p => String(p))
+            : [];
 
         const userData = { 
-            id : user?.id,
             first_name: formData.first_name.trim(),
             last_name: formData.last_name.trim(),
             email: formData.email.trim(),
@@ -250,7 +258,7 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
             location: formData.location.trim(),
             biography: formData.biography.trim(),
             status: formData.status,
-            permissions: permissionsArray, // Toujours un tableau de chaînes
+            permissions: permissionsArray,
             sendInvite: Boolean(formData.sendInvite),
             temporaryPassword: mode === 'create' ? true : Boolean(formData.temporaryPassword)
         };
@@ -258,108 +266,54 @@ export function UserManagementForm({ open, onClose, user, mode }: UserManagement
         if (mode === 'create') {
             const response = await createUser(userData);
             if (response) {
-              // Réinitialiser le formulaire
-              setFormData(defaultFormData)
-              // Réinitialiser les permissions
-              setFormData(prev => ({
-                ...defaultFormData,
-                permissions: []
-              }))
               toast({
                 title: "Succès",
                 description: "L'utilisateur a été créé avec succès"
               })
+              if (onSuccess) onSuccess()
               onClose()
-              // onSuccess()
             }
         } else if (mode === 'edit' && user?.id) {
-            console.log(user.permissions);
-            const response = await updateUser(user.id, userData);
+            const response = await updateUser(String(user.id), userData);
             if (response) {
-              // Réinitialiser le formulaire
-              setFormData(defaultFormData)
               toast({
                 title: "Succès",
                 description: "L'utilisateur a été mis à jour avec succès"
               })
+              if (onSuccess) onSuccess()
               onClose()
             }
         }
-        // onSuccess()
-        onClose()
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur:', error)
-      let errorMessages: string[] = []
-
-      // Traduire les noms des champs pour l'affichage
-      const fieldTranslations: { [key: string]: string } = {
-        email: "Adresse e-mail",
-        first_name: "Prénom",
-        last_name: "Nom",
-        role: "Rôle",
-        department: "Département",
-        // permissions: "Autorisations",
-        password: "Mot de passe",
-        sendInvite: "Invitation par e-mail",
-        temporaryPassword: "Mot de passe temporaire"
-      }
-
-      // Extraire les erreurs du backend
-      if (error.message) {
-        try {
-          const errorData = JSON.parse(error.message)
-          if (errorData.errors) {
-            // Cas où le backend renvoie un objet errors
-            Object.entries(errorData.errors).forEach(([field, messages]: [string, any]) => {
-              const fieldName = fieldTranslations[field] || field
-              if (Array.isArray(messages)) {
-                messages.forEach((msg: string) => errorMessages.push(`${fieldName}: ${msg}`))
-              } else {
-                errorMessages.push(`${fieldName}: ${messages}`)
-              }
-            })
-          } else if (errorData.message) {
-            // Cas où le backend renvoie un message global
-            errorMessages.push(errorData.message)
-          } else {
-            // Autres erreurs non structurées
-            errorMessages.push(error.message)
-          }
-        } catch (e) {
-          // Si l'erreur n'est pas un JSON valide, utiliser le message brut
-          errorMessages.push(error.message || "Une erreur inconnue est survenue")
+      let message = "Une erreur est survenue lors de l'enregistrement."
+      
+      if (isAxiosError(error)) {
+        const data = error.response?.data
+        if (data && typeof data === 'object') {
+          const errors = data.errors || data
+          const errorList = Object.entries(errors).map(([f, m]) => `${f}: ${m}`)
+          message = errorList.length > 0 ? errorList.join(', ') : message
         }
-      } else {
-        errorMessages.push("Une erreur inconnue est survenue")
+      } else if (error instanceof Error) {
+        message = error.message
       }
 
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: (
-          <ul className="list-disc pl-4">
-            {errorMessages.map((msg, index) => (
-              <li key={index}>{msg}</li>
-            ))}
-          </ul>
-        )
+        description: message
       })
     }
   }
 
-  const verify_item = async (parameter: string, value:string) =>{
-    console.log("Verifying", parameter, value)
-    const response = await verifyItem(parameter, value)
-  }
-  const verify_names = async (value_nom:string, value_prenom:string) =>{
-    const response = await verifyItems(value_nom, value_prenom)
-  }
+  // Component logic ends here
 
-  const togglePermission = (permissionId: string) => {
+  const togglePermission = (permissionId: string): void => {
     setFormData(prev => ({
       ...prev,
       permissions: prev.permissions.includes(permissionId)
-        ? prev.permissions.filter(p => p !== permissionId)
+        ? prev.permissions.filter((p: string) => p !== permissionId)
         : [...prev.permissions, permissionId]
     }))
   }

@@ -1,6 +1,5 @@
 import { useState } from "react"
-import { useNavigate } from "react-router-dom"
-import { FileText, Download, Calendar, Filter, BarChart3, TrendingUp } from "lucide-react"
+import { FileText, Download, Calendar, BarChart3, TrendingUp } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -26,9 +25,7 @@ import { PlaningReportModal } from "@/components/PlaningReportModal"
 import { ReportsDetails } from "@/components/ReportsDetails"
 import  API  from "@/services/axios"
 import { downloadPdf } from "@/utils/blobUtils"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils";
-import { timeStamp } from "console"
-import { yearsToDays } from "date-fns"
+import { parseAxiosBlobResponse, downloadAll, type AxiosResponseWithBlob } from "@/utils/blobUtils";
 
 
 // Type Report
@@ -43,7 +40,7 @@ type Report = {
   description?: string
   format?: string
   size?: string
-  details? : any
+  details?: Record<string, unknown>
 }
 
 const reportTemplates = [
@@ -176,44 +173,32 @@ const generatedReports = [
 ]
 
 export default function Reports() {
-  const navigate = useNavigate()
-  const [selectedPeriod, setSelectedPeriod] = useState("7d")
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [showGenerateModal, setShowGenerateModal] = useState(false)
-  const [selectedTemplate, setSelectedTemplate] = useState<typeof reportTemplates[0] | null>(null)
+  const [selectedTemplate, _setSelectedTemplate] = useState<typeof reportTemplates[0] | null>(null)
   const [showAddPlaning, setShowAddPlaning] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
-  const [showDeleteModal, setShowDeleteModal] = useState(false)
-  const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
 
-  // Pour le télechargement de données
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([]); // Nouvelle liste pour accumuler les fichiers
-  const [isloadingexport, setIsloadingexport] = useState(false);
-
-  const lancerRapport = async (url = "/pdf/download_pdf/", method: 'get' | 'post' = 'get', payload?: any) => {
+  const lancerRapport = async (url = "/pdf/download_pdf/", method: 'get' | 'post' = 'get', payload?: Record<string, unknown>) => {
     try {
-      // déclenche téléchargement immédiat si l'API renvoie un PDF
       await downloadPdf(url, method, payload);
     } catch (err) {
       console.error("Erreur téléchargement rapport :", err);
     }
   }
 
-  const Telecharger_pdf = async(details:any) =>{
+  const Telecharger_pdf = async(details: { titre: string; [key: string]: unknown }) =>{
     try {
-      const res = await API.post("pdf/Dynamic_PDF/",details, { responseType: 'blob' });
+      const res = (await API.post("pdf/Dynamic_PDF/", details, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob;
       const parsed = await parseAxiosBlobResponse(res, details.titre);
 
       if (parsed.files && parsed.files.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files]);
-        downloadAll(parsed.files) // décommenter pour téléchargement immédiat 
+        downloadAll(parsed.files)
       }
       if (parsed.json) console.log(parsed.json);
     } catch (err) {
       console.log(err);
-    } finally {
-      setIsloadingexport(false);
     }
   }
 
@@ -250,15 +235,11 @@ export default function Reports() {
     setIsDetailsOpen(true)
   }
 
-  const handleDeleteClick = (report: Report) => {
-    setReportToDelete(report)
-    setShowDeleteModal(true)
-  }
   const filteredTemplates = selectedCategory === "all" 
     ? reportTemplates
     : reportTemplates.filter(template => template.category.toLowerCase() === selectedCategory)
 
-  const handleGenerateSubmit = async (data: any) => {
+  const handleGenerateSubmit = async (data: Record<string, unknown>) => {
     try {
       console.log('Génération du rapport:', data)
       setShowGenerateModal(false)
@@ -580,12 +561,11 @@ export default function Reports() {
       )}
 
       {/* Supplier Details Form Modal */}
-      {ReportsDetails && (
+      {ReportsDetails && isDetailsOpen && selectedReport && (
         <ReportsDetails
           report={selectedReport}
           onClose={() => setIsDetailsOpen(false)}
           isOpen={isDetailsOpen}
-          onDelete={handleDeleteClick}
         />
       )}
     </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { API_BASE_URL, getAuthHeaders } from '@/config/api.config'
 import API from "@/services/axios";
 
@@ -18,8 +18,7 @@ export interface Product {
   revenue: number
   stock: number
   status: string
-  //status(status: any): import("react").ReactNode
-  sold: any
+  sold: number | string
   id: number
   product_img: string | null
   name: string
@@ -36,19 +35,14 @@ export interface Product {
   supplier: number | null
 }
 
-export async function getPDV(page: number= 1){
-  const [productsDV, setProducts] = useState([])
-  try{
-    await API.get('/produits_dv/').then((res)=>{
-      setProducts(res.data.data);
-    });
-    console.log("here");
-  } catch(error) {
-    console.log(error);
+export async function getPDV(_page: number = 1) {
+  try {
+    const res = await API.get('/produits_dv/');
+    return res.data.data;
+  } catch (error) {
+    console.error(error);
+    return [];
   }
-
-  return(productsDV)
-
 }
 
 export function useProducts(page: number = 1) {
@@ -59,8 +53,9 @@ export function useProducts(page: number = 1) {
   const [nextPage, setNextPage] = useState<string | null>(null)
   const [previousPage, setPreviousPage] = useState<string | null>(null)
 
-  async function fetchProducts() {
+  const fetchProducts = useCallback(async () => {
     try {
+      setLoading(true);
       const headers = getAuthHeaders();
       
       // Vérifier si un token d'authentification est présent
@@ -108,11 +103,11 @@ export function useProducts(page: number = 1) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [page]);
 
   useEffect(() => {
     fetchProducts()
-  }, [page])
+  }, [fetchProducts])
 
   return { 
     products, 

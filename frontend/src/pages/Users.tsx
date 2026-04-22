@@ -22,8 +22,8 @@ import { MetricCard } from "@/components/MetricCard";
 import { UserManagementForm } from "@/components/UserManagementForm";
 import { RoleManagementForm } from "@/components/RoleManagementForm";
 import { UserService, RoleService } from "@/services/api";
-import { User } from "@/types/user";
-import { useNavigate } from "react-router-dom";
+import { User, Role } from "@/types/types";
+
 
 // Fonctions utilitaires
 
@@ -32,44 +32,41 @@ import { useNavigate } from "react-router-dom";
 
 // Fonctions utilitaires
 // const getNumbers = (users: any[]) => users.map((user) => user.id);
-const getNumbers = (users: any[]) => users.map((user) => user.id);
+const getNumbers = (users: User[]) => users.map((user) => user.id);
+const getActiveUsers = (users: User[]) => users.filter((user) => user.status === "active");
+const getAdminUsers = (users: User[]) => users.filter((user) => user.role === "Administrator");
+const getPendingUsers = (users: User[]) => users.filter((user) => user.status === "pending");
 
-const getActiveUsers = (users: any[]) => users.filter((user) => user.status === "active");
-
-const getAdminUsers = (users: any[]) => users.filter((user) => user.role === "Administrator");
-
-const getPendingUsers = (users: any[]) => users.filter((user) => user.status === "pending");
-
-async function getUsers() {
+async function getUsers(): Promise<User[]> {
   const users = await UserService.getUsers();
-  const personnes = users.map((user: any) => ({
+  const personnes = users.map((user) => ({
     id: user.id,
-    first_name: user.first_name, // Garder first_name au lieu de firstname
-    last_name: user.last_name, // Garder last_name au lieu de lastname
+    first_name: user.first_name,
+    last_name: user.last_name,
     name: `${user.first_name} ${user.last_name}`,
     email: user.email,
-    phone: user.phone || '', // Ajout du champ phone
+    phone: user.phone || '',
     role: user.role,
-    department: user.department || '', // Ajout du champ department
-    location: user.location || '', // Ajout du champ location
+    department: user.department || '',
+    location: user.location || '',
     status: user.status,
-    lastLogin: user.updated_at,
-    permissions: user.permissions || [], // S'assurer que permissions est un tableau
-    biography: user.biography || '', // Ajout du champ biography
+    updated_at: user.updated_at,
+    permissions: user.permissions || [],
+    biography: user.biography || '',
   }));
-  return personnes;
+  return personnes as User[];
 }
 
 export default function Users() {
   const [searchTerm, setSearchTerm] = useState("");
   const [isUserFormOpen, setIsUserFormOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [selectedUser, setSelectedUser] = useState<User | undefined>(undefined);
   const [formMode, setFormMode] = useState<"create" | "edit">("create");
   const [isRoleFormOpen, setIsRoleFormOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState(null);
+  const [selectedRole, setSelectedRole] = useState<Role | undefined>(undefined);
   const [roleFormMode, setRoleFormMode] = useState<"create" | "edit">("create");
-  const [users, setUsers] = useState<User[]>([]); // État pour stocker les utilisateurs
-  const [roles, setRoles] = useState<any[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [roles, setRoles] = useState<Role[]>([]);
   
   const [isLoading, setIsLoading] = useState(true); // État pour gérer le chargement
   const [isLoadingRoles, setIsLoadingRoles] = useState(true);
@@ -86,17 +83,15 @@ export default function Users() {
     fetchUsers();
   }, []);
 
-  const navigate = useNavigate();
+  // navigate removed as it was unused
 
   const handleAddUser = () => {
-    setSelectedUser(null);
+    setSelectedUser(undefined);
     setFormMode("create");
     setIsUserFormOpen(true);
   };
 
-  const handleShowPermissions = () => {
-    navigate("/permissions");
-  };
+  // Removed unused handleShowPermissions
 
   // const handleEditUser = (user: any) => {
   //   setSelectedUser(user);
@@ -125,13 +120,13 @@ export default function Users() {
   };
 
   const handleCreateRole = () => {
-    setSelectedRole(null);
+    setSelectedRole(undefined);
     setRoleFormMode("create");
     setIsRoleFormOpen(true);
-    FecthRoles()
+    FecthRoles()();
   };
 
-  const handleEditRole = (role: any) => {
+  const handleEditRole = (role: Role) => {
     // Formater les données du rôle pour correspondre à la structure du formulaire
     const formattedRole = {
       id: role.id,
@@ -147,11 +142,9 @@ export default function Users() {
     };
 
     console.log("Role data being sent to form:", formattedRole); // Pour le debug
-    setSelectedRole(formattedRole);
+    setSelectedRole(formattedRole as unknown as Role);
     setRoleFormMode("edit");
-    const log = setIsRoleFormOpen(true);
-    console.log(log);
-    
+    setIsRoleFormOpen(true);
   };
 
   const getStatusBadge = (status: string) => {
@@ -285,7 +278,7 @@ export default function Users() {
                         </TableCell>
                       </TableRow>
                     ) : (
-                      filteredUsers.map((user: any) => (
+                      filteredUsers.map((user: User) => (
                         <TableRow key={user.id}>
                           <TableCell>
                             <div>
@@ -414,7 +407,7 @@ export default function Users() {
         open={isUserFormOpen}
         onClose={() => {
           setIsUserFormOpen(false);
-          setSelectedUser(null); // Réinitialiser l'utilisateur sélectionné
+          setSelectedUser(undefined); // Réinitialiser l'utilisateur sélectionné
         }}
         user={selectedUser}
         mode={formMode}
@@ -456,7 +449,7 @@ export default function Users() {
         console.log("Response from getRoles:", response); // Pour debug
         
         // Si les données sont dans response.data, utilisez-les
-        const rolesData = response.data || response;
+        const rolesData = response;
         setRoles(rolesData);
         // console.log("reloaded");
       } catch (error) {

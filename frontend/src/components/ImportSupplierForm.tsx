@@ -49,7 +49,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     }
   }
 
-  const validateSupplierData = (data: any[]): { valid: ImportedSupplier[], errors: ImportError[] } => {
+  const validateSupplierData = (data: Record<string, unknown>[]): { valid: ImportedSupplier[], errors: ImportError[] } => {
     const valid: ImportedSupplier[] = []
     const errors: ImportError[] = []
 
@@ -64,7 +64,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
       products: ['products', 'produits', 'articles'],
     }
 
-    const findValueByAliases = (row: any, aliases: string[]): string | undefined => {
+    const findValueByAliases = (row: Record<string, unknown>, aliases: string[]): string | undefined => {
       return aliases.reduce((found: string | undefined, alias: string) => {
         return found || row[alias]?.toString().trim()
       }, undefined)
@@ -138,7 +138,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     return { valid, errors }
   }
 
-  const parseCSV = (text: string): any[] => {
+  const parseCSV = (text: string): Record<string, unknown>[] => {
     const lines = text.split('\n').filter(line => line.trim())
     if (lines.length === 0) return []
     const headers = includeHeaders
@@ -162,7 +162,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     })
   }
 
-  const parseJSON = (text: string): any[] => {
+  const parseJSON = (text: string): Record<string, unknown>[] => {
     try {
       const data = JSON.parse(text)
       return Array.isArray(data) ? data : [data]
@@ -171,7 +171,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     }
   }
 
-  const parseXLSX = async (file: File): Promise<any[]> => {
+  const parseXLSX = async (file: File): Promise<Record<string, unknown>[]> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
       reader.onload = (e) => {
@@ -183,7 +183,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
           const jsonData = XLSX.utils.sheet_to_json(worksheet, {
             header: includeHeaders ? undefined : ['name', 'email', 'phone', 'address', 'lead_time', 'min_order_quantity', 'max_order_quantity', 'products'],
             blankrows: false
-          })
+          }) as Record<string, unknown>[]
           resolve(jsonData)
         } catch (error) {
           reject(new Error('Erreur lors de la lecture du fichier Excel'))
@@ -198,7 +198,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
     if (!selectedFile) return
     setIsLoading(true)
     try {
-      let parsedData: any[] = []
+      let parsedData: Record<string, unknown>[] = []
       switch (fileFormat) {
         case 'csv':
           parsedData = parseCSV(await selectedFile.text())

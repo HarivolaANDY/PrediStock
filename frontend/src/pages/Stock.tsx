@@ -15,29 +15,10 @@ import { MetricCard } from "@/components/MetricCard"
 import { StockMouvementForm } from "@/components/StockMouvementForm"
 import ImportModalGenerer from "@/components/ImportModalGenerer"
 import API from "@/services/axios"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils"
+import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { Category, StockMouvement, PDV, HistoriqueSeuilStock } from "@/types/types"
 
-type Product = {
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
-}
-
-type Category = {
-  id: number
-  name: string
-}
 
 function resolveProductName(mouvement: any, PDVs: any[]): string {
   const details = mouvement.product_details
@@ -57,18 +38,14 @@ function resolveProductName(mouvement: any, PDVs: any[]): string {
 }
 
 export default function Stock() {
-  const navigate = useNavigate()
   const [categories, setCategories] = useState<Category[]>([])
-  const { products, loading, error, refetch } = useProducts()
+  const { products, refetch } = useProducts()
   const [searchTerm, setSearchTerm] = useState("")
   const [alertSearchTerm, setAlertSearchTerm] = useState("")
-  const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [stockMouvements, setStockMouvements] = useState<any[]>([])
+  const [stockMouvements, setStockMouvements] = useState<StockMouvement[]>([])
   const [stockMouvementsLoading, setStockMouvementsLoading] = useState(false)
   const [stockMouvementsError, setStockMouvementsError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
   const [isloadingexport, setIsloadingexport] = useState(false)
   const [isLoadingPDVs, setIsLoadingPDVs] = useState(false)
   const [PDVs, setPDVs] = useState<any[]>([])
@@ -191,7 +168,7 @@ export default function Stock() {
 
   const Export_mouvement = async () => {
     try {
-      const res = await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })
+      const res = (await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })) as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, "Rapport_mouvement.pdf")
       if (parsed.files?.length) { setDownloadedFiles(prev => [...prev, ...parsed.files]); downloadAll(parsed.files) }
     } catch (err) { console.error(err) }
@@ -532,7 +509,7 @@ export default function Stock() {
                               </TableRow>
                             ) : (
                               stockMouvements.map((mouvement, index) => (
-                                <TableRow key={mouvement.id_movement ?? `mouvement-${index}`}>
+                                <TableRow key={mouvement.id ?? `mouvement-${index}`}>
                                   <TableCell>
                                     <div className="flex items-center gap-2">
                                       <Calendar className="h-4 w-4 text-muted-foreground" />

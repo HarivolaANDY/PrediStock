@@ -16,7 +16,7 @@ interface Type {
 
 interface TypeFormProps {
   onClose: () => void
-  onSubmit: (data: any) => void
+  onSubmit: (data: Type) => void
   initialData?: Type | null
 }
 
@@ -77,11 +77,12 @@ export function CategoryForm({ onClose, onSubmit, initialData }: TypeFormProps) 
       } else {
         throw new Error(response.message || "Une erreur est survenue");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erreur:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue';
       toast({
         title: "Erreur",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

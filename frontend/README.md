@@ -20,19 +20,19 @@ A modern, feature-rich stock management and forecasting application built with R
 
 | Technology | Version | Description |
 |------------|---------|-------------|
-| **React** | 19.0.0 | UI library |
-| **TypeScript** | 5.7.3 | Type-safe JavaScript |
-| **Vite** | 6.0.7 | Build tool and dev server |
-| **Tailwind CSS** | 4.0.0 | Utility-first CSS framework |
-| **React Router** | 7.1.3 | Client-side routing |
-| **TanStack Query** | 5.96.2 | Data fetching and caching |
-| **Axios** | 1.7.9 | HTTP client |
-| **React Hook Form** | 7.54.2 | Form management |
-| **Zod** | 3.24.1 | Schema validation |
+| **React** | 18.3.1 | UI library |
+| **TypeScript** | 5.5.3 | Type-safe JavaScript |
+| **Vite** | 5.4.1 | Build tool and dev server |
+| **Tailwind CSS** | 3.4.11 | Utility-first CSS framework |
+| **React Router** | 6.26.2 | Client-side routing |
+| **TanStack Query** | 5.56.2 | Data fetching and caching |
+| **Axios** | 1.12.2 | HTTP client |
+| **React Hook Form** | 7.53.0 | Form management |
+| **Zod** | 3.23.8 | Schema validation |
 | **shadcn/ui** | Latest | High-quality UI components (Radix UI) |
-| **Recharts** | 2.15.0 | Chart library |
-| **React i18next** | 16.6.6 | Internationalization |
-| **React PDF** | 10.4.1 | PDF generation |
+| **Recharts** | 2.12.7 | Chart library |
+| **React i18next** | 15.7.3 | Internationalization |
+| **React PDF** | 10.1.0 | PDF generation |
 
 ## 📁 Project Structure
 
@@ -59,6 +59,7 @@ frontend/
 │   └── main.tsx            # Application entry point
 ├── index.html              # HTML entry point
 ├── vite.config.ts          # Vite configuration
+├── tailwind.config.ts      # Tailwind CSS configuration
 ├── tsconfig.json           # TypeScript configuration
 ├── eslint.config.js        # ESLint configuration
 └── package.json            # Dependencies and scripts
@@ -155,8 +156,8 @@ The application includes the following routes and pages:
 
 Before you begin, ensure you have the following installed:
 
-- **Node.js** v22+ (recommended)
-- **npm** v10+ (comes with Node.js)
+- **Node.js** v18+ (v20+ recommended)
+- **npm** v9+ (comes with Node.js)
 
 Verify your installation:
 

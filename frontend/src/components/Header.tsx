@@ -16,10 +16,15 @@ import { notificationService } from "@/services/notification.service"
 
 export function Header() {
 const [ pseudo, setPseudo ] = useState()
-  useEffect(()=>{
-    setheaderPseudo(setPseudo, pseudo)
-
-  })
+  useEffect(() => {
+    const user = localStorage.getItem("user");
+    if (user) {
+      const userData = JSON.parse(user);
+      const name = userData.last_name + ' ' + userData.first_name || userData.username;
+      setPseudo(name);
+      document.title = "Predistock - " + name;
+    }
+  }, []);
   return (
     <header className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 items-center gap-4 px-4">
@@ -72,9 +77,4 @@ const [ pseudo, setPseudo ] = useState()
   )
 }
 
-function setheaderPseudo(setPseudo, pseudo: undefined) {
-  const user = localStorage.getItem("user")
 
-  setPseudo(JSON.parse(user).last_name + ' ' + JSON.parse(user).first_name || JSON.parse(user).username)
-  document.title = "Predistock - " + pseudo
-}
