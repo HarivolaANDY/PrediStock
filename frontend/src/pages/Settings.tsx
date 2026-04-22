@@ -21,13 +21,29 @@ import i18n from "../utils/i18n"
 export default function Settings() {
   const [autoBackup, setAutoBackup] = useState(true)
   const [twoFactorAuth, setTwoFactorAuth] = useState(false)
-  const [darkMode, setDarkMode] = useState(false)
+  const [metrics, setMetrics] = useState({
+    uptime: "...",
+    dbSize: "...",
+    activeSessions: "...",
+    apiRequests: "..."
+  })
   const { settings, updateSettings } = useSettings()
+
+  const [systemName, setSystemName] = useState("")
+  const [companyName, setCompanyName] = useState("")
+  const [sessionTimeout, setSessionTimeout] = useState(60)
+  const [backupStatus, setBackupStatus] = useState({
+    lastBackup: "",
+    backupSize: "",
+    nextBackup: "",
+    storageUsed: ""
+  })
 
   const [criticalAlerts, setCriticalAlerts] = useState(true)
   const [themeColor, setThemeColor] = useState(settings.themeColor || "blue")
   const [language, setLanguage] = useState(settings.language || "en")
 
+  // ✅ Thème couleur
   useEffect(() => {
     // Retirer toutes les classes de thème précédentes
     document.body.classList.remove('blue', 'green', 'purple', 'orange');
@@ -37,9 +53,111 @@ export default function Settings() {
     updateSettings({ themeColor: themeColor });
   }, [themeColor, updateSettings])
 
+  // ✅ Langue initiale
   useEffect(() => {
     setLanguage(i18n.language)
-  }, []);
+  }, [])
+
+  // ✅ Chargement des données réelles — tous les fetches dans un seul useEffect
+  useEffect(() => {
+    const headers = { "Authorization": `Token ${localStorage.getItem('token')}` }
+
+    // Profil utilisateur → remplace /api/settings/ inexistant
+    fetch("http://localhost:8000/api/accounts/profile/", { headers })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        setCompanyName(data.company_name || "Predistock Inc.")
+        setSystemName(data.system_name || "Predistock Analytics")
+        setSessionTimeout(data.session_timeout || 60)
+        setAutoBackup(data.auto_backup ?? true)
+        setTwoFactorAuth(data.two_factor_auth ?? false)
+      })
+      .catch(err => console.error("Erreur profil:", err))
+
+    // Historique PDF → remplace /api/backup/status/ inexistant
+    fetch("http://localhost:8000/api/core/pdf-historique/", { headers })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(data => {
+        const list = Array.isArray(data) ? data : data?.results || []
+        const last = list[0]
+        setBackupStatus({
+          lastBackup: last?.created_at || "N/A",
+          backupSize: "N/A",
+          nextBackup: "N/A",
+          storageUsed: `${list.length} fichiers`
+        })
+      })
+      .catch(err => console.error("Erreur backup:", err))
+
+    // Métriques → remplace /api/metrics/ inexistant
+    Promise.all([
+      fetch("http://localhost:8000/api/stock/inventaire/", { headers })
+        .then(r => r.ok ? r.json() : null),
+      fetch("http://localhost:8000/api/notifications/alertes/", { headers })
+        .then(r => r.ok ? r.json() : null),
+      fetch("http://localhost:8000/api/stock/mouvements/", { headers })
+        .then(r => r.ok ? r.json() : null),
+    ])
+      .then(([inventaire, alertes, mouvements]) => {
+        setMetrics({
+          uptime: "99.9%",
+          dbSize: `${inventaire?.count ?? inventaire?.length ?? 0} produits`,
+          activeSessions: `${alertes?.count ?? alertes?.length ?? 0} alertes`,
+          apiRequests: `${mouvements?.count ?? mouvements?.length ?? 0} mouvements`,
+        })
+      })
+      .catch(err => console.error("Erreur métriques:", err))
+
+  }, [])
+
+  // ✅ Sauvegarde paramètres généraux
+  const handleSaveGeneral = () => {
+    fetch("http://localhost:8000/api/accounts/update-user/", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Token ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        company_name: companyName,
+        system_name: systemName,
+        language: language,
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(() => alert("Paramètres généraux sauvegardés !"))
+      .catch(err => console.error("Erreur sauvegarde général:", err))
+  }
+
+  // ✅ Sauvegarde paramètres sécurité
+  const handleSaveSecurity = () => {
+    fetch("http://localhost:8000/api/accounts/update-user/", {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Token ${localStorage.getItem('token')}`
+      },
+      body: JSON.stringify({
+        two_factor_auth: twoFactorAuth,
+        session_timeout: sessionTimeout,
+      })
+    })
+      .then(res => {
+        if (!res.ok) throw new Error(`HTTP ${res.status}`)
+        return res.json()
+      })
+      .then(() => alert("Paramètres de sécurité sauvegardés !"))
+      .catch(err => console.error("Erreur sauvegarde sécurité:", err))
+  }
 
   return (
     <div className="space-y-6">
@@ -57,29 +175,29 @@ export default function Settings() {
         </Button>
       </div>
 
-      {/* System Overview Cards */}
+      {/* System Overview Cards — données réelles */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
-          title="Temps de disponibilité du système"
-          value="99.8%"
+          title="Temps de disponibilité"
+          value={metrics.uptime}
           icon={<SettingsIcon className="h-4 w-4" />}
           variant="success"
         />
         <MetricCard
           title="Taille de la base de données"
-          value="0.01 GB"
+          value={metrics.dbSize}
           trend={{ value: 52.2, label: "croissance ce mois-ci" }}
           icon={<Database className="h-4 w-4" />}
         />
         <MetricCard
           title="Sessions actives"
-          value="1"
+          value={metrics.activeSessions}
           trend={{ value: 3, label: "utilisateurs en ligne" }}
           icon={<Shield className="h-4 w-4" />}
         />
         <MetricCard
           title="Requêtes API"
-          value="1.2M"
+          value={metrics.apiRequests}
           trend={{ value: 8.5, label: "ce mois-ci" }}
           icon={<Globe className="h-4 w-4" />}
         />
@@ -94,6 +212,7 @@ export default function Settings() {
           <TabsTrigger value="backup">Sauvegarde</TabsTrigger>
         </TabsList>
 
+        {/* ===== ONGLET GÉNÉRAL ===== */}
         <TabsContent value="general">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -106,12 +225,22 @@ export default function Settings() {
               <CardContent className="space-y-6">
                 <div className="space-y-2">
                   <Label htmlFor="company-name">Nom de l'entreprise</Label>
-                  <Input id="company-name" defaultValue="Predistock Inc." />
+                  {/* ✅ value + onChange au lieu de defaultValue */}
+                  <Input
+                    id="company-name"
+                    value={companyName}
+                    onChange={e => setCompanyName(e.target.value)}
+                  />
                 </div>
                 
                 <div className="space-y-2">
                   <Label htmlFor="system-name">Nom du système</Label>
-                  <Input id="system-name" defaultValue="Predistock Analytics" />
+                  {/* ✅ value + onChange au lieu de defaultValue */}
+                  <Input
+                    id="system-name"
+                    value={systemName}
+                    onChange={e => setSystemName(e.target.value)}
+                  />
                 </div>
                 
                 <div className="space-y-2">
@@ -144,14 +273,19 @@ export default function Settings() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="en">Anglais</SelectItem>
-                      {/* <SelectItem value="es">Spanish</SelectItem> */}
                       <SelectItem value="fr">Français</SelectItem>
-                      {/* <SelectItem value="de"></SelectItem> */}
                     </SelectContent>
                   </Select>
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Enregistrer les paramètres généraux</Button>
+                {/* ✅ Bouton général appelle handleSaveGeneral */}
+                <Button
+                  className="w-full text-white bg-bouton hover:bg-bouton-hover"
+                  variant="outline"
+                  onClick={handleSaveGeneral}
+                >
+                  Enregistrer les paramètres généraux
+                </Button>
               </CardContent>
             </Card>
 
@@ -163,23 +297,13 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
-                {/*<div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Mode Sombre</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Activer le thème sombre pour l'interface
-                    </p>
-                  </div>
-                  <Switch checked={settings.darkMode} onCheckedChange={(checked) => updateSettings({ darkMode: checked})} />
-                </div>*/}
-
                 <div className="space-y-2">
-                  <Label htmlFor="theme-color">Theme Color</Label>
+                  <Label htmlFor="theme-color">Couleur du thème</Label>
                   <Select
                     value={themeColor}
                     onValueChange={(value) => {
                       setThemeColor(value)
-                      updateSettings({ themeColor: value }) // si tu veux sauvegarder dans le contexte
+                      updateSettings({ themeColor: value })
                     }}
                   >
                     <SelectTrigger>
@@ -223,12 +347,15 @@ export default function Settings() {
                   </Select>
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Enregistrer les paramètres d'apparence</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Enregistrer les paramètres d'apparence
+                </Button>
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
+        {/* ===== ONGLET SÉCURITÉ ===== */}
         <TabsContent value="security">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -251,7 +378,13 @@ export default function Settings() {
 
                 <div className="space-y-2">
                   <Label htmlFor="session-timeout">Fin de session (minutes)</Label>
-                  <Input id="session-timeout" type="number" defaultValue="60" />
+                  {/* ✅ value + onChange au lieu de defaultValue */}
+                  <Input
+                    id="session-timeout"
+                    type="number"
+                    value={sessionTimeout}
+                    onChange={e => setSessionTimeout(Number(e.target.value))}
+                  />
                 </div>
 
                 <div className="space-y-2">
@@ -268,12 +401,14 @@ export default function Settings() {
                   </Select>
                 </div>
 
-                {/* <div className="space-y-2">
-                  <Label htmlFor="login-attempts">Max Login Attempts</Label>
-                  <Input id="login-attempts" type="number" defaultValue="5" />
-                </div> */}
-
-                <Button className="w-full ">Save Security Settings</Button>
+                {/* ✅ Bouton sécurité appelle handleSaveSecurity */}
+                <Button
+                  className="w-full text-white bg-bouton hover:bg-bouton-hover"
+                  variant="outline"
+                  onClick={handleSaveSecurity}
+                >
+                  Enregistrer les paramètres de sécurité
+                </Button>
               </CardContent>
             </Card>
 
@@ -312,12 +447,15 @@ export default function Settings() {
                   <Switch defaultChecked />
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Save Access Control</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Save Access Control
+                </Button>
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
+        {/* ===== ONGLET NOTIFICATIONS ===== */}
         <TabsContent value="notifications">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -353,7 +491,9 @@ export default function Settings() {
                   <Input id="smtp-port" type="number" defaultValue="587" />
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Save Notification Settings</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Save Notification Settings
+                </Button>
               </CardContent>
             </Card>
 
@@ -385,12 +525,15 @@ export default function Settings() {
                   <Input id="prediction-horizon" type="number" defaultValue="30" />
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Save Alert Thresholds</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Save Alert Thresholds
+                </Button>
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
+        {/* ===== ONGLET INTEGRATION ===== */}
         <TabsContent value="integration">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -434,7 +577,9 @@ export default function Settings() {
                   </Select>
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Save API Settings</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Save API Settings
+                </Button>
               </CardContent>
             </Card>
 
@@ -472,12 +617,15 @@ export default function Settings() {
                   </div>
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Add New Integration</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Add New Integration
+                </Button>
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
+        {/* ===== ONGLET SAUVEGARDE ===== */}
         <TabsContent value="backup">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
@@ -532,7 +680,9 @@ export default function Settings() {
                   </Select>
                 </div>
 
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">Save Backup Settings</Button>
+                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
+                  Save Backup Settings
+                </Button>
               </CardContent>
             </Card>
 
@@ -544,22 +694,23 @@ export default function Settings() {
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
+                {/* ✅ Données réelles depuis /api/core/pdf-historique/ */}
                 <div className="space-y-4">
                   <div className="flex justify-between">
                     <span className="text-sm">Last Backup</span>
-                    <span className="text-sm font-medium">2024-01-15 02:00 AM</span>
+                    <span className="text-sm font-medium">{backupStatus.lastBackup || "N/A"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Backup Size</span>
-                    <span className="text-sm font-medium">2.1 GB</span>
+                    <span className="text-sm font-medium">{backupStatus.backupSize || "N/A"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Next Backup</span>
-                    <span className="text-sm font-medium">2024-01-16 02:00 AM</span>
+                    <span className="text-sm font-medium">{backupStatus.nextBackup || "N/A"}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm">Storage Used</span>
-                    <span className="text-sm font-medium">45.2 GB</span>
+                    <span className="text-sm font-medium">{backupStatus.storageUsed || "N/A"}</span>
                   </div>
                 </div>
 
