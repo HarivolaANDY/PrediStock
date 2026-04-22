@@ -42,21 +42,24 @@ export function useSettings() {
       document.documentElement.classList.remove('dark')
     }
     
-    // Apply theme color by updating CSS variables
+    // Apply theme color class to body
+    const themes = ['blue', 'green', 'purple', 'orange']
+    document.body.classList.remove(...themes)
+    document.body.classList.add(settings.themeColor)
+    
+    // Also update CSS variables for components that don't use the primary color directly
     const root = document.documentElement
-    switch (settings.themeColor) {
-      case 'green':
-        root.style.setProperty('--primary', '142 69 173') // Emerald
-        break
-      case 'purple':
-        root.style.setProperty('--primary', '139 92 246') // Purple
-        break
-      case 'orange':
-        root.style.setProperty('--primary', '245 158 11') // Orange
-        break
-      default:
-        root.style.setProperty('--primary', '37 99 235') // Blue
+    const themeColors: Record<string, { primary: string; sidebar: string; ring: string }> = {
+      blue: { primary: '217 91% 60%', sidebar: '217 91% 40%', ring: '217 91% 60%' },
+      green: { primary: '160 84% 39%', sidebar: '160 84% 39%', ring: '160 84% 39%' },
+      purple: { primary: '252 83% 68%', sidebar: '252 83% 68%', ring: '252 83% 68%' },
+      orange: { primary: '43 96% 51%', sidebar: '43 96% 51%', ring: '43 96% 51%' }
     }
+    
+    const config = themeColors[settings.themeColor] || themeColors.blue
+    root.style.setProperty('--primary', config.primary)
+    root.style.setProperty('--sidebar-background', config.sidebar)
+    root.style.setProperty('--ring', config.ring)
   }, [settings])
 
   const updateSettings = useCallback((newSettings: Partial<Settings>) => {
