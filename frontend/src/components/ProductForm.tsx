@@ -26,10 +26,28 @@ interface ProductImage {
   preview: string;
 }
 
+export interface ProductFormData {
+  name: string;
+  description: string;
+  stock_threshold: number | string;
+  category: number | string | null;
+  price: number | string;
+  currency: string;
+  sku: string;
+  current_stock: number | string;
+  id?: number;
+  supplier: number | string | null;
+  est_perissable: boolean;
+  unite_mesure: string;
+  product_img: File | string | null;
+  tags?: string[];
+  threshold?: number | string;
+}
+
 interface ProductFormProps {
   onClose: () => void
-  onSubmit: (data: any) => void
-  initialData?: any
+  onSubmit: (data: FormData) => void
+  initialData?: Partial<ProductFormData> & { tags?: string[]; threshold?: number | string }
 }
 
 export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps) {
@@ -197,7 +215,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
       const current_stock = parseInt(formData.current_stock.toString() || "0", 10)
       
       // Préparer les données pour l'envoi
-      const productData: any = {
+      const productData: Record<string, unknown> = {
         name: formData.name.trim(),
         description: formData.description?.trim() || "",
         price: price,  // Envoyer comme nombre
@@ -208,7 +226,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
         category: formData.category ? parseInt(formData.category.toString(), 10) : null,
         supplier: formData.supplier ? parseInt(formData.supplier.toString(), 10) : null,
         est_perissable: Boolean(formData.est_perissable),
-        product_img: formData.product_img
+        unite_mesure: formData.unite_mesure
       };
 
       // Ajouter l'ID si c'est une mise à jour
@@ -248,7 +266,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
       }
 
       // Vérifier toutes les valeurs dans le FormData avant l'envoi
-      const formDataEntries: any = {};
+      const formDataEntries: Record<string, unknown> = {};
       formDataToSend.forEach((value, key) => {
         formDataEntries[key] = value;
       });
