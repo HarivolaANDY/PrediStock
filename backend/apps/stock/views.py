@@ -100,14 +100,16 @@ from .filters import (
 
 
 # ─── HistoriqueInventaire ────────────────────────────────────
-class HistoriqueInventaireViewSet(viewsets.ModelViewSet):
+class HistoriqueInventaireViewSet(GenericCRUDViewSet):
+    model = HistoriqueInventaire
     queryset = HistoriqueInventaire.objects.all()
     serializer_class = HistoriqueInventaireSerializer
     permission_classes = [IsAuthenticated]
 
 
 # ─── Inventaire ─────────────────────────────────────────────
-class InventaireViewSet(viewsets.ModelViewSet):
+class InventaireViewSet(GenericCRUDViewSet):
+    model = Inventaire
     queryset = Inventaire.objects.select_related('produit').all()
     serializer_class = InventaireSerializer
     permission_classes = [IsAuthenticated]
@@ -119,20 +121,28 @@ class InventaireViewSet(viewsets.ModelViewSet):
             dernier = HistoriqueInventaire.objects.last()
             histo_id = dernier.id if dernier else None
         queryset = self.get_queryset().filter(historique=histo_id)
-        return Response(InventaireSerializer(queryset, many=True).data)
+        return StandardResponse.render(
+            data=InventaireSerializer(queryset, many=True).data,
+            message="Inventaire récupéré par historique",
+            status_code=200
+        )
 
     @action(detail=False, methods=['post'])
     def lancer(self, request):
         description = request.data.get('description', 'Inventaire du mois')
         histo = Inventaire.lancer_inventaire(user=request.user, description=description)
-        return Response(HistoriqueInventaireSerializer(histo).data, status=201)
+        return StandardResponse.render(
+            data=HistoriqueInventaireSerializer(histo).data,
+            message="Inventaire lancé avec succès",
+            status_code=201
+        )
 
     @action(detail=False, methods=['post'])
     def calculer_ecarts(self, request):
         histo_id = request.data.get('historique')
         for inv in Inventaire.objects.filter(historique=histo_id):
             inv.calculer_ecart()
-        return Response({'message': 'Écarts calculés.'})
+        return StandardResponse.render(message='Écarts calculés.', status_code=200)
 
     @action(detail=False, methods=['post'])
     def redresser(self, request):
@@ -140,11 +150,12 @@ class InventaireViewSet(viewsets.ModelViewSet):
         new_histo = HistoriqueInventaire.objects.create(utilisateur=request.user)
         for inv in Inventaire.objects.filter(historique=histo_id):
             inv.redresser(new_histo)
-        return Response({'message': 'Redressement effectué.'})
+        return StandardResponse.render(message='Redressement effectué.', status_code=200)
 
 
 # ─── HistoriqueSeuilStock ────────────────────────────────────
-class HistoriqueSeuilStockViewSet(viewsets.ModelViewSet):
+class HistoriqueSeuilStockViewSet(GenericCRUDViewSet):
+    model = HistoriqueSeuilStock
     queryset = HistoriqueSeuilStock.objects.select_related('produit', 'utilisateur').all()
     serializer_class = HistoriqueSeuilStockSerializer
     permission_classes = [IsAuthenticated]
@@ -159,7 +170,8 @@ class HistoriqueSeuilStockViewSet(viewsets.ModelViewSet):
 
 
 # ─── MouvementStock ─────────────────────────────────────────
-class MouvementStockViewSet(viewsets.ModelViewSet):
+class MouvementStockViewSet(GenericCRUDViewSet):
+    model = MouvementStock
     queryset = MouvementStock.objects.select_related('produit', 'utilisateur').all()
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
@@ -188,10 +200,14 @@ class MouvementStockViewSet(viewsets.ModelViewSet):
         entrees = MouvementStock.objects.filter(movement_type='IN').count()
         sorties = MouvementStock.objects.filter(movement_type='OUT').count()
         ajustements = MouvementStock.objects.filter(movement_type='ADJUSTMENT').count()
-        return Response({
-            'total': total,
-            'entrees': entrees,
-            'sorties': sorties,
-            'ajustements': ajustements,
-            'autres': total - (entrees + sorties + ajustements),
-        })
+        return StandardResponse.render(
+            data={
+                'total': total,
+                'entrees': entrees,
+                'sorties': sorties,
+                'ajustements': ajustements,
+                'autres': total - (entrees + sorties + ajustements),
+            },
+            message="Statistiques récupérées avec succès",
+            status_code=200
+        )
