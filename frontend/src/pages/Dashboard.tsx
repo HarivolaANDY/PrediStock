@@ -1,25 +1,15 @@
-import { Package, AlertTriangle, Brain, DollarSign, ShoppingCart } from "lucide-react"
+import { useState, useEffect, useCallback } from "react"
+import { Package, AlertTriangle, Brain, DollarSign } from "lucide-react"
 import { MetricCard } from "@/components/MetricCard"
 import { LineChart } from "@/components/charts/LineChart"
 import { BarChart } from "@/components/charts/BarChart"
-import { useEffect } from "react"
-import axios from "axios"
-import { CriticalProduct } from "@/types/product"
+import { StockChart } from "@/components/stocks/StockChart"
 import { toast } from "@/components/ui/use-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-// import { StockCard } from "@/components/stocks/StockCard"
-import { StockChart } from "@/components/stocks/StockChart"
-import { mockStocks } from '@/utils/stocksApi';
-import { useState } from "react"
-import { useProducts } from "@/hooks/useProducts"
-
-const authHeaders = () => ({
-    headers: {
-        'Authorization': `Token ${localStorage.getItem('token')}`
-    }
-});
+import API from '@/services/axios'
+import { Product, CriticalProduct, DashboardStats } from "@/types/types"
 
 // Données fictives
 const salesData = [
@@ -31,32 +21,13 @@ const salesData = [
   { month: "Jun", actual: 3800, predicted: 4200 },
 ]
 
-interface StockData {
-  product: string;
-  current: number;
-  critical: number;
-}
-
 export default function Dashboard() {
 
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [selectedStock, setSelectedStock] = useState(mockStocks[0]);
-  const { products, loading, error, refetch } = useProducts();
-  const [ searchTerm, setSearchTerm ] = useState("")
-
-  const [stockData, setStockData] = useState<StockData[]>([]);
-  // const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  // const [selectedStock, setSelectedStock] = useState(mockStocks[0]);
+  const [stockData, setStockData] = useState<{product: string; current: number; critical: number}[]>([]);
   const [criticalProductsState, setCriticalProductsState] = useState<CriticalProduct[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [totalProducts, setTotalProducts] = useState<number>(0);
-  const [totalStockValue, setTotalStockValue] = useState<number>(0);
-  const [criticalCount, setCriticalCount] = useState<number>(0);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
   
-  const filteredProducts = products?.filter((product: any) =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
-  ) ?? []
   // Fonction pour calculer le statut du produit
   const calculateStatus = (current: number, threshold: number) => {
     const ratio = current / threshold;
@@ -73,97 +44,66 @@ export default function Dashboard() {
     return Math.round(current / avgDailyUse);
   };
 
-  // Fonction pour récupérer les données de stock pour le graphique
-  const fetchStockData = async () => {
-    try {
-        const response = await axios.get('http://localhost:8000/api/catalogue/products/', authHeaders());
-        if (response.data?.data && Array.isArray(response.data.data.results)) {
-            const products = response.data.data.results
-                .map((product: any) => ({
-                    ratio: Math.abs(product.current_stock - product.stock_threshold),
-                    data: {
-                        product: product.name,
-                        current: product.current_stock,
-                        critical: product.stock_threshold
-                    }
-                }))
-                .sort((a, b) => b.ratio - a.ratio)
-                .map(item => item.data);
-            setStockData(products);
-        }
-    } catch (error) {
-        console.error('Erreur lors de la récupération des données de stock:', error);
-    }
-};
-
-  // Fonction pour récupérer les produits critiques
-  const fetchCriticalProducts = async () => {
+  const fetchDashboardData = useCallback(async () => {
     setIsLoading(true);
     try {
-        // Pas de route /critical/, on filtre côté client
-        const response = await axios.get('http://localhost:8000/api/catalogue/products/', authHeaders());
-        if (response.data && response.data.data && Array.isArray(response.data.data.results)) {
-            const criticalProducts = response.data.data.results
-                .filter((product: any) => product.current_stock <= product.stock_threshold)
-                .map((product: any) => ({
-                    id: product.id,
-                    name: product.name,
-                    stock: product.current_stock,
-                    current_stock: product.current_stock,
-                    critical: product.stock_threshold,
-                    stock_threshold: product.stock_threshold,
-                    status: calculateStatus(product.current_stock, product.stock_threshold),
-                    days: calculateDaysUntilStockout(product.current_stock, 2),
-                    product_img: product.product_img
-                }));
-            setCriticalProductsState(criticalProducts);
-            setCriticalCount(criticalProducts.length);
-        }
-    } catch (error) {
-        console.error('Erreur lors de la récupération des produits critiques:', error);
-        toast({
-            title: "Erreur",
-            description: "Impossible de charger les produits critiques",
-            variant: "destructive",
-        });
+      // 1. Fetch Stats
+      const statsRes = await API.get('catalogue/products/stats/');
+      if (statsRes.data && statsRes.data.data) {
+        setStats(statsRes.data.data);
+      }
+
+      // 2. Fetch Products for Stock Chart and Critical List
+      const productsRes = await API.get('catalogue/products/');
+      const results = productsRes.data?.data?.results || [];
+      
+      if (Array.isArray(results)) {
+        // Stock Data for BarChart
+        const topCritical = [...results]
+          .map((p: Product) => ({
+            ratio: Math.abs(p.current_stock - p.stock_threshold),
+            data: {
+              product: p.name,
+              current: p.current_stock,
+              critical: p.stock_threshold
+            }
+          }))
+          .sort((a, b) => b.ratio - a.ratio)
+          .slice(0, 5)
+          .map(item => item.data);
+        setStockData(topCritical);
+
+        // Critical Products List
+        const criticals: CriticalProduct[] = results
+          .filter((p: Product) => p.current_stock <= p.stock_threshold)
+          .map((p: Product) => ({
+            id: p.id,
+            name: p.name,
+            current_stock: p.current_stock,
+            stock_threshold: p.stock_threshold,
+            status: calculateStatus(p.current_stock, p.stock_threshold) as "critical" | "warning" | "low" | "ok" | "good",
+            days: calculateDaysUntilStockout(p.current_stock, 2),
+            product_img: p.product_img,
+            stock: p.current_stock,
+            critical: p.stock_threshold
+          }));
+        setCriticalProductsState(criticals);
+      }
+    } catch (err) {
+      console.error('Erreur dashboard data:', err);
+      toast({
+        title: "Erreur",
+        description: "Impossible de charger les données du tableau de bord",
+        variant: "destructive",
+      });
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
-};
-
-  // Fonction pour récupérer le nombre total de produits
-  const fetchTotalProducts = async () => {
-    try {
-        const response = await axios.get('http://localhost:8000/api/catalogue/products/', authHeaders());
-        if (response.data?.data?.count) {
-            setTotalProducts(response.data.data.count);
-        }
-    } catch (error) {
-        console.error('Erreur lors de la récupération du nombre total de produits:', error);
-    }
-};
-  // Fonction pour calculer la valeur totale des stocks
-  const calculateTotalStockValue = async () => {
-    try {
-        const response = await axios.get('http://localhost:8000/api/catalogue/products/', authHeaders());
-        if (response.data?.data && Array.isArray(response.data.data.results)) {
-            const totalValue = response.data.data.results.reduce((sum: number, product: any) =>
-                sum + (product.current_stock * (product.price || 0)), 0
-            );
-            setTotalStockValue(totalValue);
-        }
-    } catch (error) {
-        console.error('Erreur lors du calcul de la valeur totale des stocks:', error);
-    }
-};
-
-  // Effet pour charger les données au montage du composant
-  useEffect(() => {
-    fetchCriticalProducts();
-    fetchStockData();
-    fetchTotalProducts();
-    calculateTotalStockValue();
   }, []);
+
+  useEffect(() => {
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
   const handleRestock = async (product: CriticalProduct) => {
     const quantity = parseInt(prompt(`Combien d'unités réapprovisionner pour ${product.name} ?`) || '0', 10);
@@ -174,14 +114,13 @@ export default function Dashboard() {
     }
 
     try {
-        const response = await axios.patch(
-            `http://localhost:8000/api/catalogue/products/${product.id}/`,
-            { current_stock: product.current_stock + quantity }, // ← body ici
-            authHeaders()                                         // ← headers en 3ème argument
+        const response = await API.patch(
+            `catalogue/products/${product.id}/`,
+            { current_stock: product.current_stock + quantity }
         );
 
         if (response.data) {
-            await fetchCriticalProducts();
+            await fetchDashboardData();
             toast({
                 title: "Succès",
                 description: `Réapprovisionnement réussi. Nouveau stock : ${product.current_stock + quantity}`,
@@ -190,7 +129,7 @@ export default function Dashboard() {
     } catch (error) {
         toast({ title: "Erreur", description: "Impossible de mettre à jour le stock", variant: "destructive" });
     }
-};
+  };
 
   return (
     <div className="space-y-6">
@@ -206,7 +145,7 @@ export default function Dashboard() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Produits Totaux"
-          value={totalProducts.toString()}
+          value={stats?.total_produits?.toString() || "0"}
           description="Articles actifs en inventaire"
           icon={<Package />}
           trend={{ value: 12, label: "depuis le mois dernier" }}
@@ -214,7 +153,7 @@ export default function Dashboard() {
         
         <MetricCard
           title="Valeur du Stock"
-          value={`${totalStockValue.toLocaleString()} Ariary`}
+          value={`${(stats?.total_stock || 0).toLocaleString()} Ariary`}
           description="Valeur totale des produits en stock"
           icon={<DollarSign />}
           variant="prediction"
@@ -223,11 +162,11 @@ export default function Dashboard() {
         
         <MetricCard
           title="Stock Critique"
-          value={criticalCount.toString()}
+          value={stats?.total_stock_rupture?.toString() || "0"}
           description="Articles sous le seuil critique"
           icon={<AlertTriangle />}
           variant="destructive"
-          trend={{ value: criticalProductsState.length - criticalCount, label: "depuis hier" }}
+          trend={{ value: criticalProductsState.length, label: "produits" }}
         />
         
         <MetricCard
@@ -274,7 +213,7 @@ export default function Dashboard() {
               <Button 
                 variant="outline" 
                 size="sm"
-                onClick={fetchStockData}
+                onClick={fetchDashboardData}
                 className="gap-2"
               >
                 <Package className="h-4 w-4" />
@@ -291,7 +230,7 @@ export default function Dashboard() {
               <div className="overflow-x-auto pb-4">
                 <div style={{ minWidth: Math.max(600, stockData.length * 100) + 'px' }}>
                   <BarChart
-                    data={stockData}
+                    data={stockData as unknown as Record<string, unknown>[]}
                     xAxisKey="product"
                     bars={[
                       { 

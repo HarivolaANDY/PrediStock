@@ -20,19 +20,19 @@ A modern, feature-rich stock management and forecasting application built with R
 
 | Technology | Version | Description |
 |------------|---------|-------------|
-| **React** | 19.0.0 | UI library |
-| **TypeScript** | 5.7.3 | Type-safe JavaScript |
-| **Vite** | 6.0.7 | Build tool and dev server |
-| **Tailwind CSS** | 4.0.0 | Utility-first CSS framework |
-| **React Router** | 7.1.3 | Client-side routing |
-| **TanStack Query** | 5.96.2 | Data fetching and caching |
-| **Axios** | 1.7.9 | HTTP client |
-| **React Hook Form** | 7.54.2 | Form management |
-| **Zod** | 3.24.1 | Schema validation |
+| **React** | 18.3.1 | UI library |
+| **TypeScript** | 5.5.3 | Type-safe JavaScript |
+| **Vite** | 5.4.1 | Build tool and dev server |
+| **Tailwind CSS** | 3.4.11 | Utility-first CSS framework |
+| **React Router** | 6.26.2 | Client-side routing |
+| **TanStack Query** | 5.56.2 | Data fetching and caching |
+| **Axios** | 1.12.2 | HTTP client |
+| **React Hook Form** | 7.53.0 | Form management |
+| **Zod** | 3.23.8 | Schema validation |
 | **shadcn/ui** | Latest | High-quality UI components (Radix UI) |
-| **Recharts** | 2.15.0 | Chart library |
-| **React i18next** | 16.6.6 | Internationalization |
-| **React PDF** | 10.4.1 | PDF generation |
+| **Recharts** | 2.12.7 | Chart library |
+| **React i18next** | 15.7.3 | Internationalization |
+| **React PDF** | 10.1.0 | PDF generation |
 
 ## 📁 Project Structure
 
@@ -59,6 +59,7 @@ frontend/
 │   └── main.tsx            # Application entry point
 ├── index.html              # HTML entry point
 ├── vite.config.ts          # Vite configuration
+├── tailwind.config.ts      # Tailwind CSS configuration
 ├── tsconfig.json           # TypeScript configuration
 ├── eslint.config.js        # ESLint configuration
 └── package.json            # Dependencies and scripts
@@ -77,12 +78,86 @@ frontend/
 | `src/utils/` | Helper utilities (i18n, blob handling, etc.) |
 | `locales/` | Translation files for multi-language support |
 
-## 📋 Prerequisites
+## �️ Routes & Pages
+
+The application includes the following routes and pages:
+
+### Public Routes (No Authentication Required)
+
+| Route | Page Component | Description |
+|-------|---|---|
+| `/` | `Index.tsx` | Landing/Home page - Welcome screen for unauthenticated users |
+| `/login` | `Login.tsx` | User login page |
+| `/register` | `Register.tsx` | User registration page |
+
+### Application Routes (Authentication Required)
+
+#### Dashboard & Analytics
+| Route | Page Component | Description |
+|-------|---|---|
+| `/dashboard` | `Dashboard.tsx` | User dashboard - Overview with metrics, charts, and activity |
+| `/dashboard-admin` | `DashboardAdmin.tsx` | Admin-only dashboard with advanced metrics and management options |
+| `/activite` | `Activite.tsx` | Activity log and tracking page |
+
+#### Stock Management
+| Route | Page Component | Description |
+|-------|---|---|
+| `/stock` | `Stock.tsx` | Stock management interface - View and manage inventory movements |
+| `/product-manager` | `ProductManagerPage.tsx` | Product manager interface for handling stock entries/exits |
+
+#### Products & Catalog
+| Route | Page Component | Description |
+|-------|---|---|
+| `/products` | `Products.tsx` | Product catalog - Browse all available products |
+| `/product/:id` | `ProductDetails.tsx` | Product detail page - View detailed information for a specific product |
+
+#### Forecasting & AI Models
+| Route | Page Component | Description |
+|-------|---|---|
+| `/forecasting` | `Forecasting.tsx` | Demand forecasting interface - AI-powered predictions |
+| `/models` | `AIModels.tsx` | AI Models management - Configure and manage forecasting models |
+
+#### Alerts & Notifications
+| Route | Page Component | Description |
+|-------|---|---|
+| `/alerts` | `Alerts.tsx` | Alerts management - Set up and manage stock level alerts |
+| `/notifications` | `Notifications.tsx` | Notifications center - View and manage all notifications |
+
+#### Reports & Data
+| Route | Page Component | Description |
+|-------|---|---|
+| `/reports` | `Reports.tsx` | Reports generation - Create and view various reports |
+| `/data` | `DataManagement.tsx` | Data management - Import, export, and manage data |
+
+#### Administration & User Management
+| Route | Page Component | Description |
+|-------|---|---|
+| `/users` | `Users.tsx` | User management - Manage application users and permissions |
+| `/suppliers` | `Suppliers.tsx` | Supplier management - Manage supplier directory and information |
+
+#### User Settings
+| Route | Page Component | Description |
+|-------|---|---|
+| `/profile` | `Profile.tsx` | User profile page - View and edit user information |
+| `/settings` | `Settings.tsx` | Application settings - Configure user preferences and options |
+
+### Error Routes
+
+| Route | Page Component | Description |
+|-------|---|---|
+| `*` | `NotFound.tsx` | 404 Not Found - Displayed for unmatched routes |
+
+### Special Features
+
+- **Chatbot** - Floating AI assistant available on all authenticated pages (hidden on `/`, `/login`, `/register`)
+- **Layout Wrapper** - All protected routes are wrapped with the `Layout` component providing the sidebar, header, and navigation
+
+## �📋 Prerequisites
 
 Before you begin, ensure you have the following installed:
 
-- **Node.js** v22+ (recommended)
-- **npm** v10+ (comes with Node.js)
+- **Node.js** v18+ (v20+ recommended)
+- **npm** v9+ (comes with Node.js)
 
 Verify your installation:
 

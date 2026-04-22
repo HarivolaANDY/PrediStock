@@ -1,22 +1,14 @@
-import { createContext, useContext, useState } from "react"
+import { useState, useCallback } from "react"
 import { SupplierService } from "@/services/api"
 import { CreateSupplierData, Supplier } from "@/types/types"
 import { useToast } from "@/components/ui/use-toast"
-
-interface SupplierContextType {
-  createSupplier: (supplierData: CreateSupplierData) => Promise<boolean>
-  updateSupplier: (supplierId: string, supplierData: CreateSupplierData) => Promise<boolean>
-  getAllSuppliers: () => Promise<Supplier[]>
-  isLoading: boolean
-}
-
-const SupplierContext = createContext<SupplierContextType | undefined>(undefined)
+import { SupplierContext } from "./SupplierContextType"
 
 export function SupplierProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(false)
   const { toast } = useToast()
 
-  const createSupplier = async (supplierData: CreateSupplierData): Promise<boolean> => {
+  const createSupplier = useCallback(async (supplierData: CreateSupplierData): Promise<boolean> => {
     setIsLoading(true)
     try {
         console.log("Donnée auth"+supplierData)
@@ -48,9 +40,9 @@ export function SupplierProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false)
       return false
     }
-  }
+  }, [toast])
 
-  const updateSupplier = async (supplierId: string, supplierData: CreateSupplierData): Promise<boolean> => {
+  const updateSupplier = useCallback(async (supplierId: string, supplierData: CreateSupplierData): Promise<boolean> => {
     setIsLoading(true)
     try {
       const response = await SupplierService.updateSupplier(supplierId, supplierData)
@@ -80,9 +72,9 @@ export function SupplierProvider({ children }: { children: React.ReactNode }) {
       })
       return false
     }
-  }
+  }, [toast])
 
-  const getAllSuppliers = async (): Promise<Supplier[]> => {
+  const getAllSuppliers = useCallback(async (): Promise<Supplier[]> => {
     setIsLoading(true)
     try {
       const response = await SupplierService.getAllSuppliers()
@@ -98,19 +90,11 @@ export function SupplierProvider({ children }: { children: React.ReactNode }) {
       setIsLoading(false)
       return []
     }
-  }
+  }, [])
 
   return (
     <SupplierContext.Provider value={{ createSupplier, updateSupplier, getAllSuppliers, isLoading }}>
       {children}
     </SupplierContext.Provider>
   )
-}
-
-export const useSupplier = () => {
-  const context = useContext(SupplierContext)
-  if (!context) {
-    throw new Error("useSupplier must be used within a SupplierProvider")
-  }
-  return context
 }

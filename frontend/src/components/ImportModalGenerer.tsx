@@ -1,7 +1,8 @@
 import React, { useState } from 'react'
 import { Upload, X } from 'lucide-react'
+import { API_BASE_URL } from '@/config/constants'
 
-interface ProcessedProduct {
+export interface ProcessedProduct {
   id: string
   name: string
   category: string
@@ -19,7 +20,7 @@ interface ImportModalProps {
   onImport: (data: ProcessedProduct[]) => void
 }
 
-const ImportModalGenerer: React.FC<ImportModalProps> = ({ isOpen, onClose }) => {
+const ImportModalGenerer: React.FC<ImportModalProps> = ({ isOpen, onClose, onImport }) => {
   const [file, setFile] = useState<File | null>(null)
   const [isLoading, setIsLoading] = useState<boolean>(false)
 
@@ -46,7 +47,7 @@ const ImportModalGenerer: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
 
       const token = localStorage.getItem('token')
       
-      const response = await fetch('http://localhost:8000/api/data-import/', {
+      const response = await fetch(`${API_BASE_URL}/data-import/`, {
         method: 'POST',
         body: formData,
         headers: {
@@ -62,6 +63,9 @@ const ImportModalGenerer: React.FC<ImportModalProps> = ({ isOpen, onClose }) => 
       const result = await response.json()
       console.log('Import réussi:', result)
       alert('Import réussi ! Le fichier a été envoyé pour traitement.')
+      if (onImport && result.data) {
+        onImport(result.data)
+      }
       handleClose()
     } catch (error) {
       console.error('Erreur lors de l\'import:', error)

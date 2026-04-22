@@ -45,10 +45,13 @@ export default function Settings() {
 
   // ✅ Thème couleur
   useEffect(() => {
-    document.body.classList.remove('blue', 'green', 'purple', 'orange')
-    document.body.classList.add(themeColor)
-    updateSettings({ themeColor: themeColor })
-  }, [themeColor])
+    // Retirer toutes les classes de thème précédentes
+    document.body.classList.remove('blue', 'green', 'purple', 'orange');
+    // Ajouter la nouvelle classe de thème
+    document.body.classList.add(themeColor);
+    // Sauvegarder dans les settings
+    updateSettings({ themeColor: themeColor });
+  }, [themeColor, updateSettings])
 
   // ✅ Langue initiale
   useEffect(() => {

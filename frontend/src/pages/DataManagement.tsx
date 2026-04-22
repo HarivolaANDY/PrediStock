@@ -1,6 +1,6 @@
-import React, { useState } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate } from "react-router-dom"
-import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2 } from "lucide-react"
+import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -17,8 +17,6 @@ import { MetricCard } from "@/components/MetricCard"
 import recommendationService from "@/services/recommendationService"
 import { toast } from "@/components/ui/use-toast"
 
-import { useEffect } from 'react'
-import { RefreshCw } from 'lucide-react'
 
 interface DataImport {
   id: number;
@@ -33,6 +31,7 @@ interface DataImport {
 
 export default function GestionDonnees() {
   const navigate = useNavigate()
+  const [showImportDataModal, setShowImportDataModal] = useState(false)
   const [dataSources, setDataSources] = useState<DataImport[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -56,9 +55,8 @@ export default function GestionDonnees() {
     return descriptions[target_table] || `Données de ${target_table}`
   }
 
-  const fetchDataSources = async () => {
+  const fetchDataSources = useCallback(async () => {
     try {
-      const token = localStorage.getItem('token')
       const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
         headers: {
           'Authorization': `Token ${localStorage.getItem('token')}`,
@@ -71,7 +69,7 @@ export default function GestionDonnees() {
       }
 
       const data = await response.json()
-      console.log('Response data:', data) // Pour déboguer
+      console.log('Response data:', data)
       const items = data.data ?? data.results ?? data ?? []
       const formattedData = items.map((item: DataImport) => ({
         ...item,
@@ -83,11 +81,11 @@ export default function GestionDonnees() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [])
 
   useEffect(() => {
     fetchDataSources()
-  }, [])
+  }, [fetchDataSources])
 
   const getStatusBadge = (status: string) => {
     switch (status.toLowerCase()) {

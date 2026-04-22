@@ -10,7 +10,9 @@ export type Product = {
   price: number;
   stock_threshold: number;
   current_stock: number;
-  supplier: number | null;
+  supplier: number | null
+  suppliers?: { id: string; name: string }[]  // ← M2M
+  unite_mesure: string                         // ← unité
   is_active: boolean;
   created_at: string;
   updated_at: string;
