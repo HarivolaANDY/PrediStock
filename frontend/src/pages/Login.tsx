@@ -202,13 +202,6 @@ export default function Connexion() {
                     Se souvenir de moi
                   </Label>
                 </div>
-                // Add a link and feature to the forgot password page
-                <Link
-                  to="/forgot-password"
-                  className="text-base text-blue-600 hover:text-blue-800 font-medium transition-colors duration-200"
-                >
-                  Mot de passe oublié ?
-                </Link>
               </div>
 
               <Button 
