@@ -65,15 +65,19 @@ class CategoryViewSet(GenericCRUDViewSet):
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            "success": True,
-            "message": "Liste des catégories récupérée avec succès",
-            "data": serializer.data,
-        })
+        return StandardResponse.render(
+            data=serializer.data,
+            message="Liste des catégories récupérée avec succès",
+            status_code=200
+        )
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        return Response({'success': True, 'data': self.get_serializer(instance).data})
+        return StandardResponse.render(
+            data=self.get_serializer(instance).data,
+            message="Catégorie récupérée",
+            status_code=200
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -82,11 +86,11 @@ class CategoryViewSet(GenericCRUDViewSet):
         with transaction.atomic():
             category = serializer.save()
 
-        return Response({
-            'success': True,
-            'message': f'Catégorie "{category.name}" créée avec succès',
-            'data': CategorySerializer(category).data,
-        }, status=status.HTTP_201_CREATED)
+        return StandardResponse.render(
+            data=CategorySerializer(category).data,
+            message=f'Catégorie "{category.name}" créée avec succès',
+            status_code=status.HTTP_201_CREATED
+        )
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
@@ -97,17 +101,17 @@ class CategoryViewSet(GenericCRUDViewSet):
                 serializer = self.get_serializer(instance, data=request.data, partial=partial)
                 serializer.is_valid(raise_exception=True)
                 category = serializer.save()
-                return Response({
-                    'success': True,
-                    'message': f'Catégorie "{category.name}" mise à jour',
-                    'data': CategorySerializer(category).data,
-                })
+                return StandardResponse.render(
+                    data=CategorySerializer(category).data,
+                    message=f'Catégorie "{category.name}" mise à jour',
+                    status_code=200
+                )
         except Exception as e:
-            return Response({
-                'success': False,
-                'message': str(e),
-                'errors': getattr(e, 'detail', str(e)),
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return StandardResponse.render(
+                message=str(e),
+                data=getattr(e, 'detail', str(e)),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()  # ← important
@@ -115,10 +119,10 @@ class CategoryViewSet(GenericCRUDViewSet):
         try:
             name, pk = instance.name, instance.id
             instance.delete()
-            return Response({
-                'success': True,
-                'message': f'Catégorie "{name}" (ID: {pk}) supprimée.',
-            }, status=status.HTTP_200_OK)
+            return StandardResponse.render(
+                message=f'Catégorie "{name}" (ID: {pk}) supprimée.',
+                status_code=status.HTTP_200_OK
+            )
         except Exception as e:
             return Response({'success': False, 'message': str(e)},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -129,19 +133,20 @@ class CategoryViewSet(GenericCRUDViewSet):
         qs = self.get_queryset().filter(
             Q(name__icontains=query) | Q(description__icontains=query)
         ) if query else self.get_queryset()
-        return Response({
-            'success': True, 'query': query,
-            'count': qs.count(),
-            'data': CategoryListSerializer(qs, many=True).data,
-        })
+        return StandardResponse.render(
+            data=CategoryListSerializer(qs, many=True).data,
+            message=f"Recherche effectuée pour '{query}'",
+            status_code=200
+        )
 
     @action(detail=False, methods=['get'])
     def active(self, request):
         qs = self.get_queryset().filter(is_active=True)
-        return Response({
-            'success': True, 'count': qs.count(),
-            'data': CategoryListSerializer(qs, many=True).data,
-        })
+        return StandardResponse.render(
+            data=CategoryListSerializer(qs, many=True).data,
+            message="Liste des catégories actives",
+            status_code=200
+        )
 
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):
@@ -151,14 +156,16 @@ class CategoryViewSet(GenericCRUDViewSet):
             category.is_active = not category.is_active
             category.save()
             etat = "activée" if category.is_active else "désactivée"
-            return Response({
-                'success': True,
-                'message': f'Catégorie "{category.name}" {etat}.',
-                'data': CategorySerializer(category).data,
-            })
+            return StandardResponse.render(
+                data=CategorySerializer(category).data,
+                message=f'Catégorie "{category.name}" {etat}.',
+                status_code=200
+            )
         except Exception as e:
-            return Response({'success': False, 'message': str(e)},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return StandardResponse.render(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
 
 # ─── Supplier ───────────────────────────────────────────────
@@ -286,6 +293,7 @@ class ProductViewSet(GenericCRUDViewSet):
             'total_perissable': Product.objects.filter(est_perissable=True).count(),
             'total_non_perissable': Product.objects.filter(est_perissable=False).count(),
             'total_stock': sum(p.current_stock for p in Product.objects.all()),
+            'total_stock_value': sum(p.current_stock * (p.price or 0) for p in Product.objects.all()),
             'total_kg': Product.objects.filter(
                 unite_mesure__iexact='kg'
             ).aggregate(total=Sum('current_stock'))['total'],
@@ -453,3 +461,34 @@ class ProduitDvViewSet(GenericCRUDViewSet):
         return StandardResponse.render(
             data=ProduitDvSerializer(qs, many=True).data, status_code=200
         )
+
+# --- Revenues -----------------------------------------------
+class RevenueViewSet(GenericCRUDViewSet):
+    permission_classes = [AllowAny]
+
+    @action(detail=False, methods=['get'])
+    def mensuel(self, request):
+        from django.db.models.functions import ExtractMonth
+        from collections import defaultdict
+        month_names = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 7:'Juil', 8:'Août', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Déc'}
+        sorties = MouvementStock.objects.filter(movement_type='OUT').annotate(month=ExtractMonth('date')).select_related('produit','produit__category')
+        data_by_month = defaultdict(lambda: defaultdict(float))
+        all_categories = set()
+        for s in sorties:
+            m_name = month_names.get(s.month,'Inconnu')
+            cat_name = s.produit.category.name if s.produit and s.produit.category else 'Non categorise'
+            all_categories.add(cat_name)
+            amount = float(s.quantity) * float(s.unit_price or 0)
+            data_by_month[m_name][cat_name] += amount
+        result = []
+        sorted_months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+        for m in sorted_months:
+            if m in data_by_month:
+                row = {'month': m}
+                row.update(data_by_month[m])
+                row['actual'] = sum(data_by_month[m].values())
+                for cat in all_categories:
+                    if cat not in row:
+                        row[cat] = 0
+                result.append(row)
+        return StandardResponse.render(data=result, message='Revenus mensuels.', status_code=200)
