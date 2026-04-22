@@ -1,19 +1,20 @@
-import { Package, AlertTriangle, Brain, DollarSign, ShoppingCart, RefreshCw, Search } from "lucide-react"
+import { Package, AlertTriangle, Brain, DollarSign, RefreshCw } from "lucide-react"
 import { MetricCard } from "@/components/MetricCard"
 import { LineChart } from "@/components/charts/LineChart"
 import { BarChart } from "@/components/charts/BarChart"
 import { useEffect, useState, useCallback } from "react"
+import { useNavigate } from "react-router-dom"
 import axios from "axios"
 import { CriticalProduct } from "@/types/product"
 import { toast } from "@/components/ui/use-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Input } from "@/components/ui/input"
 import { StockChart } from "@/components/stocks/StockChart"
 import { mockStocks } from '@/utils/stocksApi'
-import { useProducts, Product } from "@/hooks/useProducts"
+
 import { DashboardSkeleton } from "@/components/SkeletonLoader"
+import { API_BASE_URL } from "@/services/api"
 
 interface ProductData {
   id: number
@@ -32,21 +33,31 @@ interface StockApiResponse {
   }
 }
 
+interface DashboardStats {
+  total_produits: number
+  total_stock_value: number
+  total_stock_faible: number
+  total_stock_rupture: number
+}
+
+interface RevenueItem {
+  month: string
+  actual: number
+  predicted?: number
+  [key: string]: string | number | undefined
+}
+
 const authHeaders = () => ({
     headers: {
         'Authorization': `Token ${localStorage.getItem('token')}`
     }
 })
 
-// Données fictives
-const salesData = [
-  { month: "Jan", actual: 2400, predicted: 2200 },
-  { month: "Feb", actual: 1398, predicted: 1500 },
-  { month: "Mar", actual: 9800, predicted: 9500 },
-  { month: "Apr", actual: 3908, predicted: 4000 },
-  { month: "May", actual: 4800, predicted: 4600 },
-  { month: "Jun", actual: 3800, predicted: 4200 },
-]
+// Données de prédiction fictives (en attendant l'intégration du modèle IA)
+const MOCK_PREDICTIONS: Record<string, number> = {
+  "Jan": 2200, "Fév": 1500, "Mar": 9500, "Avr": 4000, "Mai": 4600, "Juin": 4200,
+  "Juil": 5000, "Août": 5500, "Sep": 4800, "Oct": 4200, "Nov": 3800, "Déc": 4500
+}
 
 interface StockData {
   product: string
@@ -55,21 +66,15 @@ interface StockData {
 }
 
 export default function Dashboard() {
-  const [selectedStock, setSelectedStock] = useState(mockStocks[0])
-  const { products, loading, error, refetch } = useProducts()
-  const [searchTerm, setSearchTerm] = useState("")
+  const navigate = useNavigate()
+  const [stats, setStats] = useState<DashboardStats | null>(null)
   const [stockData, setStockData] = useState<StockData[]>([])
   const [criticalProductsState, setCriticalProductsState] = useState<CriticalProduct[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [totalProducts, setTotalProducts] = useState<number>(0)
-  const [totalStockValue, setTotalStockValue] = useState<number>(0)
-  const [criticalCount, setCriticalCount] = useState<number>(0)
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [salesData, setSalesData] = useState<RevenueItem[]>([])
   
-  const filteredProducts = products?.filter((product: Product) =>
-    product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
-  ) ?? []
+
 
   // Fonction pour calculer le statut du produit
   const calculateStatus = useCallback((current: number, threshold: number) => {
@@ -87,10 +92,38 @@ export default function Dashboard() {
     return Math.round(current / avgDailyUse)
   }, [])
 
+  // Fonction pour récupérer les statistiques globales
+  const fetchStats = useCallback(async () => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/api/catalogue/products/stats/`, authHeaders())
+        if (response.data?.data) {
+            setStats(response.data.data)
+        }
+    } catch (error) {
+        console.error('Erreur lors de la récupération des stats:', error)
+    }
+  }, [])
+
+  // Fonction pour récupérer les données de revenus
+  const fetchRevenueData = useCallback(async () => {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/api/catalogue/revenues/mensuel/`, authHeaders())
+        if (response.data?.data && Array.isArray(response.data.data)) {
+            const enrichedData = response.data.data.map((item: RevenueItem) => ({
+                ...item,
+                predicted: MOCK_PREDICTIONS[item.month] || 0
+            }))
+            setSalesData(enrichedData)
+        }
+    } catch (error) {
+        console.error('Erreur lors de la récupération des revenus:', error)
+    }
+  }, [])
+
   // Fonction pour récupérer les données de stock pour le graphique
   const fetchStockData = useCallback(async () => {
     try {
-        const response = await axios.get<StockApiResponse>('http://localhost:8000/api/catalogue/products/', authHeaders())
+        const response = await axios.get<StockApiResponse>(`${API_BASE_URL}/api/catalogue/products/`, authHeaders())
         if (response.data?.data && Array.isArray(response.data.data.results)) {
             const products = response.data.data.results
                 .map((product: ProductData) => ({
@@ -113,7 +146,7 @@ export default function Dashboard() {
   // Fonction pour récupérer les produits critiques
   const fetchCriticalProducts = useCallback(async () => {
     try {
-        const response = await axios.get<StockApiResponse>('http://localhost:8000/api/catalogue/products/', authHeaders())
+        const response = await axios.get<StockApiResponse>(`${API_BASE_URL}/api/catalogue/products/`, authHeaders())
         if (response.data && response.data.data && Array.isArray(response.data.data.results)) {
             const criticalProducts = response.data.data.results
                 .filter((product: ProductData) => product.current_stock <= product.stock_threshold)
@@ -129,7 +162,6 @@ export default function Dashboard() {
                     product_img: product.product_img
                 }))
             setCriticalProductsState(criticalProducts)
-            setCriticalCount(criticalProducts.length)
         }
     } catch (error) {
         console.error('Erreur lors de la récupération des produits critiques:', error)
@@ -141,42 +173,15 @@ export default function Dashboard() {
     }
   }, [calculateStatus, calculateDaysUntilStockout])
 
-  // Fonction pour récupérer le nombre total de produits
-  const fetchTotalProducts = useCallback(async () => {
-    try {
-        const response = await axios.get('http://localhost:8000/api/catalogue/products/', authHeaders())
-        if (response.data?.data?.count) {
-            setTotalProducts(response.data.data.count)
-        }
-    } catch (error) {
-        console.error('Erreur lors de la récupération du nombre total de produits:', error)
-    }
-  }, [])
-
-  // Fonction pour calculer la valeur totale des stocks
-  const calculateTotalStockValue = useCallback(async () => {
-    try {
-        const response = await axios.get<StockApiResponse>('http://localhost:8000/api/catalogue/products/', authHeaders())
-        if (response.data?.data && Array.isArray(response.data.data.results)) {
-            const totalValue = response.data.data.results.reduce((sum: number, product: ProductData) =>
-                sum + (product.current_stock * (parseFloat(product.price || '0') || 0)), 0
-            )
-            setTotalStockValue(totalValue)
-        }
-    } catch (error) {
-        console.error('Erreur lors du calcul de la valeur totale des stocks:', error)
-    }
-  }, [])
-
   // Fonction pour rafraîchir toutes les données
   const refreshAllData = useCallback(async () => {
     setIsRefreshing(true)
     try {
         await Promise.all([
+            fetchStats(),
+            fetchRevenueData(),
             fetchCriticalProducts(),
-            fetchStockData(),
-            fetchTotalProducts(),
-            calculateTotalStockValue()
+            fetchStockData()
         ])
         toast({
             title: "Succès",
@@ -191,17 +196,17 @@ export default function Dashboard() {
     } finally {
         setIsRefreshing(false)
     }
-  }, [fetchCriticalProducts, fetchStockData, fetchTotalProducts, calculateTotalStockValue])
+  }, [fetchCriticalProducts, fetchStockData, fetchStats, fetchRevenueData])
 
   useEffect(() => {
     const loadData = async () => {
         setIsLoading(true)
         try {
             await Promise.all([
+                fetchStats(),
+                fetchRevenueData(),
                 fetchCriticalProducts(),
-                fetchStockData(),
-                fetchTotalProducts(),
-                calculateTotalStockValue()
+                fetchStockData()
             ])
         } catch (error) {
             console.error('Erreur lors du chargement des données:', error)
@@ -210,7 +215,7 @@ export default function Dashboard() {
         }
     }
     loadData()
-  }, [fetchCriticalProducts, fetchStockData, fetchTotalProducts, calculateTotalStockValue])
+  }, [fetchCriticalProducts, fetchStockData, fetchStats, fetchRevenueData])
 
   const handleRestock = async (product: CriticalProduct) => {
     const quantity = parseInt(prompt(`Combien d'unités réapprovisionner pour ${product.name} ?`) || '0', 10)
@@ -222,7 +227,7 @@ export default function Dashboard() {
 
     try {
         const response = await axios.patch(
-            `http://localhost:8000/api/catalogue/products/${product.id}/`,
+            `${API_BASE_URL}/api/catalogue/products/${product.id}/`,
             { current_stock: product.current_stock + quantity },
             authHeaders()
         )
@@ -244,27 +249,35 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-500">
-      {/* En-tête avec effet glassmorphism */}
-      <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 p-8 text-white">
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml,%3Csvg%20width%3D%2260%22%20height%3D%2260%22%20viewBox%3D%220%200%2060%2060%22%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%3E%3Cg%20fill%3D%22none%22%20fill-rule%3D%22evenodd%22%3E%3Cg%20fill%3D%22%23ffffff%22%20fill-opacity%3D%220.05%22%3E%3Ccircle%20cx%3D%2230%22%20cy%3D%2230%22%20r%3D%222%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E')] opacity-30" />
-        <div className="relative z-10 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight">Tableau de Bord des Stocks</h1>
-            <p className="text-blue-100 mt-2 max-w-2xl">
-              Aperçu en temps réel de l'inventaire et prévisions IA pour une gestion optimisée des stocks.
-            </p>
-          </div>
+    <div className="space-y-8 animate-in fade-in duration-500">
+      {/* En-tête simplifié et élégant */}
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4 border-b pb-6">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-slate-900">Tableau de Bord des Stocks</h1>
+          <p className="text-slate-500 mt-1">
+            Aperçu en temps réel de l'inventaire et prévisions IA.
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
           <Button 
+            variant="outline"
             onClick={refreshAllData}
             disabled={isRefreshing}
-            className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm transition-all duration-300"
+            className="shadow-sm hover:bg-slate-50 transition-all duration-300"
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isRefreshing ? 'animate-spin' : ''}`} />
             {isRefreshing ? 'Actualisation...' : 'Actualiser'}
           </Button>
+          <Button 
+            onClick={() => navigate('/products')}
+            className="bg-primary text-white shadow-md hover:shadow-lg transition-all duration-300"
+          >
+            <Package className="h-4 w-4 mr-2" />
+            Gérer les Produits
+          </Button>
         </div>
       </div>
+
 
       {/* Grille des métriques */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -279,7 +292,7 @@ export default function Dashboard() {
         
         <MetricCard
           title="Valeur du Stock"
-          value={`${(stats?.total_stock || 0).toLocaleString()} Ariary`}
+          value={`${(stats?.total_stock_value || 0).toLocaleString()} Ariary`}
           description="Valeur totale des produits en stock"
           icon={<DollarSign />}
           variant="prediction"
@@ -288,7 +301,7 @@ export default function Dashboard() {
         
         <MetricCard
           title="Stock Critique"
-          value={stats?.total_stock_rupture?.toString() || "0"}
+          value={stats?.total_stock_faible?.toString() || "0"}
           description="Articles sous le seuil critique"
           icon={<AlertTriangle />}
           variant="destructive"
@@ -423,7 +436,12 @@ export default function Dashboard() {
               Produits nécessitant une attention immédiate selon les niveaux de stock et les prévisions
             </CardDescription>
           </div>
-          <Button variant="outline" size="sm" className="transition-all duration-300">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            className="transition-all duration-300"
+            onClick={() => navigate('/products')}
+          >
             Voir Tous les Produits
           </Button>
         </CardHeader>
