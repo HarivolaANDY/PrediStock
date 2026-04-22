@@ -18,7 +18,6 @@ import Settings from "./pages/Settings";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 import NotFound from "./pages/NotFound";
-import Index from "./pages/Index";
 import Profile from "./pages/Profile";
 import ProductDetails from "./pages/ProductDetails";
 import Chatbot from "./components/Chatbot";
@@ -38,7 +37,7 @@ const AppRoutes = () => {
   return (
     <>
       <Routes>
-        <Route path="/" element={<Index />} />
+        <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/dashboard" element={<Layout><Dashboard /></Layout>} />
@@ -85,4 +84,3 @@ const App = () => {
 };
 
 export default App;
-
