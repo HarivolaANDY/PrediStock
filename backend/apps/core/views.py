@@ -111,12 +111,11 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
 
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)
-        # response.data peut être une liste (sans pagination) ou un dict (avec pagination)
-        if isinstance(response.data, dict):
-            data = response.data.get('results', response.data)
-        else:
-            data = response.data
-        return StandardResponse.render(data=data, message="Liste des objets", status_code=200)
+        return StandardResponse.render(
+            data=response.data, 
+            message="Liste des objets récupérée avec succès", 
+            status_code=200
+        )
 
     def retrieve(self, request, *args, **kwargs):
         response = super().retrieve(request, *args, **kwargs)
