@@ -4,45 +4,40 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Package2, Eye, EyeOff, ArrowLeft } from "lucide-react"
+import { Package2, Eye, EyeOff, AlertCircle } from "lucide-react"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { UserService } from "@/services/api"
+import { registerSchema, type RegisterFormData } from "@/lib/validations/auth"
+import { useForm } from "react-hook-form"
+import { zodResolver } from "@hookform/resolvers/zod"
 
 export default function Register() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [error, setError] = useState("")
+  const [error, setError] = useState<string | null>(null)
   const navigate = useNavigate()
 
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    password: "",
-    confirmPassword: "",
-    role: "Utilisateur",
-    department: ""
+  const {
+    register,
+    handleSubmit,
+    formState: { errors: formErrors },
+  } = useForm<RegisterFormData>({
+    resolver: zodResolver(registerSchema),
   })
 
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault()
-    setError("")
-
-    if (formData.password !== formData.confirmPassword) {
-      setError("Les mots de passe ne correspondent pas.")
-      return
-    }
-
+  const onSubmit = async (data: RegisterFormData) => {
+    setError(null)
     setIsLoading(true)
+    
     try {
       const res = await UserService.createUser({
-        email: formData.email,
-        first_name: formData.firstName,
-        last_name: formData.lastName,
-        role: formData.role,
-        department: formData.department,
+        email: data.email,
+        first_name: data.firstName,
+        last_name: data.lastName,
+        role: data.role,
+        department: data.department,
         temporaryPassword: false,
-        password: formData.password,
+        password: data.password,
       })
 
       if (res.token) {
@@ -50,15 +45,12 @@ export default function Register() {
         localStorage.setItem("user", JSON.stringify(res.user))
         navigate("/dashboard")
       }
-    } catch (err) {
-      setError((err as Error).message || "Erreur lors de l'inscription.")
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : "Erreur lors de l'inscription."
+      setError(errorMessage)
     } finally {
       setIsLoading(false)
     }
-  }
-
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }))
   }
 
   return (
@@ -87,68 +79,66 @@ export default function Register() {
                 <Package2 className="h-8 w-8 text-white" />
               </div>
             </div>
-            <CardTitle className="text-3xl font-bold text-slate-900">Créer un compte</CardTitle>
-            <CardDescription className="text-slate-600 text-base">
-              Rejoignez Predistock pour gérer votre inventaire avec l'IA
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="pb-6">
-            <form onSubmit={handleSubmit} className="space-y-4">
+          </div>
+          <CardTitle className="text-2xl font-bold">Créer un compte</CardTitle>
+          <CardDescription>
+            Rejoignez Predistock pour gérer votre inventaire avec l'IA
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
 
-              {error && (
-                <div className="p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">
-                  {error}
-                </div>
-              )}
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName" className="text-sm font-medium text-slate-700">Prénom</Label>
-                  <Input
-                    id="firstName"
-                    placeholder="Jean"
-                    value={formData.firstName}
-                    onChange={(e) => handleInputChange("firstName", e.target.value)}
-                    className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName" className="text-sm font-medium text-slate-700">Nom</Label>
-                  <Input
-                    id="lastName"
-                    placeholder="Dupont"
-                    value={formData.lastName}
-                    onChange={(e) => handleInputChange("lastName", e.target.value)}
-                    className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
-                    required
-                  />
-                </div>
+            {error && (
+              <div className="flex items-center space-x-2 p-3 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg">
+                <AlertCircle className="h-4 w-4 text-red-500" />
+                <span>{error}</span>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="email" className="text-sm font-medium text-slate-700">Email</Label>
                 <Input
-                  id="email"
-                  type="email"
-                  placeholder="jean@entreprise.com"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange("email", e.target.value)}
-                  className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
-                  required
+                  id="firstName"
+                  placeholder="Jean"
+                  {...register("firstName")}
                 />
+                {formErrors.firstName && (
+                  <p className="text-red-500 text-sm">{formErrors.firstName.message}</p>
+                )}
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="department" className="text-sm font-medium text-slate-700">Département</Label>
                 <Input
-                  id="department"
-                  placeholder="Ex: Logistique, Commercial..."
-                  value={formData.department}
-                  onChange={(e) => handleInputChange("department", e.target.value)}
-                  className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
+                  id="lastName"
+                  placeholder="Dupont"
+                  {...register("lastName")}
                 />
+                {formErrors.lastName && (
+                  <p className="text-red-500 text-sm">{formErrors.lastName.message}</p>
+                )}
               </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="email">Email</Label>
+              <Input
+                id="email"
+                type="email"
+                placeholder="jean@entreprise.com"
+                {...register("email")}
+              />
+              {formErrors.email && (
+                <p className="text-red-500 text-sm">{formErrors.email.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="department">Département</Label>
+              <Input
+                id="department"
+                placeholder="Ex: Logistique, Commercial..."
+                {...register("department")}
+              />
+            </div>
 
               <div className="space-y-2">
                 <Label htmlFor="role" className="text-sm font-medium text-slate-700">Rôle</Label>
@@ -170,44 +160,31 @@ export default function Register() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="password" className="text-sm font-medium text-slate-700">Mot de passe</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="Créez un mot de passe fort"
-                    value={formData.password}
-                    onChange={(e) => handleInputChange("password", e.target.value)}
-                    className="h-12 text-sm pr-12 border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
-                    required
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-0 top-0 h-12 w-12"
-                    onClick={() => setShowPassword(!showPassword)}
-                  >
-                    {showPassword
-                      ? <EyeOff className="h-5 w-5 text-slate-500" />
-                      : <Eye className="h-5 w-5 text-slate-500" />
-                    }
-                  </Button>
-                </div>
-              </div>
-
-              <div className="space-y-2">
                 <Label htmlFor="confirmPassword" className="text-sm font-medium text-slate-700">Confirmer le mot de passe</Label>
                 <Input
-                  id="confirmPassword"
-                  type="password"
-                  placeholder="Confirmez votre mot de passe"
-                  value={formData.confirmPassword}
-                  onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
-                  className="h-12 text-sm border-slate-200 focus:border-blue-500 focus:ring-blue-500 transition-colors duration-200 px-4"
-                  required
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Créez un mot de passe fort"
+                  {...register("password")}
                 />
               </div>
+              {formErrors.password && (
+                <p className="text-red-500 text-sm">{formErrors.password.message}</p>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirmer le mot de passe</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                placeholder="Confirmez votre mot de passe"
+                {...register("confirmPassword")}
+              />
+              {formErrors.confirmPassword && (
+                <p className="text-red-500 text-sm">{formErrors.confirmPassword.message}</p>
+              )}
+            </div>
 
               <Button type="submit" className="w-full h-12 text-sm bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-semibold shadow-lg hover:shadow-xl transition-all duration-200 transform hover:-translate-y-0.5" disabled={isLoading}>
                 {isLoading ? (
