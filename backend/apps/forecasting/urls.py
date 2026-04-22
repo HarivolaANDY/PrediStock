@@ -1,9 +1,10 @@
 from django.urls import path, include
+
 from rest_framework.routers import DefaultRouter
 from .views import (
     DataImportViewSet, ExecutionPipelineViewSet,
     PredictionViewSet, RecommandationViewSet,
-    ExecutePipelineView, RunPredictionView, RecommenderView,
+    ExecutePipelineView, RunPredictionView, RecommenderView, ChatView,
     ModeleListView, ModelePerformanceView
 )
 
@@ -16,7 +17,7 @@ router.register(r'recommandations',    RecommandationViewSet,     basename='reco
 urlpatterns = [
     path('execution-pipeline/run-etl/', ExecutePipelineView.as_view()),
     path('predict/',                    RunPredictionView.as_view()),
-    path('chat/',                       RecommenderView.as_view()),
+    path('chat/', ChatView.as_view(), name='chat'),
     path('modeles/',                    ModeleListView.as_view(),       name='modele-list'),      # ← nouveau
     path('modeles/performance/',        ModelePerformanceView.as_view(), name='modele-performance'), # ← nouveau
     path('', include(router.urls)),

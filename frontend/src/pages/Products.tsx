@@ -29,6 +29,7 @@ type Product = {
   price: string
   stock_threshold: number
   current_stock: number
+  unite_mesure: string        // ← ligne ajoutée
   is_active: boolean
   created_at: string
   updated_at: string
@@ -474,6 +475,7 @@ export default function Products() {
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Prix</TableHead>
                       <TableHead>Quantité</TableHead>
+                      <TableHead>Unité</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -500,6 +502,7 @@ export default function Products() {
                         </TableCell>
                         <TableCell>{parseFloat(product.price).toLocaleString()} Ariary</TableCell>
                         <TableCell>{product.current_stock}</TableCell>
+                        <TableCell>{product.unite_mesure || "—"}</TableCell>
                         <TableCell>{getStatusBadge(product.current_stock, product.stock_threshold)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-3">
