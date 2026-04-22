@@ -17,6 +17,8 @@ import ImportModalGenerer from "@/components/ImportModalGenerer"
 import API from "@/services/axios"
 import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { exportToCSV } from "@/utils/csvUtils"
+import { toast } from "@/hooks/use-toast"
 import { Category, StockMouvement, PDV, HistoriqueSeuilStock } from "@/types/types"
 
 
@@ -175,6 +177,92 @@ export default function Stock() {
     finally { setIsloadingexport(false) }
   }
 
+  const exportProductsCSV = () => {
+    try {
+      if (filteredPDVs.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Erreur",
+          description: "Erreur: aucune donnée à exporter",
+        })
+        return
+      }
+
+      const headers = ["Produit", "Capacité", "Quantité", "Date", "Produit parent"]
+      const dataToExport = filteredPDVs.map(p => ({
+        designation: p.designation || "",
+        capacite: `${p.quantite || ""} ${p.infos?.unite_mesure || ""}`.trim(),
+        quantite: p.nombre ?? "0",
+        date: formatCustomDate(p.date_creation),
+        parent: p.infos?.name || "—"
+      }))
+
+      exportToCSV(
+        dataToExport,
+        `produits_stock_${new Date().toISOString().split('T')[0]}.csv`,
+        headers,
+        ["designation", "capacite", "quantite", "date", "parent"]
+      )
+    } catch (error) {
+      console.error("Export error:", error)
+      toast({
+        variant: "destructive",
+        title: "Erreur d'exportation",
+        description: "Une erreur est survenue lors de l'exportation CSV.",
+      })
+    }
+  }
+
+  const exportMovementsCSV = () => {
+    try {
+      if (stockMouvements.length === 0) {
+        toast({
+          variant: "destructive",
+          title: "Erreur",
+          description: "Erreur: aucune donnée à exporter",
+        })
+        return
+      }
+
+      const headers = ["Date", "Produit", "Type", "Quantité", "Référence", "Raison", "Auteur"]
+      const dataToExport = stockMouvements.map(m => {
+        const date = new Date(m.timestamp)
+        const typeLabel = m.movement_type === "IN" ? "Entrée" :
+                         m.movement_type === "OUT" ? "Sortie" :
+                         m.movement_type === "ADJUSTMENT" ? "Ajustement" :
+                         m.movement_type === "RETURN" ? "Retour" : "Rebut"
+        const author = m.utilisateur_nom
+          ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`
+          : "—"
+        
+        return {
+          date: `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
+          produit: m.product_details?.designation || "Produit inconnu",
+          type: typeLabel,
+          quantite: `${m.movement_type === "OUT" || m.movement_type === "SCRAP" ? "-" : "+"}${m.quantity}`,
+          reference: m.referrence || "—",
+          raison: m.reason || "—",
+          auteur: author
+        }
+      })
+
+      exportToCSV(
+        dataToExport,
+        `historique_mouvements_${new Date().toISOString().split('T')[0]}.csv`,
+        headers,
+        ["date", "produit", "type", "quantite", "reference", "raison", "auteur"]
+      )
+    } catch (error) {
+      console.error("Export error:", error)
+      toast({
+        variant: "destructive",
+        title: "Erreur d'exportation",
+        description: "Une erreur est survenue lors de l'exportation CSV.",
+      })
+    }
+  }
+
+  // ── Appels API ─────────────────────────────────────────────────────────────
   const fetchCategories = async () => {
     try {
       const res = await API.get('catalogue/categories/')
@@ -279,6 +367,12 @@ export default function Stock() {
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                       <Input placeholder="Rechercher des produits par nom..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
                     </div>
+                    <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>
+                      Importer
+                    </Button>
+                    <Button variant="outline" className="gap-2" onClick={exportProductsCSV}>
+                      Exporter
+                    </Button>
                     <Button variant="outline" onClick={() => setShowImportModal(true)}>Importer</Button>
                     <Button variant="outline">Exporter</Button>
                   </div>
@@ -483,6 +577,18 @@ export default function Stock() {
                             </SelectContent>
                           </Select>
                         </div>
+                        {isloadingexport ? (
+                          <p className="text-gray-600 animate-pulse">Téléchargement en cours...</p>
+                        ) : (
+                          <div className="flex gap-2">
+                            <Button variant="outline" className="gap-2" onClick={exportMovementsCSV}>
+                              Exporter CSV
+                            </Button>
+                            <Button variant="outline" className="gap-2" onClick={() => { setIsloadingexport(true); Export_mouvement() }}>
+                              Exporter PDF
+                            </Button>
+                          </div>
+                        )}
                         {isloadingexport
                           ? <p className="text-gray-600 animate-pulse">Téléchargement en cours...</p>
                           : <Button variant="outline" onClick={() => { setIsloadingexport(true); Export_mouvement() }}>Exporter</Button>
