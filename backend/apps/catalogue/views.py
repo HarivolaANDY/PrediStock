@@ -169,6 +169,42 @@ class SupplierViewSet(GenericCRUDViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = SupplierFilter
 
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = SupplierSerializer(queryset, many=True)
+        return StandardResponse.render(
+            data=serializer.data,
+            message="Liste des objets",
+            status_code=200
+        )
+
+    def _link_products(self, supplier, products_str):
+        if products_str == '':
+            # Chaîne vide = dissocier tous les produits
+            supplier.products.clear()
+            return
+        names = [n.strip() for n in products_str.split(';') if n.strip()]
+        matched = Product.objects.filter(name__in=names)
+        supplier.products.set(matched)  # remplace tous les liens existants
+
+    def create(self, request, *args, **kwargs):
+        products_str = request.data.get('products', '')
+        response = super().create(request, *args, **kwargs)
+        supplier_id = response.data.get('data', {}).get('id')
+        if supplier_id and products_str:
+            try:
+                supplier = Supplier.objects.get(id=supplier_id)
+                self._link_products(supplier, products_str)
+            except Supplier.DoesNotExist:
+                pass
+        return response
+
+    def update(self, request, *args, **kwargs):
+        products_str = request.data.get('products', '')
+        instance = self.get_object()
+        response = super().update(request, *args, **kwargs)
+        self._link_products(instance, products_str)
+        return response
 
 # ─── Product ────────────────────────────────────────────────
 class ProductViewSet(GenericCRUDViewSet):

@@ -35,7 +35,7 @@ interface ReportsDetailsModalProps {
   report: Report;
   isOpen: boolean;
   onClose: () => void;
-  onDelete: (report: Report) => void;
+  onDelete?: (report: Report) => void;
 }
 
 export function ReportsDetails({
@@ -71,7 +71,7 @@ export function ReportsDetails({
               <CardTitle className="text-2xl">{report.name}</CardTitle>
               <CardDescription className="flex items-center gap-2 mt-2">
                 <Calendar className="h-4 w-4" />
-                <span>Créé le {formatDate(report.created_at)}</span>
+                <span>Créé le {report.created_at ? formatDate(report.created_at) : "Non renseigné"}</span>
               </CardDescription>
             </div>
             <div className="flex items-center gap-2">
@@ -142,14 +142,16 @@ export function ReportsDetails({
               <X className="h-4 w-4 mr-2" />
               Fermer
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => onDelete(report)}
-              className="gap-2"
-            >
-              <Trash2 className="h-4 w-4" />
-              Supprimer
-            </Button>
+            {onDelete && (
+              <Button
+                variant="destructive"
+                onClick={() => onDelete(report)}
+                className="gap-2"
+              >
+                <Trash2 className="h-4 w-4" />
+                Supprimer
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>

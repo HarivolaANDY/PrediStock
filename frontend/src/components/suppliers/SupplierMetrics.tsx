@@ -84,7 +84,7 @@ const filtered = useMemo(() => {
     if (!newInteraction.supplierId || !suppliers.some((s) => s.id === newInteraction.supplierId)) {
       setNewInteraction((ni) => ({ ...ni, supplierId: suppliers[0]?.id ?? "" }))
     }
-  }, [suppliers])
+  }, [suppliers, newInteraction.supplierId])
 
   const addInteraction = () => {
     if (!newInteraction.supplierId || !newInteraction.note.trim()) {

@@ -193,7 +193,6 @@ export default function Dashboard() {
     }
   }, [fetchCriticalProducts, fetchStockData, fetchTotalProducts, calculateTotalStockValue])
 
-  // Effet pour charger les données au montage du composant
   useEffect(() => {
     const loadData = async () => {
         setIsLoading(true)
@@ -271,7 +270,7 @@ export default function Dashboard() {
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Produits Totaux"
-          value={totalProducts.toString()}
+          value={stats?.total_produits?.toString() || "0"}
           description="Articles actifs en inventaire"
           icon={<Package />}
           variant="blue"
@@ -280,7 +279,7 @@ export default function Dashboard() {
         
         <MetricCard
           title="Valeur du Stock"
-          value={`${totalStockValue.toLocaleString()} Ariary`}
+          value={`${(stats?.total_stock || 0).toLocaleString()} Ariary`}
           description="Valeur totale des produits en stock"
           icon={<DollarSign />}
           variant="prediction"
@@ -289,11 +288,11 @@ export default function Dashboard() {
         
         <MetricCard
           title="Stock Critique"
-          value={criticalCount.toString()}
+          value={stats?.total_stock_rupture?.toString() || "0"}
           description="Articles sous le seuil critique"
           icon={<AlertTriangle />}
           variant="destructive"
-          trend={{ value: criticalProductsState.length - criticalCount, label: "depuis hier" }}
+          trend={{ value: criticalProductsState.length, label: "produits" }}
         />
         
         <MetricCard
@@ -363,7 +362,7 @@ export default function Dashboard() {
               <div className="overflow-x-auto pb-4">
                 <div style={{ minWidth: Math.max(600, stockData.length * 100) + 'px' }}>
                   <BarChart
-                    data={stockData}
+                    data={stockData as unknown as Record<string, unknown>[]}
                     xAxisKey="product"
                     bars={[
                       { 

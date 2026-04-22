@@ -7,5 +7,5 @@ export interface SupplierLike {
     minOrderQuantity: number;
     maxOrderQuantity: number;
     isActive: boolean;
-    createdAt: string;
+    createdAt: string | null;
 }

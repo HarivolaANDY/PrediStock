@@ -54,21 +54,26 @@ export default function Notifications() {
   const [selectedTab, setSelectedTab] = useState("all")
   const [notifications, setNotifications] = useState<Notification[]>([])
 
-  useEffect(() => {
-    fetch("http://localhost:8000/api/notifications/", {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Token ${localStorage.getItem('token')}`
-      }
+  interface ApiResponse {
+  data: Notification[]
+}
+
+useEffect(() => {
+  fetch("http://localhost:8000/api/notifications/", {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Token ${localStorage.getItem('token')}`
+    }
+  })
+    .then((res) => res.json() as Promise<ApiResponse>)
+    .then((data) => {
+      const list = Array.isArray(data.data) ? data.data : []
+      setNotifications([...list].reverse())
+      console.log(data);
     })
-      .then((res) => res.json())
-      .then((data) => {
-        setNotifications(data.data.reverse())
-        console.log(data);
-      })
-      .catch((err) => console.error("Erreur lors de la récupération des notifications:", err))
-  }, [])
+    .catch((err: String) => console.error("Erreur lors de la récupération des notifications:", err))
+}, [])
 
   const getTypeBadge = (type: string) => {
     switch (type) {
