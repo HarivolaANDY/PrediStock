@@ -56,7 +56,6 @@ export default function AIModels() {
   const toast = useToast()
   const [models, setModels] = useState<Model[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedModel, setSelectedModel] = useState<string>("")
   const [selectedModelConfig, setSelectedModelConfig] = useState({
     epochs: 100,
     batchSize: 32,
@@ -101,10 +100,13 @@ export default function AIModels() {
         variant: "default"
       })
       await fetchData()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const errorMessage = error && typeof error === 'object' && 'response' in error 
+        ? (error as { response?: { data?: { message?: string } } }).response?.data?.message || "Une erreur est survenue"
+        : "Une erreur est survenue";
       toast.toast({
         title: "Erreur",
-        description: error?.response?.data?.message || "Une erreur est survenue",
+        description: errorMessage,
         variant: "destructive"
       })
     } finally {

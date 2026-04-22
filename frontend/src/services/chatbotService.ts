@@ -2,7 +2,7 @@ import api from '@/config/axios';
 
 export interface ChatResponse {
   success: boolean;
-  data: any;
+  data: string;
   message?: string;
   error?: string;
 }
@@ -16,11 +16,13 @@ export const sendChatMessage = async (message: string): Promise<ChatResponse> =>
     // data peut contenir { recommendation, user_friendly_response }
     const payload = raw?.data ?? raw;
 
-    let displayContent = payload;
+    let displayContent = "";
     if (payload?.user_friendly_response) {
-      displayContent = payload.user_friendly_response;
-    } else if (typeof payload === 'object') {
+      displayContent = String(payload.user_friendly_response);
+    } else if (typeof payload === 'object' && payload !== null) {
       displayContent = JSON.stringify(payload, null, 2);
+    } else {
+      displayContent = String(payload ?? "");
     }
 
     return {
@@ -28,12 +30,13 @@ export const sendChatMessage = async (message: string): Promise<ChatResponse> =>
       data: displayContent,
       message: raw?.message,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const axiosError = error as { response?: { data?: { message?: string; error?: string } }; message?: string };
     const msg =
-      error?.response?.data?.message ||
-      error?.response?.data?.error ||
-      error?.message ||
+      axiosError?.response?.data?.message ||
+      axiosError?.response?.data?.error ||
+      axiosError?.message ||
       'Une erreur est survenue';
-    return { success: false, error: msg, data: null };
+    return { success: false, error: msg, data: "" };
   }
 };

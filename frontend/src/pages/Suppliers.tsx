@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { useSupplier } from "@/contexts/SupplierContext"
+import { useSupplier } from "@/hooks/useSupplier"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
@@ -29,47 +29,46 @@ export default function Suppliers() {
 
   const transformedSuppliers = useMemo(() => suppliers.map(transformSupplier), [suppliers])
 
-  // ── Chargement centralisé — dépendances vides pour éviter la boucle infinie ──
+  // ── Chargement centralisé ──
   const loadSuppliers = useCallback(async () => {
-  try {
-    const data = await getAllSuppliers()
+    try {
+      const data = await getAllSuppliers()
 
-    console.log("RAW DATA:", data)
+      console.log("RAW DATA:", data)
 
-    const normalized = data.map((supplier: any) => {
-      // 🔥 NORMALISATION STATUT
-      const isActive =
-        supplier.is_active === true ||
-        supplier.is_active === "true" ||
-        supplier.is_active === 1 ||
-        supplier.is_active === "1"
+      const normalized = data.map((supplier: Supplier) => {
+        // 🔥 NORMALISATION STATUT
+        const isActive =
+          supplier.is_active === true ||
+          (supplier.is_active as unknown) === "true" ||
+          (supplier.is_active as unknown) === 1 ||
+          (supplier.is_active as unknown) === "1"
 
-      // 🔥 NORMALISATION DATE
-      let createdAt = null
-      if (supplier.created_at) {
-        const d = new Date(supplier.created_at)
-        createdAt = isNaN(d.getTime()) ? null : supplier.created_at
-      }
+        // 🔥 NORMALISATION DATE
+        let createdAt = null
+        if (supplier.created_at) {
+          const d = new Date(supplier.created_at)
+          createdAt = isNaN(d.getTime()) ? null : supplier.created_at
+        }
 
-      return {
-        ...supplier,
-        is_active: isActive,
-        created_at: createdAt,
-      }
-    })
+        return {
+          ...supplier,
+          is_active: isActive,
+          created_at: createdAt,
+        }
+      })
 
-    console.log("NORMALIZED:", normalized)
+      console.log("NORMALIZED:", normalized)
 
-    setSuppliers(normalized)
-  } catch (error) {
-    console.error(error)
-  }
-}, []) // ← dépendances vides : évite la boucle infinie
+      setSuppliers(normalized)
+    } catch (error) {
+      console.error(error)
+    }
+  }, [getAllSuppliers])
 
-  // ← Un seul useEffect, dépendances vides : s'exécute une seule fois
   useEffect(() => {
     loadSuppliers()
-  }, [])
+  }, [loadSuppliers])
 
   if (isLoading) return (
     <div className="flex items-center justify-center h-screen">
@@ -109,12 +108,13 @@ export default function Suppliers() {
       }
       setIsFormOpen(false)
       setEditingSupplier(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erreur:', error)
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue lors de l'opération"
       toast({
         variant: "destructive",
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de l'opération",
+        description: errorMessage,
       })
     }
   }
@@ -193,8 +193,8 @@ export default function Suppliers() {
                   <div>
                     <label className="text-sm font-medium text-muted-foreground">Statut</label>
                     <div className="mt-1">
-                      <Badge variant={Boolean(viewingSupplier.is_active) ? "default" : "secondary"}>
-                        {Boolean(viewingSupplier.is_active) ? "Actif" : "Inactif"}
+                      <Badge variant={viewingSupplier.is_active ? "default" : "secondary"}>
+                        {viewingSupplier.is_active ? "Actif" : "Inactif"}
                       </Badge>
                     </div>
                   </div>
@@ -231,6 +231,18 @@ export default function Suppliers() {
                     <label className="text-sm font-medium text-muted-foreground">Quantité maximale</label>
                     <p className="text-foreground">{(viewingSupplier.max_order_quantity ?? 0).toLocaleString()}</p>
                   </div>
+                  {viewingSupplier.products && viewingSupplier.products.length > 0 && (
+                    <div className="col-span-2">
+                      <label className="text-sm font-medium text-muted-foreground">Produits fournis</label>
+                      <div className="flex flex-wrap gap-2 mt-1">
+                        {viewingSupplier.products.map((p: any) => (
+                          <Badge key={p.id} variant="outline">
+                            {p.name} {p.unite_mesure ? `(${p.unite_mesure})` : ''}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
             </DialogContent>
