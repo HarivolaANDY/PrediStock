@@ -72,7 +72,13 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
       }
 
       // Préparer les données pour l'envoi
-      const categoryData: any = {
+      const categoryData: {
+        name: string;
+        description: string;
+        is_active: boolean;
+        subcategories: Array<{ name: string; description: string }>;
+        id?: string;
+      } = {
         name: formData.name.trim(),
         description: formData.description?.trim() || "",
         is_active: true,
@@ -128,11 +134,12 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
       } else {
         throw new Error(data.message || "Une erreur est survenue");
       }
-    } catch (error: any) {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : "Une erreur est survenue";
       console.error("Erreur:", error);
       toast({
         title: "Erreur",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {
