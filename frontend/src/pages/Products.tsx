@@ -20,7 +20,24 @@ import { CategoryForm } from "@/components/CategoryForm"
 import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import API from '@/services/axios'
 
-import { Product, Category, HistoriqueInventaire, InventaireItem, DashboardStats } from '@/types/types'
+type Product = {
+  id: number
+  product_img: string | null
+  name: string
+  sku: string
+  description: string
+  price: string
+  stock_threshold: number
+  current_stock: number
+  unite_mesure: string        // ← ligne ajoutée
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  category: number | null
+  supplier: number | null
+}
+
+import { Category as CategoryType } from '@/types/types'
 import { toast } from '@/components/ui/use-toast'
 import {
   Dialog,
@@ -471,6 +488,7 @@ export default function Products() {
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Prix</TableHead>
                       <TableHead>Quantité</TableHead>
+                      <TableHead>Unité</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
@@ -497,6 +515,7 @@ export default function Products() {
                         </TableCell>
                         <TableCell>{parseFloat(product.price).toLocaleString()} Ariary</TableCell>
                         <TableCell>{product.current_stock}</TableCell>
+                        <TableCell>{product.unite_mesure || "—"}</TableCell>
                         <TableCell>{getStatusBadge(product.current_stock, product.stock_threshold)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-3">

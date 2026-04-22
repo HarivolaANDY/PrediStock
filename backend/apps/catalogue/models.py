@@ -39,10 +39,14 @@ class Supplier(models.Model):
     lead_time = models.IntegerField(null=True, blank=True)
     min_order_quantity = models.IntegerField(null=True, blank=True)
     max_order_quantity = models.IntegerField(null=True, blank=True)
-
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)  # 🔥 bonus
+    updated_at = models.DateTimeField(auto_now=True)
+    products = models.ManyToManyField(
+        'Product',
+        blank=True,
+        related_name='suppliers'
+    )
 
     class Meta:
         verbose_name = "Fournisseur"

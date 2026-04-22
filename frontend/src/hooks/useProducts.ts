@@ -27,6 +27,7 @@ export interface Product {
   price: string
   stock_threshold: number
   current_stock: number
+  unite_mesure: string
   is_active: boolean
   created_at: string
   updated_at: string
