@@ -1,7 +1,12 @@
 import json
 import mimetypes
+import requests
 import os
 from datetime import date, datetime, timedelta
+
+from django.db import connection
+from apps.forecasting.sql_model import get_sql_model
+from apps.core.nlp_engine import NLPEngine
 
 import pytz
 from dateutil import parser
@@ -32,7 +37,8 @@ from .serializers import (
 )
 
 load_dotenv()
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
+NEXUM_API_KEY = os.getenv("NEXUM_API_KEY")
+NEXUM_BASE_URL = os.getenv("NEXUM_BASE_URL")
 
 
 class DataImportViewSet(ModelViewSet):
@@ -65,6 +71,71 @@ class PredictionViewSet(ModelViewSet):
             return Response({"message": "Aucune prédiction trouvée."}, status=404)
         qs.delete()
         return Response({"message": f"{count} prédiction(s) supprimée(s).", "count": count})
+    
+def call_nexum(message: str, model="openai/gpt-oss-120b", system_context: str = None) -> dict:
+    if not NEXUM_API_KEY:
+        return {"success": False, "message": "NEXUM_API_KEY manquante."}
+
+    SYSTEM_PROMPT = (
+        "Tu es un assistant intelligent de gestion de stock. "
+        "Tu réponds toujours en français, de façon concise et naturelle. "
+        "Tu aides les utilisateurs à comprendre leur inventaire, les ruptures de stock, "
+        "les prévisions et les recommandations d'approvisionnement."
+    )
+
+    messages_payload = []
+    if system_context:
+        # Injecter le contexte comme premier message user/assistant
+        messages_payload.append({"role": "user", "content": system_context})
+        messages_payload.append({"role": "assistant", "content": "Compris."})
+    messages_payload.append({"role": "user", "content": message})
+
+    try:
+        response = requests.post(
+            f"{NEXUM_BASE_URL}/chat/completions",
+            headers={
+                "Authorization": f"Bearer {NEXUM_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    *messages_payload,
+                ],
+                "temperature": 0.3,
+                "stream": False
+            },
+            timeout=30
+        )
+
+        print("STATUS:", response.status_code)
+        print("RAW:", response.text)
+
+        if response.status_code != 200:
+            return {
+                "success": False,
+                "message": f"Nexum API error: {response.text}"
+            }
+
+        try:
+            data = response.json()
+        except Exception:
+            return {
+                "success": False,
+                "message": "Réponse Nexum non JSON"
+            }
+
+        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+        return {
+            "success": True,
+            "content": content
+        }
+
+    except Exception as e:
+        print(f"[NEXUM ERROR] {e}")
+        return {"success": False, "message": str(e)}
 
 
 class RecommandationViewSet(viewsets.ModelViewSet):
@@ -409,28 +480,6 @@ IMPORTANT SÉCURITÉ :
             data=recommendations, message="Recommandation récupérée.", status_code=200
         )
 
-    def call_gemini(self, message: str) -> dict:
-        if not GOOGLE_API_KEY:
-            return {"success": False, "message": "GOOGLE_API_KEY manquante."}
-        try:
-            model = init_chat_model(
-                "gemini-2.5-flash",
-                model_provider="google_genai",
-                api_key=GOOGLE_API_KEY,
-                temperature=0,
-                max_retries=2,
-            )
-            response = model.invoke(message)
-            return {
-                "success": True,
-                "content": response.content if hasattr(response, "content") else str(response),
-                "message": "Réponse générée."
-            }
-        except ChatGoogleGenerativeAIError as e:
-            return {"success": False, "message": "Erreur Gemini.", "error": str(e)}
-        except Exception as e:
-            return {"success": False, "message": "Erreur inattendue.", "error": str(e)}
-
     def _extract_product_and_date(self, question, noms_produits):
         prompt = self.PROMPT_EXTRACT.format(
             today=date.today(),
@@ -438,7 +487,7 @@ IMPORTANT SÉCURITÉ :
             question=question,
             produits=', '.join(noms_produits),
         )
-        return self.call_gemini(prompt)
+        return call_nexum(prompt)
 
     def _get_prediction(self, product_name, pred_date):
         from apps.catalogue.models import Product
@@ -489,7 +538,7 @@ IMPORTANT SÉCURITÉ :
             recommendation_infos=self.recommendations or "Aucune recommandation existante.",
             not_found=f"Produits non disponibles : {not_found}" if not_found else "",
         )
-        return self.call_gemini(prompt)
+        return call_nexum(prompt)
     
 # views.py — ajouter ces deux vues :
 
@@ -516,7 +565,108 @@ class ModeleListView(APIView):
             for m in modeles
         ]
         return Response({"success": True, "data": data})
+    
+class ChatView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def post(self, request):
+        message = request.data.get('message', '').strip()
+        if not message:
+            return Response({"success": False, "error": "Message vide."}, status=400)
+
+        print(f"[PIPELINE] message = {message}")
+
+        # ── 0. Court-circuit : message conversationnel → Nexum direct ──
+        if NLPEngine.is_conversational(message):
+            print("[PIPELINE] Message conversationnel → Nexum direct")
+            return self._call_nexum_fallback(message)
+
+        # ── 1. NLP structuré ──────────────────────────────────────────
+        intent = NLPEngine.detect_intent(message)
+
+        if intent and NLPEngine.is_complex(message):
+            print(f"[PIPELINE] intent={intent} mais complexe → NSQL")
+            intent = None
+
+        if intent:
+            sql = NLPEngine.build_sql(intent, message)
+            if sql:
+                try:
+                    with connection.cursor() as cursor:
+                        cursor.execute(sql)
+                        columns = [col[0] for col in cursor.description]
+                        rows = cursor.fetchmany(20)
+                    response_text = NLPEngine.format_response(intent, columns, rows)
+                    return Response({
+                        "success": True,
+                        "data": {"user_friendly_response": response_text}
+                    })
+                except Exception as e:
+                    print(f"[NLP ERROR] {e}")
+
+        # Dans ChatView.post(), remplacer le bloc NSQL :
+
+        if self._looks_like_data_query(message):
+            try:
+                result = get_sql_model().execute(message)
+                if result.get("success") and result.get("rows"):
+                    # ✅ Reformulation naturelle via NLPEngine
+                    response_text = NLPEngine.format_nsql_response(
+                        result["columns"], result["rows"], message
+                    )
+                    return Response({
+                        "success": True,
+                        "data": {"user_friendly_response": response_text}
+                    })
+                print("[NSQL] 0 résultats ou échec → Nexum")
+            except Exception as e:
+                print(f"[NSQL] Erreur : {e}")
+
+        # ── 3. Nexum fallback ─────────────────────────────────────────
+        return self._call_nexum_fallback(message)
+    
+    def _looks_like_data_query(self, message: str) -> bool:
+        """Vérifie si le message ressemble à une requête de données métier."""
+        DATA_KEYWORDS = [
+            "produit", "stock", "rupture", "seuil", "catégorie", "fournisseur",
+            "vente", "prédiction", "recommandation", "inventaire", "liste",
+            "combien", "total", "quantité", "prix", "niveau"
+        ]
+        msg = message.lower()
+        return any(kw in msg for kw in DATA_KEYWORDS)
+
+    def _call_nexum_fallback(self, message: str):
+        """Appelle Nexum directement sans passer par NSQL."""
+        if not NEXUM_API_KEY:
+            return Response({
+                "success": True,
+                "data": {"user_friendly_response": (
+                    "Je suis l'assistant PrediStock. "
+                    "Essayez : stock, rupture, top ventes, produits sous seuil."
+                )}
+            })
+        try:
+            response = call_nexum(message)
+            content = response.get("content", "Service indisponible.") if response["success"] \
+                    else "Service temporairement indisponible."
+            return Response({"success": True, "data": {"user_friendly_response": content}})
+        except Exception as e:
+            print(f"[Nexum] Erreur : {e}")
+            return Response({
+                "success": True,
+                "data": {"user_friendly_response": "Service temporairement indisponible."}
+            })
+
+    def _format_response(self, columns, rows, label) -> str:
+        if not rows:
+            return f"{label} : aucun résultat trouvé."
+        lines = [f"📊 {label} ({len(rows)} résultats) :"]
+        for row in rows:
+            line = " | ".join(
+                f"{columns[i]}: {row[i]}" for i in range(len(columns))
+            )
+            lines.append(f"• {line}")
+        return "\n".join(lines)
 
 class ModelePerformanceView(APIView):
     permission_classes = [AllowAny]

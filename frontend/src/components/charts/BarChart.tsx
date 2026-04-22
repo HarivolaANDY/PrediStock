@@ -1,7 +1,7 @@
 import { Bar, BarChart as RechartsBarChart, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from "recharts"
 
 interface BarChartProps {
-  data: any[]
+  data: Record<string, unknown>[]
   xAxisKey: string
   bars: {
     key: string
@@ -39,7 +39,7 @@ export function BarChart({
   barGap = 4,
   barSize = 32
 }: BarChartProps) {
-  const CustomTooltip = ({ active, payload, label }: any) => {
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: Array<{ dataKey: string; value: number; fill: string }>; label?: string }) => {
     if (!active || !payload || !payload.length) {
       return null;
     }
@@ -47,7 +47,7 @@ export function BarChart({
     return (
       <div className="bg-popover p-3 border rounded-lg shadow-lg">
         <p className="font-medium mb-2">{label}</p>
-        {payload.map((entry: any, index: number) => {
+        {payload.map((entry: { dataKey: string; value: number; fill: string }, index: number) => {
           const bar = bars.find(b => b.key === entry.dataKey);
           const tooltipText = bar?.tooltip 
             ? bar.tooltip(entry.value)

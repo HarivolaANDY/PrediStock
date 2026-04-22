@@ -1,46 +1,22 @@
 import api from '@/config/axios';
+import { Recommendation, Prediction } from '@/types/types';
 
-export interface Recommendation {
-  id: number;
-  product: number;
-  date_prediction: string;
-  type_recommandation: string;
-  quantite_suggeree: number;
-  prix_estime: number;
-  priority: string;
-  raisonnement: string;
-  est_applique: boolean;
-  creer_le: string;
-  appliquee_le: string;
-  product_details?: {
-    name: string;
-    current_stock: number;
-  };
+interface RawDataWithArray {
+  data?: unknown[];
+  results?: unknown[];
 }
 
-export interface Prediction {
-  id: number;
-  product: number;
-  product_name?: string; // ← ajouter ce champ
-  date_prediction: string;
-  import_qty: number;
-  import_lower_bound: number | null;
-  import_upper_bound: number | null;
-  export_qty: number;
-  export_lower_bound: number | null;
-  export_upper_bound: number | null;
-  stock_prevu: number;
-  rupture: boolean;
-  horizon: number;
-  modele_utilise: string;
-  creer_le: string;
+interface RawDataWithArray {
+  data?: unknown[];
+  results?: unknown[];
 }
 
 // Extrait le tableau de données quelle que soit la structure de la réponse
-const extractArray = (raw: any): any[] => {
+const extractArray = (raw: unknown): unknown[] => {
   if (Array.isArray(raw)) return raw;
-  if (Array.isArray(raw?.data)) return raw.data;
-  if (Array.isArray(raw?.results)) return raw.results;
+  const obj = raw as RawDataWithArray;
+  if (Array.isArray(obj?.data)) return obj.data;
+  if (Array.isArray(obj?.results)) return obj.results;
   return [];
 };
 
@@ -49,7 +25,7 @@ const recommendationService = {
   // ── Recommandations ────────────────────────────────────────────────────────
   getAll: async (): Promise<Recommendation[]> => {
     const response = await api.get('/forecasting/recommandations/');
-    return extractArray(response.data);
+    return extractArray(response.data) as Recommendation[];
   },
 
   apply: async (id: number): Promise<boolean> => {
@@ -64,7 +40,7 @@ const recommendationService = {
   // ── Prédictions ────────────────────────────────────────────────────────────
   getPredictions: async (): Promise<Prediction[]> => {
     const response = await api.get('/forecasting/predictions/');
-    return extractArray(response.data);
+    return extractArray(response.data) as Prediction[];
   },
 
   // Lance le pipeline de prévision immédiatement
@@ -74,7 +50,7 @@ const recommendationService = {
   },
 
   // ── Chatbot IA ─────────────────────────────────────────────────────────────
-  chat: async (message: string): Promise<any> => {
+  chat: async (message: string): Promise<unknown> => {
     const response = await api.post('/forecasting/chat/', { message });
     const raw = response.data;
     return raw?.data ?? raw;
