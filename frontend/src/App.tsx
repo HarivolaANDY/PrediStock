@@ -27,12 +27,16 @@ import { SupplierProvider } from "./contexts/SupplierContext";
 import Activite from "./components/Activitelist";
 import DashboardAdmin from "./pages/DashboardAdmin";
 import ProductManagerPage from "./pages/ProductManagerPage";
+import { useSettings } from "./hooks/useSettings";
 
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
   const location = useLocation();
   const showChatbot = !["/", "/login", "/register"].includes(location.pathname);
+  
+  // Apply theme settings globally
+  useSettings();
 
   return (
     <>
