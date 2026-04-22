@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react"
-import { User, Mail, Phone, Shield, UserPlus, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
+import { Mail, Phone, Shield, UserPlus, X, Loader2, CheckCircle2, AlertCircle } from "lucide-react"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -11,8 +11,8 @@ import { useAuth } from '@/contexts/AuthContext'
 import { useToast } from "@/components/ui/use-toast"
 import { UserService } from "@/services/api"
 import { ToastService } from "@/services/toast.service"
-import { User } from "@/types/types"
 import { isAxiosError } from "axios"
+import { User } from "@/types/types"
 
 interface UserManagementFormProps {
   open: boolean
@@ -367,20 +367,12 @@ export function UserManagementForm({ open, onClose, user, mode, onSuccess }: Use
         if (mode === 'create') {
             const response = await createUser(userData);
             if (response) {
-              toast({
-                title: "Succès",
-                description: "L'utilisateur a été créé avec succès"
-              })
               if (onSuccess) onSuccess()
               onClose()
             }
         } else if (mode === 'edit' && user?.id) {
             const response = await updateUser(String(user.id), userData);
             if (response) {
-              toast({
-                title: "Succès",
-                description: "L'utilisateur a été mis à jour avec succès"
-              })
               if (onSuccess) onSuccess()
               onClose()
             }
@@ -472,13 +464,12 @@ export function UserManagementForm({ open, onClose, user, mode, onSuccess }: Use
                   id="first_name"
                   value={formData.first_name}
                   onChange={async (e) => {
-                    setFormData(prev => ({ ...prev, first_name: e.target.value }));
-                    if (mode === 'create')
+                    const newValue = e.target.value;
+                    setFormData(prev => ({ ...prev, first_name: newValue }));
+                    if (mode === 'create' && newValue && formData.last_name)
                     {
-                      const verification = await UserService.verifyItems(formData.last_name, e.target.value);
-                      if (!verification) {
-                        ToastService.error("Combinaison de Nom et Prénom déjà utilisé");
-                      }
+                      // verifyItems will show error toast if not available
+                      UserService.verifyItems(formData.last_name, newValue).catch(() => {});
                     }
                 }}
                   placeholder="Entrez le prénom"
@@ -497,7 +488,7 @@ export function UserManagementForm({ open, onClose, user, mode, onSuccess }: Use
                     value={formData.phone}
                     onChange={async (e) => {
                       const currentValue = e.target.value;
-                      const cursorPosition = e.target.selectionStart;
+                      const cursorPosition = e.target.selectionStart || 0;
                       const previousValue = formData.phone;
                       
                       // Formater le numéro
@@ -505,10 +496,7 @@ export function UserManagementForm({ open, onClose, user, mode, onSuccess }: Use
                       
                       // Vérification d'unicité en mode création
                       if (mode === 'create' && formattedNumber.length >= 13) {
-                        const verification = await UserService.verifyItem("phone", formattedNumber);
-                        if (!verification) {
-                          ToastService.error("Numéro de téléphone déjà utilisé");
-                        }
+                        UserService.verifyItem("phone", formattedNumber).catch(() => {});
                       }
                       
                       // Mettre à jour l'état
@@ -590,16 +578,12 @@ export function UserManagementForm({ open, onClose, user, mode, onSuccess }: Use
                   type="email"
                   value={formData.email}
                   onChange={async (e) => {
-                    setFormData(prev => ({ ...prev, email: e.target.value }))
-                    console.log(mode);
+                    const newValue = e.target.value;
+                    setFormData(prev => ({ ...prev, email: newValue }))
                     
-                    if (mode == 'create')
+                    if (mode == 'create' && newValue.includes('@'))
                     {
-                      const verification = await UserService.verifyItem("email", e.target.value);
-                      
-                      if (!verification) {
-                        ToastService.error("Adresse e-mail déjà utilisée");
-                      }
+                      UserService.verifyItem("email", newValue).catch(() => {});
                     }
                   }}
                   placeholder="Entrez l'adresse e-mail"
