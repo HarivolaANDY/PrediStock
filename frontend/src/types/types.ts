@@ -260,7 +260,7 @@ export interface Supplier {
   lead_time: number;
   min_order_quantity: number;
   max_order_quantity: number;
-  created_at: string;
+  created_at: string | null;
   is_active: boolean;
   products?: { id: number; name: string; sku: string; unite_mesure: string }[];  // ← ajouter
 }
@@ -283,9 +283,14 @@ export type CreateSupplierData = SupplierFormData;
 export interface StockMouvement {
   id: number;
   produit: number;
+  product?: number;
+  product_name?: string;
+  produit_nom?: string;
   produit_dv?: number;
   product_details?: {
-    designation: string;
+    designation?: string;
+    name?: string;
+    nom?: string;
   };
   utilisateur: number;
   utilisateur_info?: {
@@ -302,7 +307,7 @@ export interface StockMouvement {
   unit_price: string | number;
   reason: string;
   notes: string;
-  referrence: string;
+  reference: string;
   date: string;
   timestamp: string;
 }
@@ -339,6 +344,14 @@ export interface HistoriqueSeuilStock {
   nouveau_seuil: number;
   raison: string;
   changer_le: string;
+}
+
+export interface StockTrendPoint {
+  date?: string;
+  periode?: string;
+  total_stock?: number;
+  quantite?: number;
+  valeur?: number;
 }
 
 // Forecasting & AI
@@ -382,13 +395,16 @@ export interface ChartDataPoint {
   [key: string]: string | number | boolean | null | undefined | unknown;
 }
 
-// Dashboard & Analytics
-export interface DashboardStats {
+export interface ProductStats {
   total_produits: number;
   total_stock: number;
   total_stock_faible: number;
   total_stock_rupture: number;
   valeur_totale_stock: number;
+}
+
+// Dashboard & Analytics
+export interface DashboardStats extends ProductStats {
   mouvements_recents: StockMouvement[];
   predictions_futures?: Prediction[];
   recommandations_actives?: Recommendation[];
