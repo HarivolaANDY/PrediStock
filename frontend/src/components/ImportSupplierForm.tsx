@@ -156,7 +156,7 @@ export function ImportSupplierForm({ onClose, onImport, onSuccess }: ImportSuppl
         else { current += char }
       }
       values.push(current.trim())
-      const row: any = {}
+      const row: Record<string, unknown> = {}
       headers.forEach((header, index) => { row[header] = values[index]?.replace(/"/g, '') || '' })
       return row
     })
