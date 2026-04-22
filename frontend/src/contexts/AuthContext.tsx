@@ -78,32 +78,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             const response = await UserService.createUser(userData)
 
-            if (response.success) {
-                toast({
-                    title: "Utilisateur créé avec succès.",
-                    description: "Le nouvelle utilisateur a été ajouté avec succès."
-                })
-
+            if (response && (response.user || response.token)) {
+                // Toast is already shown by handleHttpErrors if there's a message
+                // but we can add a specific one if needed, though handleHttpErrors usually handles it.
                 setIsLoading(false);
                 return true;
-        } else {
-            toast({
-                variant: 'destructive',
-                title: 'Échec de la création de l\'utilisateur',
-                description: response.message || "Une erreur s'est produite lors de la création de l'utilisateur."
-            })
-
-            setIsLoading(false);
-            return false;
+            } else {
+                setIsLoading(false);
+                return false;
             }
         }
         catch (error) {
             console.error("Erreur lors de la création de l'utilisateur:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Erreur',
-                description: "Une erreur s'est produite lors de la création de l'utilisateur."
-            })
             setIsLoading(false);
             return false;
         }
@@ -114,94 +100,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             const response = await UserService.updateUser(userId, userData);
 
-            if (response.success) {
-                toast({
-                    title: "Utilisateur mis à jour avec succès.",
-                    description: "Les informations de l'utilisateur ont été mises à jour avec succès."
-                });
-
+            if (response) {
                 setIsLoading(false);
                 return true;
             } else {
-                toast({
-                    variant: 'destructive',
-                    title: 'Échec de la mise à jour de l\'utilisateur',
-                    description: response.message || "Une erreur s'est produite lors de la mise à jour de l'utilisateur."
-                });
-
                 setIsLoading(false);
                 return false;
             }
         } catch (error) {
             console.error("Erreur lors de la mise à jour de l'utilisateur:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Erreur',
-                description: "Une erreur s'est produite lors de la mise à jour de l'utilisateur."
-            });
             setIsLoading(false);
             return false;
         }
     }
     const verifyItem = async (parameter:string, value: string) : Promise<boolean> => {
-        setIsLoading(true);
+        // isLoading not set to true here to avoid global loading state on every keystroke
         try {
-            const response = await UserService.verifyItem(parameter, value);
-            if (response) {
-                // toast({
-                //     title: "Vérification réussie.",
-                //     description: "L'élément a été vérifié."
-                // });
-                setIsLoading(false);
-                return true;
-            } else {
-                toast({
-                    variant: 'destructive',
-                    title: 'Échec de la vérification',
-                    description: response || "Une erreur s'est produite lors de la vérification."
-                });
-                setIsLoading(false);
-                return false;
-            }
+            return await UserService.verifyItem(parameter, value);
         } catch (error) {
             console.error("Erreur lors de la vérification:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Erreur',
-                description: "Quelque chose s'est produite lors de la vérification."
-            });
-            setIsLoading(false);
             return false;
         }
     }
     const verifyItems = async (nom:string, prenom:string) : Promise<boolean> =>{
-        setIsLoading(true);
         try {
-            const response = await UserService.verifyItems(nom, prenom);
-            if (response) {
-                // toast({
-                //     title: "Vérification réussie.",
-                //     description: "L'élément a été vérifié."
-                // });
-                setIsLoading(false);
-                return true;
-            } else {
-                toast({
-                    variant: 'destructive',
-                    title: 'Échec de la vérification',
-                    description: response || "Une erreur s'est produite lors de la vérification."
-                });
-                setIsLoading(false);
-                return false;
-            }
+            return await UserService.verifyItems(nom, prenom);
         } catch (error) {
             console.error("Erreur lors de la vérification:", error);
-            toast({
-                variant: 'destructive',
-                title: 'Erreur',
-                description: "Quelque chose s'est produite lors de la vérification."
-            });
-            setIsLoading(false);
             return false;
         }
     }
