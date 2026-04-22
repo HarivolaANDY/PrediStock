@@ -1,6 +1,5 @@
 import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
-import { Package, TrendingDown, AlertTriangle, Search, Calendar, Clock, DollarSign, RefreshCw, ChevronDown, ChevronRight } from "lucide-react"
+import { Package, TrendingDown, AlertTriangle, Search, Calendar, Clock, DollarSign, RefreshCw, ChevronDown, ChevronRight, Download } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -19,21 +18,23 @@ import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/ut
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { exportToCSV } from "@/utils/csvUtils"
 import { toast } from "@/hooks/use-toast"
-import { Category, StockMouvement, PDV, HistoriqueSeuilStock } from "@/types/types"
+import { Category, StockMouvement, PDV, HistoriqueSeuilStock, StockTrendPoint, ProductStats } from "@/types/types"
 
 
-function resolveProductName(mouvement: any, PDVs: any[]): string {
+function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
   const details = mouvement.product_details
   if (details) {
     if (details.designation) return details.designation
     if (details.name) return details.name
     if (details.nom) return details.nom
   }
+  
   if (mouvement.product_name) return mouvement.product_name
   if (mouvement.produit_nom) return mouvement.produit_nom
-  const produitId = mouvement.produit ?? mouvement.product ?? details?.id ?? null
+  
+  const produitId = mouvement.produit ?? mouvement.product ?? null
   if (produitId !== null) {
-    const match = PDVs.find((p: any) => p.product === produitId || p.id === produitId)
+    const match = PDVs.find((p) => p.product === produitId || p.id === produitId)
     if (match) return match.designation || match.infos?.name || ""
   }
   return "Produit inconnu"
@@ -50,9 +51,13 @@ export default function Stock() {
   const [showImportModal, setShowImportModal] = useState(false)
   const [isloadingexport, setIsloadingexport] = useState(false)
   const [isLoadingPDVs, setIsLoadingPDVs] = useState(false)
-  const [PDVs, setPDVs] = useState<any[]>([])
-  const [seuilHistorique, setSeuilHistorique] = useState<any[]>([])
+  const [PDVs, setPDVs] = useState<PDV[]>([])
+  const [seuilHistorique, setSeuilHistorique] = useState<StockTrendPoint[]>([])
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<PDV | null>(null)
+  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
+  const [mouvementSearchTerm, setMouvementSearchTerm] = useState("")
 
   const toggleRow = (id: number) => {
     setExpandedRows(prev => {
@@ -79,7 +84,7 @@ export default function Stock() {
 
   const stockTrendData = useMemo(() => {
     if (seuilHistorique.length === 0) return []
-    return seuilHistorique.map((entry: any) => ({
+    return seuilHistorique.map((entry) => ({
       month: entry.date
         ? new Date(entry.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
         : entry.periode || "—",
@@ -90,7 +95,7 @@ export default function Stock() {
   const categoryStockData = useMemo(() => {
     if (PDVs.length === 0 || categories.length === 0) return []
     const map: Record<string, number> = {}
-    PDVs.forEach((pdv: any) => {
+    PDVs.forEach((pdv) => {
       const categoryId = pdv.infos?.category ?? null
       const catName = categoryId
         ? (categories.find(c => c.id === categoryId)?.name || "Sans catégorie")
@@ -197,9 +202,15 @@ export default function Stock() {
         parent: p.infos?.name || "—"
       }))
 
+      const now = new Date()
+      const dd = String(now.getDate()).padStart(2, '0')
+      const mm = String(now.getMonth() + 1).padStart(2, '0')
+      const yyyy = now.getFullYear()
+      const filename = `products_stock_${dd}${mm}${yyyy}.csv`
+      
       exportToCSV(
         dataToExport,
-        `produits_stock_${new Date().toISOString().split('T')[0]}.csv`,
+        filename,
         headers,
         ["designation", "capacite", "quantite", "date", "parent"]
       )
@@ -215,42 +226,45 @@ export default function Stock() {
 
   const exportMovementsCSV = () => {
     try {
-      if (stockMouvements.length === 0) {
+      if (filteredMovements.length === 0) {
         toast({
           variant: "destructive",
           title: "Erreur",
-          description: "Erreur: aucune donnée à exporter",
+          description: "Erreur: aucune donnée à exporter.",
         })
         return
       }
 
       const headers = ["Date", "Produit", "Type", "Quantité", "Référence", "Raison", "Auteur"]
-      const dataToExport = stockMouvements.map(m => {
+      const dataToExport = filteredMovements.map(m => {
         const date = new Date(m.timestamp)
-        const typeLabel = m.movement_type === "IN" ? "Entrée" :
-                         m.movement_type === "OUT" ? "Sortie" :
-                         m.movement_type === "ADJUSTMENT" ? "Ajustement" :
-                         m.movement_type === "RETURN" ? "Retour" : "Rebut"
         const author = m.utilisateur_nom
-          ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`
+          ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`.trim()
           : "—"
         
         return {
           date: `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
-          produit: m.product_details?.designation || "Produit inconnu",
-          type: typeLabel,
+          produit: resolveProductName(m, PDVs),
+          type: formatMvtType(m.movement_type),
           quantite: `${m.movement_type === "OUT" || m.movement_type === "SCRAP" ? "-" : "+"}${m.quantity}`,
-          reference: m.referrence || "—",
+          reference: m.reference || "—",
           raison: m.reason || "—",
           auteur: author
         }
       })
 
+      const now = new Date()
+      const dd = String(now.getDate()).padStart(2, '0')
+      const mm = String(now.getMonth() + 1).padStart(2, '0')
+      const yyyy = now.getFullYear()
+      const filename = `mouvement_stock_${dd}${mm}${yyyy}.csv`
+
       exportToCSV(
         dataToExport,
-        `historique_mouvements_${new Date().toISOString().split('T')[0]}.csv`,
+        filename,
         headers,
-        ["date", "produit", "type", "quantite", "reference", "raison", "auteur"]
+        ["date", "produit", "type", "quantite", "reference", "raison", "auteur"],
+        ';'
       )
     } catch (error) {
       console.error("Export error:", error)
@@ -292,7 +306,7 @@ export default function Stock() {
     setStockMouvementsLoading(true)
     setStockMouvementsError(null)
     try {
-      const params: any = {}
+      const params: Record<string, string> = {}
       if (type && type !== "tout") params.movement_type = type
       const response = await stockMouvementService.getStockMouvements(params)
       if (response.status === 'success') {
@@ -317,6 +331,17 @@ export default function Stock() {
       (p.infos?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
     ),
     [PDVs, searchTerm]
+  )
+
+  const filteredMovements = useMemo(() =>
+    stockMouvements.filter(m => {
+      const productName = resolveProductName(m, PDVs).toLowerCase()
+      const search = mouvementSearchTerm.toLowerCase()
+      const ref = (m.reference || '').toString().toLowerCase()
+      const reason = (m.reason || '').toLowerCase()
+      return productName.includes(search) || ref.includes(search) || reason.includes(search)
+    }),
+    [stockMouvements, mouvementSearchTerm, PDVs]
   )
 
   return (
@@ -373,8 +398,6 @@ export default function Stock() {
                     <Button variant="outline" className="gap-2" onClick={exportProductsCSV}>
                       Exporter
                     </Button>
-                    <Button variant="outline" onClick={() => setShowImportModal(true)}>Importer</Button>
-                    <Button variant="outline">Exporter</Button>
                   </div>
 
                   <div className="rounded-md border">
@@ -556,102 +579,116 @@ export default function Stock() {
                   <CardDescription>Historique complet des entrées et sorties de stock</CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {stockMouvementsLoading ? (
-                    <div className="flex justify-center items-center h-32"><p>Chargement...</p></div>
-                  ) : stockMouvementsError ? (
-                    <div className="flex justify-center items-center h-32"><p className="text-red-500">{stockMouvementsError}</p></div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-4 mb-6">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <Input placeholder="Rechercher dans l'historique..." className="pl-10" />
-                        </div>
-                        <div className="w-64">
-                          <Select onValueChange={(value: string) => fetchStockMouvements(value)}>
-                            <SelectTrigger className="w-full"><SelectValue placeholder="Type de mouvement" /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="IN">Entrées</SelectItem>
-                              <SelectItem value="OUT">Sorties</SelectItem>
-                              <SelectItem value="tout">Tout</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {isloadingexport ? (
-                          <p className="text-gray-600 animate-pulse">Téléchargement en cours...</p>
-                        ) : (
-                          <div className="flex gap-2">
-                            <Button variant="outline" className="gap-2" onClick={exportMovementsCSV}>
-                              Exporter CSV
-                            </Button>
-                            <Button variant="outline" className="gap-2" onClick={() => { setIsloadingexport(true); Export_mouvement() }}>
-                              Exporter PDF
-                            </Button>
-                          </div>
-                        )}
-                        {isloadingexport
-                          ? <p className="text-gray-600 animate-pulse">Téléchargement en cours...</p>
-                          : <Button variant="outline" onClick={() => { setIsloadingexport(true); Export_mouvement() }}>Exporter</Button>
-                        }
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
+                    <div className="flex flex-1 flex-col md:flex-row items-center gap-4 w-full">
+                      <div className="relative flex-1 w-full max-w-md">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input 
+                          placeholder="Rechercher dans l'historique..." 
+                          className="pl-10 bg-muted/30 border-muted"
+                          value={mouvementSearchTerm}
+                          onChange={(e) => setMouvementSearchTerm(e.target.value)}
+                        />
                       </div>
+                      
+                      <Select onValueChange={(value: string) => fetchStockMouvements(value)}>
+                        <SelectTrigger className="w-full md:w-[200px] bg-muted/30 border-muted">
+                          <SelectValue placeholder="Type de mouvement" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tout">Tous les mouvements</SelectItem>
+                          <SelectItem value="IN">Entrées de stock</SelectItem>
+                          <SelectItem value="OUT">Sorties de stock</SelectItem>
+                          <SelectItem value="ADJUSTMENT">Ajustements</SelectItem>
+                          <SelectItem value="RETURN">Retours</SelectItem>
+                          <SelectItem value="SCRAP">Rebuts</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    
+                    <Button 
+                      variant="outline" 
+                      className="gap-2 text-white bg-primary hover:bg-primary/90 border-none transition-all duration-300 shadow-sm" 
+                      onClick={exportMovementsCSV}
+                      disabled={isloadingexport}
+                    >
+                      <Download className="h-4 w-4" />
+                      Exporter
+                    </Button>
+                  </div>
 
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Produit</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Quantité</TableHead>
-                              <TableHead>Référence</TableHead>
-                              <TableHead>Raison</TableHead>
-                              <TableHead>Auteur</TableHead>
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Produit</TableHead>
+                          <TableHead>Type</TableHead>
+                          <TableHead>Quantité</TableHead>
+                          <TableHead>Référence</TableHead>
+                          <TableHead>Raison</TableHead>
+                          <TableHead>Auteur</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {stockMouvementsLoading ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                              <div className="flex flex-col items-center gap-2">
+                                <RefreshCw className="h-8 w-8 animate-spin opacity-20" />
+                                <p>Chargement des mouvements...</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : stockMouvementsError ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                              <div className="flex flex-col items-center gap-2">
+                                <AlertTriangle className="h-8 w-8 text-destructive opacity-50" />
+                                <p>Aucun mouvement de stock trouvé</p>
+                                <p className="text-xs opacity-50">({stockMouvementsError})</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : filteredMovements.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
+                              <div className="flex flex-col items-center gap-2">
+                                <Search className="h-8 w-8 opacity-20" />
+                                <p>Aucun mouvement de stock trouvé</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          filteredMovements.map((mouvement, index) => (
+                            <TableRow key={mouvement.id ?? `mouvement-${index}`}>
+                              <TableCell className="text-sm">
+                                {new Date(mouvement.timestamp).toLocaleDateString()} {new Date(mouvement.timestamp).toLocaleTimeString()}
+                              </TableCell>
+                              <TableCell>
+                                <div className="font-medium">{resolveProductName(mouvement, PDVs)}</div>
+                              </TableCell>
+                              <TableCell>
+                                <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
+                                  {formatMvtType(mouvement.movement_type)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell>
+                                <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500 font-medium" : "text-green-600 font-medium"}>
+                                  {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
+                                </span>
+                              </TableCell>
+                              <TableCell className="text-sm">{mouvement.reference || "—"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">{mouvement.reason || "—"}</TableCell>
+                              <TableCell className="text-sm text-muted-foreground">
+                                {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}
+                              </TableCell>
                             </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {stockMouvements.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">Aucun mouvement de stock trouvé</TableCell>
-                              </TableRow>
-                            ) : (
-                              stockMouvements.map((mouvement, index) => (
-                                <TableRow key={mouvement.id ?? `mouvement-${index}`}>
-                                  <TableCell>
-                                    <div className="flex items-center gap-2">
-                                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                                      <span>{new Date(mouvement.timestamp).toLocaleDateString()}</span>
-                                      <Clock className="h-4 w-4 text-muted-foreground ml-2" />
-                                      <span>{new Date(mouvement.timestamp).toLocaleTimeString()}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="font-medium">{resolveProductName(mouvement, PDVs)}</div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
-                                      {formatMvtType(mouvement.movement_type)}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500" : "text-green-500"}>
-                                      {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
-                                    </span>
-                                  </TableCell>
-                                  <TableCell>{mouvement.reference?.toLocaleString() || "—"}</TableCell>
-                                  <TableCell><span className="text-sm text-muted-foreground">{mouvement.reason || "—"}</span></TableCell>
-                                  <TableCell>
-                                    <span className="text-sm text-muted-foreground">
-                                      {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}
-                                    </span>
-                                  </TableCell>
-                                </TableRow>
-                              ))
-                            )}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    </>
-                  )}
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
