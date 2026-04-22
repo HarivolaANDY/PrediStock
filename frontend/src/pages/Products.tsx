@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect, useMemo } from "react"
+import { useState, useCallback, useEffect} from "react"
 import { useNavigate } from "react-router-dom"
 import { categoryAPI } from '@/services/api'
-import { Package, Plus, Search, Edit, Eye, Trash2, BarChart3, DollarSign, TriangleAlert, Download, Upload } from "lucide-react"
+import { Package, Plus, Search, Edit, Eye, Trash2, BarChart3, DollarSign, TriangleAlert, Download, Upload, Filter } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -50,7 +50,7 @@ type Product = {
   supplier: number | null
 }
 
-import { Category as CategoryType } from '@/types/types'
+import { Category, ProductStats, InventaireItem, HistoriqueInventaire } from '@/types/types'
 import { toast } from '@/components/ui/use-toast'
 import {
   Dialog,
@@ -112,8 +112,8 @@ export default function Products() {
     is_active: filterStatus === "all" ? undefined : filterStatus === "active",
     search: searchTerm || undefined
   })
-  const [stats, setStats] = useState<any>(null)
-  const [inventaire, setInventaire] = useState<any[]>([])
+  const [stats, setStats] = useState<ProductStats | null>(null)
+  const [inventaire, setInventaire] = useState<InventaireItem[]>([])
   const [currentHistoriqueId, setCurrentHistoriqueId] = useState(0)
   const [currentHistoriquedesc, setCurrentHistoriqueDesc] = useState("")
   const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
@@ -124,7 +124,6 @@ export default function Products() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
 
   // ── États pour les données réelles des graphiques ──────────────────────────
   interface ChartDataPoint {
@@ -251,7 +250,6 @@ export default function Products() {
       const res = (await API.post("core/pdf/dynamic/", details, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, details.titre)
       if (parsed.files?.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files])
         downloadAll(parsed.files)
       }
       toast({ title: "Succès", description: "PDF téléchargé avec succès.", variant: "default" })
@@ -312,7 +310,7 @@ export default function Products() {
       const allProducts = res.data?.data?.results || res.data?.data || []
       
       // Filter products based on search term
-      const dataToExport = allProducts.filter((product: any) =>
+      const dataToExport = allProducts.filter((product: Product) =>
         product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (product.category && (categories[product.category] || "").toLowerCase().includes(searchTerm.toLowerCase()))
       )
@@ -323,7 +321,7 @@ export default function Products() {
       }
 
       const headers = ["Product", "Category", "Price", "Quantity", "Status"]
-      const rows = dataToExport.map((p: any) => {
+      const rows = dataToExport.map((p: Product) => {
         const threshold = p.stock_threshold
         const pourcentage = (threshold * 15) / 100
         const status = p.current_stock === 0 ? "Rupture" : 
@@ -342,7 +340,7 @@ export default function Products() {
       // Create CSV with semicolon separator
       const csvContent = [
         headers.join(";"),
-        ...rows.map((row: any) => row.join(";"))
+        ...rows.map((row: (string | number)[]) => row.join(";"))
       ].join("\n")
 
       // Add BOM for Excel compatibility (UTF-8)
