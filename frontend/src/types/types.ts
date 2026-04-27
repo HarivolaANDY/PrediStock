@@ -1,4 +1,3 @@
-
 export interface PanierItem {
   id?: number;
   designation: string;
@@ -31,7 +30,7 @@ export interface PDVData {
   quantite : number;
   product : number;
 };
-//Utilisateur
+
 export interface CreateUserData {
     first_name: string;
     last_name: string;
@@ -66,8 +65,6 @@ export interface DisableUser {
     UserId: string;
 }
 
-
-
 export interface User {
     id: number | string;
     first_name: string;
@@ -97,14 +94,12 @@ export interface UserResponse {
     }
 }
 
-//Sous-catégorie
 export interface SubCategory {
   id?: string;
   name: string;
   description?: string;
 }
 
-//categorie
 export interface Category {
   id: string;
   name: string;
@@ -124,21 +119,20 @@ export interface CategoryCreateData {
   is_active?: boolean;
   subcategories?: SubCategory[];
 }
+
 export interface ApiResponse<T> {
   data?: T;
   count?: number;
   next: string | null;
-  message?:string;
+  message?: string;
   previous: string | null;
   results: {
     success: boolean;
     data: T;
   };
   errors?: unknown;
-
 }
 
-//Produit
 export interface DetailsResponseproduit {
   success: boolean;
   message: string;
@@ -159,6 +153,8 @@ export interface Product {
   updated_at: string;
   category: number | null;
   supplier: number | null;
+  unite_mesure: string;
+  suppliers?: { id: string; name: string }[];
 }
 
 export interface CriticalProduct {
@@ -173,12 +169,6 @@ export interface CriticalProduct {
   product_img?: string | null;
 }
 
-export interface CategoryCreateData {
-  name: string;
-  description?: string;
-  is_active?: boolean;
-}
-
 export interface CategoryResponse {
     success: boolean;
     message: string;
@@ -189,43 +179,22 @@ export interface CategoryResponse {
     }
 }
 
-
-
-//Produit
 export interface CreateProductData {
-  id?: number; // A effacer si cela cause un bug
-    name: string;
-    description: string;
-    stock_threshold: number;
-    category: string;
-    url?: string;
-    supplier?: string;
-    price: number;
-    currency: string;
-    sku: string;
-    current_stock: number;
-    is_active?: boolean;
-    unite_mesure: string;
-    est_perissable: boolean;
-    image?: File | null;
-}
-
-export interface Product {
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  unite_mesure: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
-  suppliers?: { id: string; name: string }[]
+  id?: number;
+  name: string;
+  description: string;
+  stock_threshold: number;
+  category: string;
+  url?: string;
+  supplier?: string;
+  price: number;
+  currency: string;
+  sku: string;
+  current_stock: number;
+  is_active?: boolean;
+  unite_mesure: string;
+  est_perissable: boolean;
+  image?: File | null;
 }
 
 export interface ProductResponse {
@@ -248,7 +217,7 @@ export interface ProductResponse {
 export interface SupplierResponse {
     success: boolean;
     message: string;
-    data?: Supplier | Supplier[]; // Modifié pour accepter un fournisseur ou un tableau
+    data?: Supplier | Supplier[];
 }
 
 export interface Supplier {
@@ -262,7 +231,7 @@ export interface Supplier {
   max_order_quantity: number;
   created_at: string | null;
   is_active: boolean;
-  products?: { id: number; name: string; sku: string; unite_mesure: string }[];  // ← ajouter
+  products?: { id: number; name: string; sku: string; unite_mesure: string }[];
 }
 
 export interface SupplierFormData {
@@ -274,12 +243,11 @@ export interface SupplierFormData {
   minOrderQuantity: number;
   maxOrderQuantity: number;
   isActive: boolean;
-  products?: string;   // ← ajouter
+  products?: string;
 }
 
 export type CreateSupplierData = SupplierFormData;
 
-// Stock & Inventaire
 export interface StockMouvement {
   id: number;
   produit: number;
@@ -354,7 +322,6 @@ export interface StockTrendPoint {
   valeur?: number;
 }
 
-// Forecasting & AI
 export interface Prediction {
   id: number;
   product: number;
@@ -395,34 +362,34 @@ export interface ChartDataPoint {
   [key: string]: string | number | boolean | null | undefined | unknown;
 }
 
+// ✅ total_stock_critique ajouté — produits avec 0 < stock <= 25% du seuil
 export interface ProductStats {
   total_produits: number;
   total_stock: number;
-  total_stock_faible: number;
-  total_stock_rupture: number;
+  total_stock_faible: number;    // stock > 0 ET stock <= seuil (tous les sous-seuil)
+  total_stock_critique: number;  // stock > 0 ET stock <= 25% du seuil
+  total_stock_rupture: number;   // stock = 0
   valeur_totale_stock: number;
 }
 
-// Dashboard & Analytics
 export interface DashboardStats extends ProductStats {
   mouvements_recents: StockMouvement[];
   predictions_futures?: Prediction[];
   recommandations_actives?: Recommendation[];
 }
 
-// Roles & Permissions
-export type PermissionType = 
-  | 'dashboard_view' 
-  | 'inventory_view' 
+export type PermissionType =
+  | 'dashboard_view'
+  | 'inventory_view'
   | 'inventory_edit'
   | 'inventory_import'
-  | 'forecasting_view' 
+  | 'forecasting_view'
   | 'forecasting_edit'
-  | 'reports_generate' 
+  | 'reports_generate'
   | 'reports_view'
-  | 'user_management' 
+  | 'user_management'
   | 'role_management'
-  | 'system_settings' 
+  | 'system_settings'
   | 'audit_logs'
   | 'data_management'
   | 'data_import'

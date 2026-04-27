@@ -81,11 +81,9 @@ class CategoryViewSet(GenericCRUDViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)  # ← laisse DRF gérer
-
+        serializer.is_valid(raise_exception=True)
         with transaction.atomic():
             category = serializer.save()
-
         return StandardResponse.render(
             data=CategorySerializer(category).data,
             message=f'Catégorie "{category.name}" créée avec succès',
@@ -94,8 +92,7 @@ class CategoryViewSet(GenericCRUDViewSet):
 
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop('partial', False)
-        instance = self.get_object()  # ← laisse Django gérer 404
-
+        instance = self.get_object()
         try:
             with transaction.atomic():
                 serializer = self.get_serializer(instance, data=request.data, partial=partial)
@@ -114,8 +111,7 @@ class CategoryViewSet(GenericCRUDViewSet):
             )
 
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()  # ← important
-
+        instance = self.get_object()
         try:
             name, pk = instance.name, instance.id
             instance.delete()
@@ -150,8 +146,7 @@ class CategoryViewSet(GenericCRUDViewSet):
 
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):
-        category = self.get_object()  # ← enlève try ici
-
+        category = self.get_object()
         try:
             category.is_active = not category.is_active
             category.save()
@@ -187,12 +182,11 @@ class SupplierViewSet(GenericCRUDViewSet):
 
     def _link_products(self, supplier, products_str):
         if products_str == '':
-            # Chaîne vide = dissocier tous les produits
             supplier.products.clear()
             return
         names = [n.strip() for n in products_str.split(';') if n.strip()]
         matched = Product.objects.filter(name__in=names)
-        supplier.products.set(matched)  # remplace tous les liens existants
+        supplier.products.set(matched)
 
     def create(self, request, *args, **kwargs):
         products_str = request.data.get('products', '')
@@ -212,6 +206,7 @@ class SupplierViewSet(GenericCRUDViewSet):
         response = super().update(request, *args, **kwargs)
         self._link_products(instance, products_str)
         return response
+
 
 # ─── Product ────────────────────────────────────────────────
 class ProductViewSet(GenericCRUDViewSet):
@@ -250,7 +245,6 @@ class ProductViewSet(GenericCRUDViewSet):
         return StandardResponse.render(data=serializer.data, status_code=200)
 
     def create(self, request, *args, **kwargs):
-        # Recherche rapide via POST si 'chercher' est présent
         if request.data.get('chercher'):
             qs = self.filter_queryset(
                 Product.objects.filter(name__icontains=request.data['chercher'])
@@ -288,12 +282,35 @@ class ProductViewSet(GenericCRUDViewSet):
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
+        from django.db.models import ExpressionWrapper, FloatField
+        all_products = list(Product.objects.all())
+
+        # Seuils alignés sur filter_stock_status (filters.py)
+        # rupture     : stock = 0
+        # critique    : 0 < stock <= 25% du seuil
+        # stock_faible: 25% < stock <= 50% du seuil
+        # en_stock    : stock > 50% du seuil
+        total_rupture = 0
+        total_critique = 0
+        total_stock_faible = 0
+
+        for p in all_products:
+            if p.current_stock == 0:
+                total_rupture += 1
+            elif p.stock_threshold > 0:
+                ratio = p.current_stock / p.stock_threshold
+                if ratio <= 0.25:
+                    total_critique += 1
+                elif ratio <= 0.50:
+                    total_stock_faible += 1
+            # en_stock (ratio > 0.50) non comptabilisé dans les alertes
+
         return StandardResponse.render(data={
             'total_produits': Product.objects.count(),
             'total_perissable': Product.objects.filter(est_perissable=True).count(),
             'total_non_perissable': Product.objects.filter(est_perissable=False).count(),
-            'total_stock': sum(p.current_stock for p in Product.objects.all()),
-            'total_stock_value': sum(p.current_stock * (p.price or 0) for p in Product.objects.all()),
+            'total_stock': sum(p.current_stock for p in all_products),
+            'total_stock_value': sum(p.current_stock * (p.price or 0) for p in all_products),
             'total_kg': Product.objects.filter(
                 unite_mesure__iexact='kg'
             ).aggregate(total=Sum('current_stock'))['total'],
@@ -303,10 +320,10 @@ class ProductViewSet(GenericCRUDViewSet):
             'total_litres': Product.objects.filter(
                 unite_mesure__in=['Litres', 'litres', 'L', 'l']
             ).aggregate(total=Sum('current_stock'))['total'],
-            'total_stock_faible': Product.objects.filter(
-                current_stock__lte=F('stock_threshold')
-            ).count(),
-            'total_stock_rupture': Product.objects.filter(current_stock=0).count(),
+            # ✅ Alignés sur filter_stock_status
+            'total_stock_faible': total_stock_faible,   # 25% < stock <= 50%
+            'total_stock_critique': total_critique,      # 0 < stock <= 25%
+            'total_stock_rupture': total_rupture,        # stock = 0
         }, message="Statistiques récupérées.", status_code=200)
 
     @action(detail=True, methods=['post'])
@@ -346,21 +363,18 @@ class ProduitDvViewSet(GenericCRUDViewSet):
     def get_queryset(self):
         return ProduitDv.objects.select_related('product').all()
 
-    # Dans _generer_pdf_mouvement — sauvegardez le PDF et retournez l'URL
     def _generer_pdf_mouvement(self, mouvements, type_mouvement, request):
         titre_type = "sorties" if type_mouvement == "OUT" else "entrees"
-        
         data = [["Produit", "Quantité", "Date", "Référence", "Utilisateur"]] + [
             [
                 m.produit.name if m.produit else '',
                 m.quantity,
-                m.date.strftime("%Y-%m-%d") if m.date else '',
+                m.timestamp.strftime("%Y-%m-%d") if m.timestamp else '',
                 m.referrence or '',
                 m.utilisateur.get_full_name().upper() if m.utilisateur else '',
             ]
             for m in mouvements
         ]
-        
         infos = {
             "titre": f"Rapport de {titre_type} de produits",
             "sous_titre": f"Rapport des {titre_type} de produits.",
@@ -368,18 +382,13 @@ class ProduitDvViewSet(GenericCRUDViewSet):
             "couleur": colors.lightgoldenrodyellow if type_mouvement == "OUT" else colors.lightgreen,
             "colWidths": [2*inch, inch, inch, 2*inch, 1.5*inch],
         }
-        
         buffer = PDFGeneratorViewSet()._advanced_pdf(data=data, infos=infos)
-        
         filename = f"Rapport_{titre_type}_{date.today()}.pdf"
         filepath = os.path.join(settings.MEDIA_ROOT, 'rapports', filename)
         os.makedirs(os.path.dirname(filepath), exist_ok=True)
         with open(filepath, 'wb') as f:
             f.write(buffer.read())
-
-        file_url = request.build_absolute_uri(
-            f"{settings.MEDIA_URL}rapports/{filename}"
-        )
+        file_url = request.build_absolute_uri(f"{settings.MEDIA_URL}rapports/{filename}")
         return StandardResponse.render(
             data={"url": file_url, "filename": filename},
             message="Opération enregistrée avec succès.",
@@ -462,7 +471,8 @@ class ProduitDvViewSet(GenericCRUDViewSet):
             data=ProduitDvSerializer(qs, many=True).data, status_code=200
         )
 
-# --- Revenues -----------------------------------------------
+
+# ─── Revenues ───────────────────────────────────────────────
 class RevenueViewSet(GenericCRUDViewSet):
     permission_classes = [AllowAny]
 
@@ -470,18 +480,38 @@ class RevenueViewSet(GenericCRUDViewSet):
     def mensuel(self, request):
         from django.db.models.functions import ExtractMonth
         from collections import defaultdict
-        month_names = {1:'Jan', 2:'Fév', 3:'Mar', 4:'Avr', 5:'Mai', 6:'Juin', 7:'Juil', 8:'Août', 9:'Sep', 10:'Oct', 11:'Nov', 12:'Déc'}
-        sorties = MouvementStock.objects.filter(movement_type='OUT').annotate(month=ExtractMonth('date')).select_related('produit','produit__category')
+
+        month_names = {
+            1: 'Jan', 2: 'Fév', 3: 'Mar', 4: 'Avr', 5: 'Mai', 6: 'Juin',
+            7: 'Juil', 8: 'Août', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Déc'
+        }
+
+        # ✅ FIX : 'timestamp' au lieu de 'date' (champ réel sur MouvementStock)
+        # + filtre timestamp__isnull=False pour ignorer les anciens enregistrements sans date
+        sorties = (
+            MouvementStock.objects
+            .filter(movement_type='OUT', timestamp__isnull=False)
+            .annotate(month=ExtractMonth('timestamp'))
+            .select_related('produit', 'produit__category')
+        )
+
         data_by_month = defaultdict(lambda: defaultdict(float))
         all_categories = set()
+
         for s in sorties:
-            m_name = month_names.get(s.month,'Inconnu')
-            cat_name = s.produit.category.name if s.produit and s.produit.category else 'Non categorise'
+            m_name = month_names.get(s.month, 'Inconnu')
+            cat_name = (
+                s.produit.category.name
+                if s.produit and s.produit.category
+                else 'Non catégorisé'
+            )
             all_categories.add(cat_name)
             amount = float(s.quantity) * float(s.unit_price or 0)
             data_by_month[m_name][cat_name] += amount
+
         result = []
-        sorted_months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin', 'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+        sorted_months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin',
+                         'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
         for m in sorted_months:
             if m in data_by_month:
                 row = {'month': m}
@@ -491,4 +521,5 @@ class RevenueViewSet(GenericCRUDViewSet):
                     if cat not in row:
                         row[cat] = 0
                 result.append(row)
+
         return StandardResponse.render(data=result, message='Revenus mensuels.', status_code=200)

@@ -2,15 +2,13 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from django.db.models import Q
+from django.db.models import Q, Sum
+from django.db.models.functions import TruncDay, TruncMonth, TruncYear
 from django_filters.rest_framework import DjangoFilterBackend
+from datetime import date
 
 from apps.core.views import GenericCRUDViewSet
 from apps.core.utils import StandardResponse
-#from .models import Effectuer
-#from .models import VerificationStock,
-#from .serializers import (EffectuerSerializer, VerificationStockSerializer,)
-#from .filters import (    EffectuerFilter, VerificationStockFilter,)
 
 from .models import (
     HistoriqueInventaire, Inventaire,
@@ -23,80 +21,6 @@ from .serializers import (
 from .filters import (
     MouvementStockFilter, HistoriqueSeuilStockFilter,
 )
-
-
-# ─── Effectuer ──────────────────────────────────────────────
-# class EffectuerViewSet(GenericCRUDViewSet):
-#     model = Effectuer
-#     queryset = Effectuer.objects.all()
-#     serializer_class = EffectuerSerializer
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_class = EffectuerFilter
-
-
-# ─── VerificationStock ──────────────────────────────────────
-# class VerificationStockViewSet(viewsets.ModelViewSet):
-#     queryset = VerificationStock.objects.all()
-#     serializer_class = VerificationStockSerializer
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_class = VerificationStockFilter
-
-#     def list(self, request, *args, **kwargs):
-#         queryset = self.filter_queryset(self.get_queryset())
-#         serializer = self.get_serializer(queryset, many=True)
-#         return StandardResponse.render(
-#             data=serializer.data,
-#             message="Liste des vérifications de stock",
-#             status_code=200
-#         )
-
-#     def retrieve(self, request, *args, **kwargs):
-#         instance = self.get_object()
-#         return StandardResponse.render(
-#             data=self.get_serializer(instance).data,
-#             message="Détails de la vérification de stock",
-#             status_code=200
-#         )
-
-#     def destroy(self, request, *args, **kwargs):
-#         self.get_object().delete()
-#         return StandardResponse.render(
-#             data=None,
-#             message="Vérification de stock supprimée avec succès",
-#             status_code=200
-#         )
-
-#     @action(detail=False, methods=['get'])
-#     def get_by(self, request):
-#         param = request.query_params.get('param')
-#         value = request.query_params.get('value')
-#         if not param or not value:
-#             return StandardResponse.render(
-#                 data=None, message="Paramètre ou valeur manquante", status_code=400
-#             )
-#         try:
-#             queryset = self.get_queryset().filter(**{param: value})
-#             return StandardResponse.render(
-#                 data=self.get_serializer(queryset, many=True).data,
-#                 message="Vérifications récupérées avec succès",
-#                 status_code=200
-#             )
-#         except Exception as e:
-#             return StandardResponse.render(
-#                 data=None, message=f"Erreur : {str(e)}", status_code=500
-#             )
-
-#     @action(detail=True, methods=['post'])
-#     def verifier(self, request, *args, **kwargs):
-#         instance = self.get_object()
-#         instance.utilisateur = request.user
-#         instance.set_date_verification()
-#         instance.save()
-#         return StandardResponse.render(
-#             data=None,
-#             message="Vérification mise à jour avec succès",
-#             status_code=200
-#         )
 
 
 # ─── HistoriqueInventaire ────────────────────────────────────
@@ -209,5 +133,104 @@ class MouvementStockViewSet(GenericCRUDViewSet):
                 'autres': total - (entrees + sorties + ajustements),
             },
             message="Statistiques récupérées avec succès",
+            status_code=200
+        )
+
+    @action(detail=False, methods=['get'])
+    def chart(self, request):
+        time_range = request.GET.get("range", "month")
+
+        if time_range == "day":
+            trunc = TruncDay("timestamp")
+        elif time_range == "year":
+            trunc = TruncYear("timestamp")
+        else:
+            trunc = TruncMonth("timestamp")
+
+        qs = self.get_queryset().filter(timestamp__isnull=False)
+
+        data = (
+            qs.annotate(period=trunc)
+            .values("period", "movement_type")
+            .annotate(total=Sum("quantity"))
+            .order_by("period")
+        )
+
+        result = {}
+        for item in data:
+            period = item.get("period")
+            if not period:
+                continue
+
+            if time_range == "day":
+                key = period.strftime("%d/%m/%Y")
+            elif time_range == "year":
+                key = period.strftime("%Y")
+            else:
+                key = period.strftime("%b %Y")
+
+            if key not in result:
+                result[key] = {"inbound": 0, "outbound": 0, "net": 0}
+
+            if item["movement_type"] in ("IN", "RETURN"):
+                result[key]["inbound"] += item["total"] or 0
+            elif item["movement_type"] in ("OUT", "SCRAP"):
+                result[key]["outbound"] += item["total"] or 0
+
+        for k in result:
+            result[k]["net"] = result[k]["inbound"] - result[k]["outbound"]
+
+        return StandardResponse.render(
+            data=[{"period": k, **v} for k, v in sorted(result.items())],
+            message="Données du graphique",
+            status_code=200
+        )
+
+    # ── NOUVEAU : entrées/sorties agrégées par produit ───────────────────────
+    @action(detail=False, methods=['get'])
+    def chart_by_product(self, request):
+        """
+        Retourne les entrées et sorties totales par produit.
+        Paramètres optionnels :
+          - limit : nb de produits à retourner (défaut 20, trié par total mouvementé)
+          - movement_type : 'IN', 'OUT' ou vide (tous)
+        Réponse : [{ product: "Nom", inbound: N, outbound: N, net: N }, ...]
+        """
+        limit = int(request.GET.get("limit", 20))
+
+        qs = (
+            self.get_queryset()
+            .filter(produit__isnull=False)
+            .values("produit__id", "produit__name", "movement_type")
+            .annotate(total=Sum("quantity"))
+            .order_by("produit__name")
+        )
+
+        # Agréger par produit
+        result: dict[int, dict] = {}
+        for item in qs:
+            pid = item["produit__id"]
+            pname = item["produit__name"] or f"Produit #{pid}"
+            if pid not in result:
+                result[pid] = {"product": pname, "inbound": 0, "outbound": 0, "net": 0}
+
+            if item["movement_type"] in ("IN", "RETURN"):
+                result[pid]["inbound"] += item["total"] or 0
+            elif item["movement_type"] in ("OUT", "SCRAP"):
+                result[pid]["outbound"] += item["total"] or 0
+
+        for pid in result:
+            result[pid]["net"] = result[pid]["inbound"] - result[pid]["outbound"]
+
+        # Trier par total mouvementé (inbound + outbound) décroissant, limiter
+        sorted_data = sorted(
+            result.values(),
+            key=lambda x: x["inbound"] + x["outbound"],
+            reverse=True
+        )[:limit]
+
+        return StandardResponse.render(
+            data=sorted_data,
+            message="Entrées/sorties par produit",
             status_code=200
         )

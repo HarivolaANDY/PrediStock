@@ -26,12 +26,17 @@ interface ProductResponse {
   total_stock?: number;
 }
 
+// Les 4 statuts + "all" — correspondent exactement aux valeurs acceptées par
+// le filtre stock_status du backend (filters.py)
+export type StockStatusFilter = "all" | "en_stock" | "stock_faible" | "critique" | "rupture"
+
 export interface ProductFilters {
   page?: number;
   category?: number | string;
   unite_mesure?: string;
   is_active?: boolean | string;
   search?: string;
+  status?: StockStatusFilter;
 }
 
 export function useProducts(filters: ProductFilters = { page: 1 }) {
@@ -40,25 +45,33 @@ export function useProducts(filters: ProductFilters = { page: 1 }) {
     category,
     unite_mesure,
     is_active,
-    search
+    search,
+    status = "all",
   } = filters;
 
   const fetchProducts = async (): Promise<ProductResponse> => {
     const headers = getAuthHeaders();
-    
+
     if (!headers.Authorization) {
       throw new Error("Erreur d'authentification : Aucun token trouvé.");
     }
 
     const queryParams = new URLSearchParams();
     queryParams.append('page', page.toString());
-    
+
     if (category) queryParams.append('category', category.toString());
     if (unite_mesure) queryParams.append('unite_mesure', unite_mesure);
     if (is_active !== undefined && is_active !== '') {
       queryParams.append('is_active', is_active.toString());
     }
     if (search) queryParams.append('name', search);
+
+    // ── Mapping statut → param backend ──────────────────────────────────────
+    // stock_status est géré par filter_stock_status dans filters.py
+    // Chaque valeur est distincte et correctement isolée côté backend
+    if (status !== "all") {
+      queryParams.append('stock_status', status);
+    }
 
     const { handleHttpErrors } = await import('@/services/api');
 
@@ -71,7 +84,7 @@ export function useProducts(filters: ProductFilters = { page: 1 }) {
   };
 
   const query = useQuery({
-    queryKey: ['products', page, category, unite_mesure, is_active, search],
+    queryKey: ['products', page, category, unite_mesure, is_active, search, status],
     queryFn: fetchProducts,
   });
 

@@ -20,17 +20,14 @@ class CategorySerializer(serializers.ModelSerializer):
             'description': {'required': False},
         }
 
-    # Dans CategorySerializer.validate_name
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Le nom ne peut pas être vide.")
 
         cleaned = value.strip()
 
-        # Normalisation explicite en minuscules pour gérer les accents
         qs = Category.objects.filter(name__iexact=cleaned)
         if not qs.exists():
-            # Double vérification avec lower() Python pour SQLite
             qs = Category.objects.all()
             qs = [c for c in qs if c.name.lower() == cleaned.lower()]
             if qs:
@@ -56,6 +53,7 @@ class CategoryCreateSerializer(CategorySerializer):
             'name': {'required': True},
             'description': {'required': False, 'default': ''},
         }
+
 
 class CategoryUpdateSerializer(CategorySerializer):
     class Meta(CategorySerializer.Meta):
@@ -119,11 +117,20 @@ class ProductSerializer(serializers.ModelSerializer):
     est_perissable = serializers.BooleanField(required=False, default=False)
     image_url = serializers.SerializerMethodField()
 
+    # ── NOUVEAU : nom de la catégorie en lecture seule ──────────────────────
+    category_name = serializers.SerializerMethodField()
+
     class Meta:
         model = Product
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
-        
+
+    def get_category_name(self, obj):
+        """Retourne le nom de la catégorie, ou 'Non catégorisé' si absente."""
+        if obj.category:
+            return obj.category.name
+        return 'Non catégorisé'
+
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Le nom est requis.")
