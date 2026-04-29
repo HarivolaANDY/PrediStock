@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from "react"
-import { Package, TrendingDown, AlertTriangle, Search, Calendar, Clock, DollarSign, RefreshCw, ChevronDown, ChevronRight, Download } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { Package, TrendingDown, AlertTriangle, Search, DollarSign, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Download } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,7 +18,7 @@ import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/ut
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { exportToCSV } from "@/utils/csvUtils"
 import { toast } from "@/hooks/use-toast"
-import { Category, StockMouvement, PDV, HistoriqueSeuilStock, StockTrendPoint, ProductStats } from "@/types/types"
+import { Category, StockMouvement, PDV, StockTrendPoint } from "@/types/types"
 
 
 function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
@@ -28,10 +28,8 @@ function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
     if (details.name) return details.name
     if (details.nom) return details.nom
   }
-  
   if (mouvement.product_name) return mouvement.product_name
   if (mouvement.produit_nom) return mouvement.produit_nom
-  
   const produitId = mouvement.produit ?? mouvement.product ?? null
   if (produitId !== null) {
     const match = PDVs.find((p) => p.product === produitId || p.id === produitId)
@@ -40,9 +38,37 @@ function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
   return "Produit inconnu"
 }
 
+// ── Statut stock aligné sur filter_stock_status (filters.py) ─────────────
+// rupture     : stock = 0
+// critical    : 0 < stock <= 25% du seuil
+// warning     : 25% < stock <= 50% du seuil
+// low         : 50% < stock <= seuil (ok dans la logique du tableau)
+function getAlertStatus(current_stock: number, stock_threshold: number): "rupture" | "critical" | "warning" | "low" {
+  if (current_stock === 0) return "rupture"
+  if (stock_threshold <= 0) return "low"
+  const ratio = current_stock / stock_threshold
+  if (ratio <= 0.25) return "critical"
+  if (ratio <= 0.50) return "warning"
+  return "low"
+}
+
+interface ProductStats {
+  total_produits: number
+  total_stock: number
+  total_stock_faible: number    // 25% < stock <= 50% du seuil
+  total_stock_critique: number  // 0 < stock <= 25% du seuil
+  total_stock_rupture: number   // stock = 0
+  total_stock_value?: number    // valeur totale du stock
+}
+
+const ITEMS_PER_PAGE = 10
+
 export default function Stock() {
   const [categories, setCategories] = useState<Category[]>([])
-  const { products, refetch } = useProducts()
+  // ✅ Tous les produits pour alertItems et valeurTotaleStock
+  const { products, refetch } = useProducts({ page: 1, status: "all" })
+  const [alertProducts, setAlertProducts] = useState<any[]>([])
+  const [alertLoading, setAlertLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [alertSearchTerm, setAlertSearchTerm] = useState("")
   const [stockMouvements, setStockMouvements] = useState<StockMouvement[]>([])
@@ -55,9 +81,13 @@ export default function Stock() {
   const [seuilHistorique, setSeuilHistorique] = useState<StockTrendPoint[]>([])
   const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
   const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<PDV | null>(null)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
+  const [selectedProduct] = useState<PDV | null>(null)
+  const [, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
   const [mouvementSearchTerm, setMouvementSearchTerm] = useState("")
+  const [stats, setStats] = useState<ProductStats | null>(null)
+
+  // ── Pagination Alertes ───────────────────────────────────────────────────
+  const [currentPage, setCurrentPage] = useState(1)
 
   const toggleRow = (id: number) => {
     setExpandedRows(prev => {
@@ -67,20 +97,48 @@ export default function Stock() {
     })
   }
 
-  const valeurTotaleStock = useMemo(() =>
-    products.reduce((sum, p) => sum + (parseFloat(p.price) || 0) * p.current_stock, 0),
-    [products]
+  // ✅ Valeur totale : depuis stats.total_stock_value si disponible, sinon calcul local
+  const valeurTotaleStock = useMemo(() => {
+    if (stats?.total_stock_value != null) return stats.total_stock_value
+    return products.reduce((sum, p) => sum + (parseFloat(p.price as unknown as string) || 0) * p.current_stock, 0)
+  }, [stats, products])
+
+  // ✅ alertItems : depuis alertProducts (API paginée avec page_size=1000)
+  const alertItems = useMemo(() =>
+    alertProducts.filter(p =>
+      (p.name || '').toLowerCase().includes(alertSearchTerm.toLowerCase())
+    ),
+    [alertProducts, alertSearchTerm]
   )
 
-  const articlesStockBas = useMemo(() =>
-    products.filter(p => p.current_stock > 0 && p.current_stock <= p.stock_threshold),
-    [products]
+  const totalPages = useMemo(
+    () => Math.ceil(alertItems.length / ITEMS_PER_PAGE),
+    [alertItems.length]
   )
 
-  const articlesRupture = useMemo(() =>
-    products.filter(p => p.current_stock === 0),
-    [products]
-  )
+  const pagedAlertItems = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE
+    return alertItems.slice(start, start + ITEMS_PER_PAGE)
+  }, [alertItems, currentPage])
+
+  const goToPage = useCallback((page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }, [totalPages])
+
+  // Reset page quand les données ou la recherche changent
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [alertItems.length])
+
+  const getVisiblePages = () => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1)
+    const half = 2
+    let start = Math.max(1, currentPage - half)
+    let end = Math.min(totalPages, currentPage + half)
+    if (currentPage <= half + 1) end = Math.min(totalPages, 5)
+    if (currentPage >= totalPages - half) start = Math.max(1, totalPages - 4)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }
 
   const stockTrendData = useMemo(() => {
     if (seuilHistorique.length === 0) return []
@@ -92,20 +150,24 @@ export default function Stock() {
     }))
   }, [seuilHistorique])
 
-  const categoryStockData = useMemo(() => {
-    if (PDVs.length === 0 || categories.length === 0) return []
-    const map: Record<string, number> = {}
-    PDVs.forEach((pdv) => {
-      const categoryId = pdv.infos?.category ?? null
-      const catName = categoryId
-        ? (categories.find(c => c.id === categoryId)?.name || "Sans catégorie")
-        : "Sans catégorie"
-      map[catName] = (map[catName] || 0) + (Number(pdv.quantite) || 0)
-    })
-    return Object.entries(map).map(([name, stock]) => ({ name, stock }))
-  }, [PDVs, categories])
+  const [categoryStockData, setCategoryStockData] = useState<{ name: string; stock: number }[]>([])
 
-  // Mouvements groupés par id produit, triés du plus récent au plus ancien
+  const fetchCategoryChart = async () => {
+    try {
+      const res = await API.get('stock/mouvements/chart_by_category/')
+      const data = res.data?.data || res.data?.results || res.data || []
+      setCategoryStockData(
+        (Array.isArray(data) ? data : []).map((item: any) => ({
+          name: item.category,
+          stock: item.stock ?? item.net ?? 0,
+        }))
+      )
+    } catch (e) {
+      console.error('Erreur chart catégorie:', e)
+      setCategoryStockData([])
+    }
+  }
+
   const mouvementsByProduct = useMemo(() => {
     const map: Record<number, any[]> = {}
     stockMouvements.forEach((mvt: any) => {
@@ -121,35 +183,23 @@ export default function Stock() {
   }, [stockMouvements])
 
   const mouvementStatsByProduct = useMemo(() => {
-    const stats: Record<number, { nbEntree: number; nbSortie: number; dernierMvt: string | null; dateDernierMvt: string | null }> = {}
+    const s: Record<number, { nbEntree: number; nbSortie: number; dernierMvt: string | null; dateDernierMvt: string | null }> = {}
     stockMouvements.forEach((mvt: any) => {
       const pid: number | null = mvt.produit ?? mvt.product ?? mvt.product_details?.id ?? null
       if (pid === null) return
-      if (!stats[pid]) stats[pid] = { nbEntree: 0, nbSortie: 0, dernierMvt: null, dateDernierMvt: null }
+      if (!s[pid]) s[pid] = { nbEntree: 0, nbSortie: 0, dernierMvt: null, dateDernierMvt: null }
       if (mvt.movement_type === 'IN' || mvt.movement_type === 'RETURN') {
-        stats[pid].nbEntree += Number(mvt.quantity) || 0
+        s[pid].nbEntree += Number(mvt.quantity) || 0
       } else if (mvt.movement_type === 'OUT' || mvt.movement_type === 'SCRAP') {
-        stats[pid].nbSortie += Number(mvt.quantity) || 0
+        s[pid].nbSortie += Number(mvt.quantity) || 0
       }
-      if (!stats[pid].dateDernierMvt || mvt.timestamp > stats[pid].dateDernierMvt!) {
-        stats[pid].dernierMvt = mvt.movement_type
-        stats[pid].dateDernierMvt = mvt.timestamp
+      if (!s[pid].dateDernierMvt || mvt.timestamp > s[pid].dateDernierMvt!) {
+        s[pid].dernierMvt = mvt.movement_type
+        s[pid].dateDernierMvt = mvt.timestamp
       }
     })
-    return stats
+    return s
   }, [stockMouvements])
-
-  const alertItems = useMemo(() =>
-    products
-      .filter(p => p.current_stock <= p.stock_threshold)
-      .filter(p => p.name.toLowerCase().includes(alertSearchTerm.toLowerCase()))
-      .map(p => {
-        const pct = p.stock_threshold > 0 ? (p.current_stock / p.stock_threshold) * 100 : 0
-        const status = p.current_stock === 0 ? "rupture" : pct <= 15 ? "critical" : "low"
-        return { ...p, status }
-      }),
-    [products, alertSearchTerm]
-  )
 
   const formatCustomDate = (dateString: string) => {
     if (!dateString) return "—"
@@ -169,11 +219,14 @@ export default function Stock() {
   const getStatusBadge = (status: string) => {
     if (status === "rupture") return <Badge variant="destructive">Rupture</Badge>
     if (status === "critical") return <Badge variant="destructive">Critique</Badge>
-    if (status === "low") return <Badge className="bg-warning text-warning-foreground">Stock bas</Badge>
+    if (status === "warning") return <Badge className="bg-orange-500 hover:bg-orange-500 text-white">Stock Faible</Badge>
+    if (status === "low") return <Badge className="bg-warning text-warning-foreground">À surveiller</Badge>
     return <Badge variant="secondary">Normal</Badge>
   }
 
-  const Export_mouvement = async () => {
+  // ── Export ─────────────────────────────────────────────────────────────────
+  const exportMouvementPDF = async () => {
+    setIsloadingexport(true)
     try {
       const res = (await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })) as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, "Rapport_mouvement.pdf")
@@ -185,14 +238,8 @@ export default function Stock() {
   const exportProductsCSV = () => {
     try {
       if (filteredPDVs.length === 0) {
-        toast({
-          variant: "destructive",
-          title: "Erreur",
-          description: "Erreur: aucune donnée à exporter",
-        })
-        return
+        toast({ variant: "destructive", title: "Erreur", description: "Aucune donnée à exporter" }); return
       }
-
       const headers = ["Produit", "Capacité", "Quantité", "Date", "Produit parent"]
       const dataToExport = filteredPDVs.map(p => ({
         designation: p.designation || "",
@@ -201,47 +248,23 @@ export default function Stock() {
         date: formatCustomDate(p.date_creation),
         parent: p.infos?.name || "—"
       }))
-
       const now = new Date()
-      const dd = String(now.getDate()).padStart(2, '0')
-      const mm = String(now.getMonth() + 1).padStart(2, '0')
-      const yyyy = now.getFullYear()
-      const filename = `products_stock_${dd}${mm}${yyyy}.csv`
-      
-      exportToCSV(
-        dataToExport,
-        filename,
-        headers,
-        ["designation", "capacite", "quantite", "date", "parent"]
-      )
+      const filename = `products_stock_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
+      exportToCSV(dataToExport, filename, headers, ["designation", "capacite", "quantite", "date", "parent"])
     } catch (error) {
-      console.error("Export error:", error)
-      toast({
-        variant: "destructive",
-        title: "Erreur d'exportation",
-        description: "Une erreur est survenue lors de l'exportation CSV.",
-      })
+      toast({ variant: "destructive", title: "Erreur d'exportation", description: "Erreur lors de l'exportation CSV." })
     }
   }
 
   const exportMovementsCSV = () => {
     try {
       if (filteredMovements.length === 0) {
-        toast({
-          variant: "destructive",
-          title: "Erreur",
-          description: "Erreur: aucune donnée à exporter.",
-        })
-        return
+        toast({ variant: "destructive", title: "Erreur", description: "Aucune donnée à exporter." }); return
       }
-
       const headers = ["Date", "Produit", "Type", "Quantité", "Référence", "Raison", "Auteur"]
       const dataToExport = filteredMovements.map(m => {
         const date = new Date(m.timestamp)
-        const author = m.utilisateur_nom
-          ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`.trim()
-          : "—"
-        
+        const author = m.utilisateur_nom ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`.trim() : "—"
         return {
           date: `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
           produit: resolveProductName(m, PDVs),
@@ -252,27 +275,11 @@ export default function Stock() {
           auteur: author
         }
       })
-
       const now = new Date()
-      const dd = String(now.getDate()).padStart(2, '0')
-      const mm = String(now.getMonth() + 1).padStart(2, '0')
-      const yyyy = now.getFullYear()
-      const filename = `mouvement_stock_${dd}${mm}${yyyy}.csv`
-
-      exportToCSV(
-        dataToExport,
-        filename,
-        headers,
-        ["date", "produit", "type", "quantite", "reference", "raison", "auteur"],
-        ';'
-      )
+      const filename = `mouvement_stock_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
+      exportToCSV(dataToExport, filename, headers, ["date", "produit", "type", "quantite", "reference", "raison", "auteur"], ';')
     } catch (error) {
-      console.error("Export error:", error)
-      toast({
-        variant: "destructive",
-        title: "Erreur d'exportation",
-        description: "Une erreur est survenue lors de l'exportation CSV.",
-      })
+      toast({ variant: "destructive", title: "Erreur d'exportation", description: "Erreur lors de l'exportation CSV." })
     }
   }
 
@@ -282,6 +289,14 @@ export default function Stock() {
       const res = await API.get('catalogue/categories/')
       setCategories(res.data?.data || res.data?.results || res.data || [])
     } catch (e) { console.error(e) }
+  }
+
+  // ✅ Stats depuis /catalogue/products/stats/ — même endpoint que Dashboard et Products
+  const fetchStats = async () => {
+    try {
+      const res = await API.get('catalogue/products/stats/')
+      setStats(res.data?.data || null)
+    } catch (e) { console.error('Erreur stats:', e) }
   }
 
   const getListePDV = async () => {
@@ -321,8 +336,37 @@ export default function Stock() {
     } finally { setStockMouvementsLoading(false) }
   }
 
+  // ✅ Récupération des alertes par statut (page_size=1000 pour tout avoir)
+  const fetchAlertProducts = async () => {
+    setAlertLoading(true)
+    try {
+      const [rupture, critique, faible] = await Promise.all([
+        API.get('catalogue/products/?stock_status=rupture&page_size=1000'),
+        API.get('catalogue/products/?stock_status=critique&page_size=1000'),
+        API.get('catalogue/products/?stock_status=stock_faible&page_size=1000'),
+      ])
+
+      const merge = (res: any) =>
+        res.data?.data?.results ?? res.data?.results ?? res.data?.data ?? []
+
+      const all = [
+        ...merge(rupture).map((p: any) => ({ ...p, status: 'rupture' })),
+        ...merge(critique).map((p: any) => ({ ...p, status: 'critical' })),
+        ...merge(faible).map((p: any) => ({ ...p, status: 'warning' })),
+      ]
+
+      setAlertProducts(all)
+    } catch (e) {
+      console.error('Erreur fetch alertes:', e)
+      setAlertProducts([])
+    } finally {
+      setAlertLoading(false)
+    }
+  }
+
   useEffect(() => {
-    fetchCategories(); fetchStockMouvements(); getListePDV(); fetchSeuilHistorique()
+    fetchCategories(); fetchStats(); fetchStockMouvements()
+    getListePDV(); fetchSeuilHistorique(); fetchCategoryChart(); fetchAlertProducts()
   }, [])
 
   const filteredPDVs = useMemo(() =>
@@ -351,16 +395,67 @@ export default function Stock() {
           <h1 className="text-3xl font-bold tracking-tight">Analyse du Stock</h1>
           <p className="text-muted-foreground">Surveillez les niveaux de stock et les mouvements en temps réel</p>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => { refetch(); fetchStockMouvements(); getListePDV() }}>
+        <Button variant="outline" className="gap-2"
+          onClick={() => { refetch(); fetchStats(); fetchStockMouvements(); getListePDV(); fetchAlertProducts() }}>
           <RefreshCw className="h-4 w-4" /> Actualiser
         </Button>
       </div>
 
+      {/* ── Métriques — toutes depuis le backend ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard title="Catégories" value={categories.length.toString()} description={`${products.length} produits au catalogue`} icon={<Package className="h-4 w-4" />} />
-        <MetricCard title="Articles en Stock Bas" value={articlesStockBas.length.toString()} description={`${products.length > 0 ? ((articlesStockBas.length / products.length) * 100).toFixed(1) : 0}% du catalogue`} icon={<AlertTriangle className="h-4 w-4" />} variant="warning" />
-        <MetricCard title="Articles en Rupture" value={articlesRupture.length.toString()} description={`${products.length > 0 ? ((articlesRupture.length / products.length) * 100).toFixed(1) : 0}% du catalogue`} icon={<TrendingDown className="h-4 w-4" />} variant="destructive" />
-        <MetricCard title="Valeur Totale du Stock" value={formatCurrency(valeurTotaleStock)} description="Calculé sur le stock actuel" icon={<DollarSign className="h-4 w-4" />} variant="success" />
+        {/* Catégories */}
+        <MetricCard
+          title="Catégories"
+          value={categories.length.toString()}
+          description={`${stats?.total_produits ?? products.length} produits au catalogue`}
+          icon={<Package className="h-4 w-4" />}
+        />
+
+        {/* ✅ Carte Alertes splitée — stats viennent du backend (seuils 25%/50%) */}
+        <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-muted-foreground font-medium">Alertes Stock</p>
+              <p className="text-xs text-muted-foreground">Produits sous seuil</p>
+            </div>
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="rounded-lg border p-3 text-center">
+              <p className="text-xs text-muted-foreground">Faible (25–50%)</p>
+              <p className="text-xl font-bold text-orange-500">{stats?.total_stock_faible ?? "—"}</p>
+            </div>
+            <div className="rounded-lg border p-3 text-center">
+              <p className="text-xs text-muted-foreground">Critique (&lt;25%)</p>
+              <p className="text-xl font-bold text-red-500">{stats?.total_stock_critique ?? "—"}</p>
+            </div>
+          </div>
+          <div className="mt-4 text-xs text-muted-foreground">
+            {stats
+              ? `${stats.total_stock_rupture} en rupture · ${(((stats.total_stock_faible + stats.total_stock_critique + stats.total_stock_rupture) / Math.max(stats.total_produits, 1)) * 100).toFixed(1)}% sous seuil`
+              : "Surveillance des stocks critiques"}
+          </div>
+        </div>
+
+        {/* ✅ Articles en Rupture — depuis stats.total_stock_rupture */}
+        <MetricCard
+          title="Articles en Rupture"
+          value={stats?.total_stock_rupture?.toString() ?? "—"}
+          description={stats
+            ? `${((stats.total_stock_rupture / Math.max(stats.total_produits, 1)) * 100).toFixed(1)}% du catalogue`
+            : "stock = 0"}
+          icon={<TrendingDown className="h-4 w-4" />}
+          variant="destructive"
+        />
+
+        {/* ✅ Valeur totale — depuis stats.total_stock_value si dispo, sinon calcul local */}
+        <MetricCard
+          title="Valeur Totale du Stock"
+          value={formatCurrency(valeurTotaleStock)}
+          description={stats?.total_stock_value != null ? "" : "Calculé en local"}
+          icon={<DollarSign className="h-4 w-4" />}
+          variant="success"
+        />
       </div>
 
       <Tabs defaultValue="movements" className="space-y-6">
@@ -370,6 +465,7 @@ export default function Stock() {
           <TabsTrigger value="alerts">Alertes de Stock Bas</TabsTrigger>
         </TabsList>
 
+        {/* ── Onglet Mouvements ── */}
         <TabsContent value="movements">
           <Tabs defaultValue="list" className="space-y-6">
             <TabsList className="grid w-full grid-cols-2">
@@ -377,45 +473,28 @@ export default function Stock() {
               <TabsTrigger value="historique">Historique des mouvements</TabsTrigger>
             </TabsList>
 
-            {/* ── Liste des produits ── */}
+            {/* Liste PDV */}
             <TabsContent value="list">
               <Card>
                 <CardHeader>
                   <CardTitle>Tous les produits</CardTitle>
-                  <CardDescription>
-                    Cliquez sur une ligne pour afficher les mouvements associés.
-                  </CardDescription>
+                  <CardDescription>Cliquez sur une ligne pour afficher les mouvements associés.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-4 mb-6">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input placeholder="Rechercher des produits par nom..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
+                      <Input placeholder="Rechercher des produits par nom..." value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
                     </div>
-                    <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>
-                      Importer
-                    </Button>
-                    <Button variant="outline" className="gap-2" onClick={exportProductsCSV}>
-                      Exporter
-                    </Button>
+                    <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>Importer</Button>
+                    <Button variant="outline" className="gap-2" onClick={exportProductsCSV}>Exporter</Button>
                   </div>
 
                   <div className="rounded-md border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          {/*
-                            Index  Header principal      Sous-ligne
-                            ─────  ──────────────────    ──────────────────────────
-                            [0]    (chevron)             vide
-                            [1]    Produit               vide
-                            [2]    Capacité              vide
-                            [3]    Nb Entrée             qté entrée  (+X si IN/RETURN)
-                            [4]    Nb Sortie             qté sortie  (-X si OUT/SCRAP)
-                            [5]    Dernier mvt           type de mouvement (badge)
-                            [6]    Date (dernier mvt)    date du mouvement
-                            [7]    Produit parent        raison / auteur
-                          */}
                           <TableHead className="w-8" />
                           <TableHead>Produit</TableHead>
                           <TableHead>Capacité</TableHead>
@@ -428,131 +507,76 @@ export default function Stock() {
                       </TableHeader>
                       <TableBody>
                         {isLoadingPDVs ? (
-                          <TableRow>
-                            <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement des produits...</TableCell>
-                          </TableRow>
+                          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement des produits...</TableCell></TableRow>
                         ) : filteredPDVs.length === 0 ? (
-                          <TableRow>
-                            <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell>
-                          </TableRow>
+                          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell></TableRow>
                         ) : (
                           filteredPDVs.map((produit: any) => {
                             const produitId: number | null = produit.product ?? produit.id ?? null
-                            const stats = produitId !== null ? mouvementStatsByProduct[produitId] : null
+                            const mvtStats = produitId !== null ? mouvementStatsByProduct[produitId] : null
                             const mouvements = produitId !== null ? (mouvementsByProduct[produitId] ?? []) : []
                             const isExpanded = produit.id !== null && expandedRows.has(produit.id)
 
                             return (
                               <>
-                                {/* ── Ligne principale ── */}
-                                <TableRow
-                                  key={`row-${produit.id}`}
+                                <TableRow key={`row-${produit.id}`}
                                   className="cursor-pointer hover:bg-muted/50 transition-colors"
-                                  onClick={() => toggleRow(produit.id)}
-                                >
-                                  {/* [0] chevron */}
+                                  onClick={() => toggleRow(produit.id)}>
                                   <TableCell className="w-8 pr-0">
                                     {isExpanded
                                       ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
-                                      : <ChevronRight className="h-4 w-4 text-muted-foreground" />
-                                    }
+                                      : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                   </TableCell>
-                                  {/* [1] Produit */}
                                   <TableCell><p className="font-medium">{produit.designation}</p></TableCell>
-                                  {/* [2] Capacité */}
                                   <TableCell>{produit.quantite} {produit.infos?.unite_mesure || ""}</TableCell>
-                                  {/* [3] Nb Entrée */}
                                   <TableCell>
-                                    {stats
-                                      ? <span className="text-green-600 font-medium">+{stats.nbEntree}</span>
+                                    {mvtStats ? <span className="text-green-600 font-medium">+{mvtStats.nbEntree}</span> : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {mvtStats ? <span className="text-red-500 font-medium">-{mvtStats.nbSortie}</span> : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {mvtStats?.dernierMvt
+                                      ? <Badge variant={mvtStats.dernierMvt === "IN" || mvtStats.dernierMvt === "RETURN" ? "success" : mvtStats.dernierMvt === "OUT" || mvtStats.dernierMvt === "SCRAP" ? "destructive" : "secondary"}>
+                                          {formatMvtType(mvtStats.dernierMvt)}
+                                        </Badge>
                                       : <span className="text-muted-foreground">—</span>}
                                   </TableCell>
-                                  {/* [4] Nb Sortie */}
                                   <TableCell>
-                                    {stats
-                                      ? <span className="text-red-500 font-medium">-{stats.nbSortie}</span>
-                                      : <span className="text-muted-foreground">—</span>}
+                                    {mvtStats?.dateDernierMvt ? formatCustomDate(mvtStats.dateDernierMvt) : <span className="text-muted-foreground">—</span>}
                                   </TableCell>
-                                  {/* [5] Dernier mvt */}
-                                  <TableCell>
-                                    {stats?.dernierMvt
-                                      ? <Badge variant={stats.dernierMvt === "IN" || stats.dernierMvt === "RETURN" ? "success" : stats.dernierMvt === "OUT" || stats.dernierMvt === "SCRAP" ? "destructive" : "secondary"}>{formatMvtType(stats.dernierMvt)}</Badge>
-                                      : <span className="text-muted-foreground">—</span>}
-                                  </TableCell>
-                                  {/* [6] Date */}
-                                  <TableCell>
-                                    {stats?.dateDernierMvt ? formatCustomDate(stats.dateDernierMvt) : <span className="text-muted-foreground">—</span>}
-                                  </TableCell>
-                                  {/* [7] Produit parent */}
                                   <TableCell>{produit.infos?.name || <span className="text-muted-foreground">—</span>}</TableCell>
                                 </TableRow>
 
-                                {/* ── Sous-lignes mouvements ──
-                                    [0] vide   [1] vide   [2] vide
-                                    [3] qté entrée   [4] qté sortie
-                                    [5] type mvt     [6] date mvt    [7] raison/auteur
-                                */}
                                 {isExpanded && (
                                   mouvements.length === 0 ? (
                                     <TableRow key={`empty-${produit.id}`} className="bg-muted/20">
-                                      <TableCell />{/* [0] */}
-                                      <TableCell />{/* [1] */}
-                                      <TableCell />{/* [2] */}
+                                      <TableCell /><TableCell /><TableCell />
                                       <TableCell colSpan={5} className="py-2 text-sm text-muted-foreground italic">
                                         Aucun mouvement enregistré pour ce produit.
                                       </TableCell>
                                     </TableRow>
-                                  ) : (
-                                    mouvements.map((mvt: any, idx: number) => {
-                                      const isIN  = mvt.movement_type === "IN"  || mvt.movement_type === "RETURN"
-                                      const isOUT = mvt.movement_type === "OUT" || mvt.movement_type === "SCRAP"
-                                      const qty   = Number(mvt.quantity) || 0
-                                      const auteur = mvt.utilisateur_nom
-                                        ? `${mvt.utilisateur_nom.first_name} ${mvt.utilisateur_nom.last_name}`.trim()
-                                        : null
-                                      const raison = mvt.reason || auteur || "—"
-
-                                      return (
-                                        <TableRow
-                                          key={`mvt-${produit.id}-${mvt.id_movement ?? idx}`}
-                                          className="bg-muted/20 hover:bg-muted/30"
-                                        >
-                                          {/* [0] vide */}
-                                          <TableCell />
-                                          {/* [1] vide */}
-                                          <TableCell />
-                                          {/* [2] vide */}
-                                          <TableCell />
-                                          {/* [3] → qté entrée */}
-                                          <TableCell>
-                                            {isIN
-                                              ? <span className="text-green-600 font-medium text-sm">+{qty}</span>
-                                              : <span className="text-muted-foreground text-sm">—</span>}
-                                          </TableCell>
-                                          {/* [4] → qté sortie */}
-                                          <TableCell>
-                                            {isOUT
-                                              ? <span className="text-red-500 font-medium text-sm">-{qty}</span>
-                                              : <span className="text-muted-foreground text-sm">—</span>}
-                                          </TableCell>
-                                          {/* [5] → type de mouvement */}
-                                          <TableCell>
-                                            <Badge variant={isIN ? "success" : isOUT ? "destructive" : "secondary"}>
-                                              {formatMvtType(mvt.movement_type)}
-                                            </Badge>
-                                          </TableCell>
-                                          {/* [6] → date du mouvement */}
-                                          <TableCell className="text-sm text-muted-foreground">
-                                            {formatCustomDate(mvt.timestamp)}
-                                          </TableCell>
-                                          {/* [7] → raison / auteur */}
-                                          <TableCell className="text-sm text-muted-foreground">
-                                            {raison}
-                                          </TableCell>
-                                        </TableRow>
-                                      )
-                                    })
-                                  )
+                                  ) : mouvements.map((mvt: any, idx: number) => {
+                                    const isIN  = mvt.movement_type === "IN"  || mvt.movement_type === "RETURN"
+                                    const isOUT = mvt.movement_type === "OUT" || mvt.movement_type === "SCRAP"
+                                    const qty   = Number(mvt.quantity) || 0
+                                    const auteur = mvt.utilisateur_nom ? `${mvt.utilisateur_nom.first_name} ${mvt.utilisateur_nom.last_name}`.trim() : null
+                                    const raison = mvt.reason || auteur || "—"
+                                    return (
+                                      <TableRow key={`mvt-${produit.id}-${mvt.id_movement ?? idx}`} className="bg-muted/20 hover:bg-muted/30">
+                                        <TableCell /><TableCell /><TableCell />
+                                        <TableCell>{isIN ? <span className="text-green-600 font-medium text-sm">+{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
+                                        <TableCell>{isOUT ? <span className="text-red-500 font-medium text-sm">-{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
+                                        <TableCell>
+                                          <Badge variant={isIN ? "success" : isOUT ? "destructive" : "secondary"}>
+                                            {formatMvtType(mvt.movement_type)}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{formatCustomDate(mvt.timestamp)}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{raison}</TableCell>
+                                      </TableRow>
+                                    )
+                                  })
                                 )}
                               </>
                             )
@@ -561,17 +585,14 @@ export default function Stock() {
                       </TableBody>
                     </Table>
                   </div>
-
                   <div className="mt-4">
-                    <p className="text-sm text-muted-foreground">
-                      {filteredPDVs.length} produit(s) affiché(s) sur {PDVs.length}
-                    </p>
+                    <p className="text-sm text-muted-foreground">{filteredPDVs.length} produit(s) affiché(s) sur {PDVs.length}</p>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
 
-            {/* ── Historique des mouvements ── */}
+            {/* Historique mouvements */}
             <TabsContent value="historique">
               <Card>
                 <CardHeader>
@@ -583,14 +604,9 @@ export default function Stock() {
                     <div className="flex flex-1 flex-col md:flex-row items-center gap-4 w-full">
                       <div className="relative flex-1 w-full max-w-md">
                         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input 
-                          placeholder="Rechercher dans l'historique..." 
-                          className="pl-10 bg-muted/30 border-muted"
-                          value={mouvementSearchTerm}
-                          onChange={(e) => setMouvementSearchTerm(e.target.value)}
-                        />
+                        <Input placeholder="Rechercher dans l'historique..." className="pl-10 bg-muted/30 border-muted"
+                          value={mouvementSearchTerm} onChange={(e) => setMouvementSearchTerm(e.target.value)} />
                       </div>
-                      
                       <Select onValueChange={(value: string) => fetchStockMouvements(value)}>
                         <SelectTrigger className="w-full md:w-[200px] bg-muted/30 border-muted">
                           <SelectValue placeholder="Type de mouvement" />
@@ -605,15 +621,10 @@ export default function Stock() {
                         </SelectContent>
                       </Select>
                     </div>
-                    
-                    <Button 
-                      variant="outline" 
-                      className="gap-2 text-white bg-primary hover:bg-primary/90 border-none transition-all duration-300 shadow-sm" 
-                      onClick={exportMovementsCSV}
-                      disabled={isloadingexport}
-                    >
-                      <Download className="h-4 w-4" />
-                      Exporter
+                    <Button variant="outline"
+                      className="gap-2 text-white bg-primary hover:bg-primary/90 border-none transition-all duration-300 shadow-sm"
+                      onClick={exportMovementsCSV} disabled={isloadingexport}>
+                      <Download className="h-4 w-4" />Exporter
                     </Button>
                   </div>
 
@@ -621,13 +632,8 @@ export default function Stock() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Produit</TableHead>
-                          <TableHead>Type</TableHead>
-                          <TableHead>Quantité</TableHead>
-                          <TableHead>Référence</TableHead>
-                          <TableHead>Raison</TableHead>
-                          <TableHead>Auteur</TableHead>
+                          <TableHead>Date</TableHead><TableHead>Produit</TableHead><TableHead>Type</TableHead>
+                          <TableHead>Quantité</TableHead><TableHead>Référence</TableHead><TableHead>Raison</TableHead><TableHead>Auteur</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -659,33 +665,29 @@ export default function Stock() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          filteredMovements.map((mouvement, index) => (
-                            <TableRow key={mouvement.id ?? `mouvement-${index}`}>
-                              <TableCell className="text-sm">
-                                {new Date(mouvement.timestamp).toLocaleDateString()} {new Date(mouvement.timestamp).toLocaleTimeString()}
-                              </TableCell>
-                              <TableCell>
-                                <div className="font-medium">{resolveProductName(mouvement, PDVs)}</div>
-                              </TableCell>
-                              <TableCell>
-                                <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
-                                  {formatMvtType(mouvement.movement_type)}
-                                </Badge>
-                              </TableCell>
-                              <TableCell>
-                                <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500 font-medium" : "text-green-600 font-medium"}>
-                                  {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
-                                </span>
-                              </TableCell>
-                              <TableCell className="text-sm">{mouvement.reference || "—"}</TableCell>
-                              <TableCell className="text-sm text-muted-foreground">{mouvement.reason || "—"}</TableCell>
-                              <TableCell className="text-sm text-muted-foreground">
-                                {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}
-                              </TableCell>
-                            </TableRow>
-                          ))
-                        )}
+                        ) : filteredMovements.map((mouvement, index) => (
+                          <TableRow key={mouvement.id ?? `mouvement-${index}`}>
+                            <TableCell className="text-sm">
+                              {new Date(mouvement.timestamp).toLocaleDateString()} {new Date(mouvement.timestamp).toLocaleTimeString()}
+                            </TableCell>
+                            <TableCell><div className="font-medium">{resolveProductName(mouvement, PDVs)}</div></TableCell>
+                            <TableCell>
+                              <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
+                                {formatMvtType(mouvement.movement_type)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500 font-medium" : "text-green-600 font-medium"}>
+                                {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-sm">{mouvement.reference || "—"}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{mouvement.reason || "—"}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
                       </TableBody>
                     </Table>
                   </div>
@@ -695,12 +697,15 @@ export default function Stock() {
           </Tabs>
         </TabsContent>
 
-        {/* ── Onglet Niveaux de stock ── */}
+        {/* ── Onglet Niveaux ── */}
         <TabsContent value="levels">
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Tendance des Niveaux de Stock {stockTrendData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}</CardTitle>
+                <CardTitle>
+                  Tendance des Niveaux de Stock
+                  {stockTrendData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}
+                </CardTitle>
                 <CardDescription>Vue historique des niveaux de stock dans le temps</CardDescription>
               </CardHeader>
               <CardContent>
@@ -712,7 +717,10 @@ export default function Stock() {
 
             <Card>
               <CardHeader>
-                <CardTitle>Répartition du Stock par Catégorie {categoryStockData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}</CardTitle>
+                <CardTitle>
+                  Répartition du Stock par Catégorie
+                  {categoryStockData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}
+                </CardTitle>
                 <CardDescription>Stock actuel (quantité) regroupé par catégorie de produit</CardDescription>
               </CardHeader>
               <CardContent>
@@ -733,14 +741,19 @@ export default function Stock() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Catégorie</TableHead><TableHead>Stock total</TableHead><TableHead>Nb produits DV</TableHead><TableHead>Valeur estimée</TableHead>
+                      <TableHead>Catégorie</TableHead>
+                      <TableHead>Stock total</TableHead>
+                      <TableHead>Nb produits DV</TableHead>
+                      <TableHead>Valeur estimée</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {categoryStockData.map((cat, index) => {
                       const catPDVs = PDVs.filter((pdv: any) => {
                         const cid = pdv.infos?.category ?? null
-                        const catName = cid ? (categories.find(c => c.id === cid)?.name || "Sans catégorie") : "Sans catégorie"
+                        const catName = cid !== null
+                          ? (categories.find(c => String(c.id) === String(cid))?.name || "Sans catégorie")
+                          : "Sans catégorie"
                         return catName === cat.name
                       })
                       const valeur = catPDVs.reduce((sum: number, pdv: any) => {
@@ -768,50 +781,121 @@ export default function Stock() {
           <Card>
             <CardHeader>
               <CardTitle>Alertes de Stock Bas</CardTitle>
-              <CardDescription>Produits dont le stock actuel est inférieur ou égal au seuil défini</CardDescription>
+              <CardDescription>
+                Produits dont le stock est inférieur ou égal au seuil — seuils : Critique ≤25%, Faible 25–50%, À surveiller 50–100%
+              </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="relative mb-4 max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input placeholder="Rechercher un produit..." value={alertSearchTerm} onChange={(e) => setAlertSearchTerm(e.target.value)} className="pl-10" />
+                <Input placeholder="Rechercher un produit..." value={alertSearchTerm}
+                  onChange={(e) => setAlertSearchTerm(e.target.value)} className="pl-10" />
               </div>
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Produit</TableHead><TableHead>Stock Actuel</TableHead><TableHead>Seuil</TableHead><TableHead>Statut</TableHead><TableHead>Action suggérée</TableHead>
+                      <TableHead>Produit</TableHead>
+                      <TableHead>Stock Actuel</TableHead>
+                      <TableHead>Seuil</TableHead>
+                      <TableHead>% du seuil</TableHead>
+                      <TableHead>Statut</TableHead>
+                      <TableHead>Action suggérée</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {alertItems.length === 0 ? (
+                    {alertLoading ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                          {products.length === 0 ? "Chargement..." : "Aucune alerte de stock — tout est en ordre ✓"}
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          <div className="flex flex-col items-center gap-2">
+                            <RefreshCw className="h-6 w-6 animate-spin opacity-30" />
+                            <p>Chargement des alertes...</p>
+                          </div>
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      alertItems.map((item) => (
+                    ) : alertItems.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          Aucune alerte de stock — tout est en ordre ✓
+                        </TableCell>
+                      </TableRow>
+                    ) : pagedAlertItems.map((item) => {
+                      const threshold = Number(item.stock_threshold) || 0
+                      const pct = threshold > 0 ? ((item.current_stock / threshold) * 100).toFixed(0) : "—"
+                      return (
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.current_stock} unités</TableCell>
-                          <TableCell>{item.stock_threshold} unités</TableCell>
+                          <TableCell>{threshold} unités</TableCell>
+                          <TableCell>
+                            <span className={item.status === "critical" || item.status === "rupture" ? "text-red-500 font-medium" : item.status === "warning" ? "text-orange-500 font-medium" : "text-yellow-600 font-medium"}>
+                              {pct}%
+                            </span>
+                          </TableCell>
                           <TableCell>{getStatusBadge(item.status)}</TableCell>
                           <TableCell>
                             <span className="text-sm text-muted-foreground">
                               {item.current_stock === 0
-                                ? `Commander au moins ${item.stock_threshold} unités`
-                                : `Commander ${item.stock_threshold - item.current_stock + Math.ceil(item.stock_threshold * 0.5)} unités`}
+                                ? `Commander au moins ${threshold} unités`
+                                : `Commander ${threshold - item.current_stock + Math.ceil(threshold * 0.5)} unités`}
                             </span>
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
+
+              {/* ── Pagination ── */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Page <span className="font-medium text-foreground">{currentPage}</span> sur{" "}
+                    <span className="font-medium text-foreground">{totalPages}</span>
+                    {" "}· {alertItems.length} produits
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(currentPage - 1)}
+                      disabled={currentPage === 1} className="h-8 w-8 p-0" aria-label="Page précédente">
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    {getVisiblePages()[0] > 1 && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => goToPage(1)} className="h-8 w-8 p-0 text-xs">1</Button>
+                        {getVisiblePages()[0] > 2 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                      </>
+                    )}
+
+                    {getVisiblePages().map(page => (
+                      <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm"
+                        onClick={() => goToPage(page)} className="h-8 w-8 p-0 text-xs"
+                        aria-current={page === currentPage ? "page" : undefined}>
+                        {page}
+                      </Button>
+                    ))}
+
+                    {getVisiblePages()[getVisiblePages().length - 1] < totalPages && (
+                      <>
+                        {getVisiblePages()[getVisiblePages().length - 1] < totalPages - 1 && (
+                          <span className="px-1 text-muted-foreground text-sm">…</span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => goToPage(totalPages)} className="h-8 w-8 p-0 text-xs">{totalPages}</Button>
+                      </>
+                    )}
+
+                    <Button variant="outline" size="sm" onClick={() => goToPage(currentPage + 1)}
+                      disabled={currentPage === totalPages} className="h-8 w-8 p-0" aria-label="Page suivante">
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {alertItems.length > 0 && (
                 <p className="text-sm text-muted-foreground mt-3">
-                  {alertItems.length} produit(s) nécessitent une attention — {alertItems.filter(i => i.status === "rupture").length} en rupture, {alertItems.filter(i => i.status === "critical").length} critiques, {alertItems.filter(i => i.status === "low").length} en stock bas
+                  {alertItems.length} produit(s) — {alertItems.filter(i => i.status === "rupture").length} rupture · {alertItems.filter(i => i.status === "critical").length} critique · {alertItems.filter(i => i.status === "warning").length} faible · {alertItems.filter(i => i.status === "low").length} à surveiller
                 </p>
               )}
             </CardContent>
@@ -823,7 +907,11 @@ export default function Stock() {
         <StockMouvementForm
           onClose={() => setShowStockMouvementForm(false)}
           onSubmit={() => { setShowStockMouvementForm(false); refetch() }}
-          initialData={{ id_product: selectedProduct.id, product_name: selectedProduct.name, quantity: 0, movement_type: 'IN', reason: '', notes: '' }}
+          initialData={{
+            id_product: selectedProduct.id,
+            product_name: selectedProduct.designation || selectedProduct.infos?.name || "",
+            quantity: 0, movement_type: 'IN', reason: '', notes: ''
+          }}
         />
       )}
 

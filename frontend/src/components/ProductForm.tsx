@@ -117,6 +117,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
 
     fetchData()
   }, [])
+
   const steps = [
     { number: 1, title: "INFOS PRODUIT", color: "bg-blue-500", color2: "text-blue-500" },
     { number: 2, title: "MÉDIAS" , color: "bg-blue-500", color2: "text-blue-500" },
@@ -155,27 +156,37 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
     }
   }
 
+  // ✅ CORRECTION: Bloquer à 4 images dès la sélection, ne prendre que les slots restants
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files
     if (!files) return
 
-    // Vérifier le nombre maximum d'images
-    if (images.length + files.length > 4) {
-      setUploadError("Maximum 4 images autorisées")
+    const remaining = 4 - images.length  // ✅ combien de slots restants
+
+    if (remaining <= 0) {
+      setUploadError("Maximum 4 images atteint. Supprimez une image avant d'en ajouter.")
       return
     }
 
-    // Créer les previews pour chaque nouvelle image
-    const newImages: ProductImage[] = Array.from(files).map(file => ({
+    // ✅ Ne prendre que ce qui rentre dans les slots restants
+    const filesToAdd = Array.from(files).slice(0, remaining)
+
+    if (files.length > remaining) {
+      setUploadError(`Seules ${filesToAdd.length} image(s) ajoutée(s) sur ${files.length} — maximum 4 au total.`)
+    } else {
+      setUploadError("")
+    }
+
+    const newImages: ProductImage[] = filesToAdd.map(file => ({
       file,
       preview: URL.createObjectURL(file)
     }))
 
     setImages(prev => [...prev, ...newImages])
-    setUploadError("")
+
+    // ✅ Reset l'input pour permettre re-sélection
+    e.target.value = ""
   }
-
-
 
   const removeImage = (index: number) => {
     setImages(prev => {
@@ -188,100 +199,57 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
 
   const handleSubmit = async () => {
     try {
-      // Validation des champs requis
-      if (!formData.name) {
-        alert("Le nom du produit est requis");
-        return;
-      }
-      if (!formData.price) {
-        alert("Le prix est requis");
-        return;
-      }
-      if (!formData.sku) {
-        alert("Le SKU est requis");
-        return;
-      }
-      if (!formData.stock_threshold) {
-        alert("Le seuil de stock est requis");
-        return;
-      }
-
-      // Créer un FormData pour envoyer les données
-      const formDataToSend = new FormData()
-      
-      // Convertir et valider les valeurs numériques avec des valeurs par défaut sûres
-      const price = parseFloat(formData.price.toString() || "0")
-      const stock_threshold = parseInt(formData.stock_threshold.toString() || "10", 10)
-      const current_stock = parseInt(formData.current_stock.toString() || "0", 10)
-      
-      // Préparer les données pour l'envoi
+      if (!formData.name)            { alert("Le nom du produit est requis"); return; }
+      if (!formData.price)           { alert("Le prix est requis"); return; }
+      if (!formData.sku)             { alert("Le SKU est requis"); return; }
+      if (!formData.stock_threshold) { alert("Le seuil de stock est requis"); return; }
+  
+      const formDataToSend = new FormData();
+  
+      const price           = parseFloat(formData.price.toString() || "0");
+      const stock_threshold = parseInt(formData.stock_threshold.toString() || "10", 10);
+      const current_stock   = parseInt(formData.current_stock.toString() || "0", 10);
+  
       const productData: Record<string, unknown> = {
-        name: formData.name.trim(),
-        description: formData.description?.trim() || "",
-        price: price,  // Envoyer comme nombre
-        stock_threshold: stock_threshold,  // Envoyer comme nombre
-        current_stock: current_stock,  // Envoyer comme nombre
-        sku: formData.sku.trim(),
-        is_active: true,  // Booléen au lieu de string
-        category: formData.category ? parseInt(formData.category.toString(), 10) : null,
-        supplier: formData.supplier ? parseInt(formData.supplier.toString(), 10) : null,
+        name:           formData.name.trim(),
+        description:    formData.description?.trim() || "",
+        price,
+        stock_threshold,
+        current_stock,
+        sku:            formData.sku.trim(),
+        is_active:      true,
+        category:       formData.category ? parseInt(formData.category.toString(), 10) : null,
+        supplier:       formData.supplier ? parseInt(formData.supplier.toString(), 10) : null,
         est_perissable: Boolean(formData.est_perissable),
-        unite_mesure: formData.unite_mesure
+        unite_mesure:   formData.unite_mesure,
       };
-
-      // Ajouter l'ID si c'est une mise à jour
+  
       if (initialData?.id) {
         productData.id = initialData.id;
-        console.log('Mise à jour du produit ID:', initialData.id);
       }
-
-      // Log des détails de la mise à jour
-      if (initialData?.id) {
-        console.log('Mode mise à jour :', {
-          id: initialData.id,
-          url: `${API_URL}${initialData.id}/`,
-          method: 'PATCH'
-        })
-      }
-
-      // Log des données avant l'envoi
-      console.log("Données à envoyer:", productData);
-
-      // Ajouter toutes les données au FormData
+  
+      // Champs scalaires
       Object.entries(productData).forEach(([key, value]) => {
         if (value !== null && value !== undefined) {
-          if (key === 'est_perissable') {
-            const boolValue = Boolean(value);
-            console.log('Setting est_perissable to:', boolValue);
-            formDataToSend.append(key, boolValue.toString());
-          } else {
-            formDataToSend.append(key, value.toString());
-          }
+          formDataToSend.append(key, value.toString());
         }
       });
-
-      // Ajouter l'image du formData si elle existe
-      if (formData.product_img) {
-        formDataToSend.append('product_img', formData.product_img);
+  
+      // ✅ Toutes les images uploadées — chacune sous la clé "product_img"
+      // productApi.ts les collecte toutes via data.forEach et les uploade en boucle
+      if (images.length > 0) {
+        images.forEach((img) => {
+          formDataToSend.append("product_img", img.file);
+        });
+      } else if (formData.product_img && typeof formData.product_img !== "string") {
+        formDataToSend.append("product_img", formData.product_img as File);
       }
-
-      // Vérifier toutes les valeurs dans le FormData avant l'envoi
-      const formDataEntries: Record<string, unknown> = {};
-      formDataToSend.forEach((value, key) => {
-        formDataEntries[key] = value;
-      });
-      
-      // Log détaillé des données avant envoi
-      console.log('Données préparées pour envoi:', formDataEntries);
-      console.log('Type de price:', typeof formDataEntries.price);
-      console.log('Type de stock_threshold:', typeof formDataEntries.stock_threshold);
-
-      // Envoyer au composant parent
-      onSubmit(formDataToSend)
+  
+      onSubmit(formDataToSend);
     } catch (error) {
-      console.error('Erreur lors de la préparation des données:', error)
+      console.error("Erreur lors de la préparation des données:", error);
     }
-  }
+  };
 
 
   return (
@@ -437,7 +405,6 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
                     accept="image/*"
                     className="hidden"
                     onChange={handleImageUpload}
-                    max={4}
                   />
                 </div>
                 {uploadError && (
