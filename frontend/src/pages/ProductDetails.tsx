@@ -487,7 +487,7 @@ export default function ProductDetails() {
                     <input type="number" value={capacite ?? ""} onChange={(e) => setCapacite(parseFloat(e.target.value) || undefined)}
                       placeholder="Capacité par unité"
                       className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
-                    <span className="text-gray-600 font-medium">/Kg</span>
+                    <span className="text-gray-600 font-medium">/{product.unite_mesure}</span>
                   </div>
                 </div>
                 <Button onClick={setPDV} className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-3 rounded-xl shadow-lg">
