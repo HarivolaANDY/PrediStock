@@ -35,7 +35,7 @@ const AppRoutes = () => {
   const location = useLocation();
   const showChatbot = !["/", "/login", "/register"].includes(location.pathname);
   
-  // Apply theme settings globally
+  // Appliquer les paramètres du thème globalement
   useSettings();
 
   return (
