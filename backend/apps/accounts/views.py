@@ -14,9 +14,8 @@ from apps.core.emailor import send_email_to_user
 from apps.core.views import GenericCRUDViewSet
 from apps.core.utils import StandardResponse
 from apps.notifications.models import Notification, Activite
-from .filters import RoleFilter
 from .models import User, Role
-from .serializers import UserSerializer, RegisterSerializer, RoleSerializer
+from .serializers import UserSerializer, RegisterSerializer
 
 
 class RegisterView(APIView):
@@ -142,57 +141,8 @@ class ProfileView(APIView):
         )
 
 
-class UpdateUserView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def put(self, request):
-        try:
-            user = User.objects.get(id=request.data['id'])
-        except User.DoesNotExist:
-            return Response({'error': 'Utilisateur non trouvé.'}, status=status.HTTP_404_NOT_FOUND)
-
-        serializer = UserSerializer(user, data=request.data)
-        if serializer.is_valid():
-            serializer.save()
-            Notification.creer(
-                utilisateur=request.user,
-                data={
-                    "objet_nom": f"{user.last_name} {user.first_name}",
-                    "model_name": "User",
-                    "notif": "Modifié",
-                },
-                priorite=1,
-                channel="Interne",
-                type_notification="User",
-                titre="Modification d'utilisateur",
-            )
-            Activite.log(
-                user=user,
-                action="Modification de profil",
-                details=f"{user.first_name} {user.last_name}",
-                categorie="user"
-            )
-            return StandardResponse.render(
-                data=serializer.data,
-                message="Utilisateur mis à jour avec succès.",
-                status_code=status.HTTP_200_OK
-            )
-        return StandardResponse.render(
-            data=serializer.errors,
-            message="Données invalides.",
-            status_code=status.HTTP_400_BAD_REQUEST
-        )
-
-
 class CheckAvailabilityView(APIView):
     permission_classes = [AllowAny]
-
-    def get(self, request):
-        return StandardResponse.render(
-            data=UserSerializer(User.objects.all(), many=True).data,
-            message="Liste des utilisateurs récupérée",
-            status_code=status.HTTP_200_OK
-        )
 
     def post(self, request):
         errors = []
@@ -223,26 +173,6 @@ class CheckAvailabilityView(APIView):
             message='Vérification effectuée' if not errors else 'Données déjà utilisées',
             status_code=status.HTTP_400_BAD_REQUEST if errors else status.HTTP_200_OK
         )
-
-
-class RoleViewSet(GenericCRUDViewSet):
-    model = Role
-    queryset = Role.objects.all()
-    serializer_class = RoleSerializer
-    filter_backends = [DjangoFilterBackend]
-    filterset_class = RoleFilter
-
-    def list(self, request, *args, **kwargs):
-        response = super().list(request, *args, **kwargs)
-        json_fields = [
-            'dashboard_analytics', 'inventory_management',
-            'user_management', 'ai_datamodels'
-        ]
-        for role in response.data.get('data', []):
-            for field in json_fields:
-                raw = role.get(field)
-                role[field] = json.loads(raw) if raw else []
-        return response
 
 
 class TestEmail(APIView):
