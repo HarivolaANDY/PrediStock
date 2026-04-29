@@ -460,7 +460,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="sku">SKU</Label>
+                  <Label htmlFor="sku">Réference</Label>
                   <Input
                     id="sku"
                     value={formData.sku}
