@@ -119,6 +119,17 @@ export default function Products() {
   const [revenueData, setRevenueData] = useState<ChartDataPoint[]>([])
   const isRevenueMock = revenueData.length === 0
 
+  // ── Mouvements par produit ─────────────────────────────────────────────────
+  interface ProductMovement {
+    product: string
+    inbound: number
+    outbound: number
+    net: number
+    [key: string]: string | number
+  }
+  const [productMovements, setProductMovements] = useState<ProductMovement[]>([])
+  const [productMovementsLoading, setProductMovementsLoading] = useState(false)
+
   // ── Pagination ─────────────────────────────────────────────────────────────
   const PAGE_SIZE = 10
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
@@ -210,6 +221,31 @@ export default function Products() {
     } catch { setRevenueData([]) }
   }, [])
 
+  const getProductMovements = useCallback(async () => {
+    setProductMovementsLoading(true)
+    try {
+      const response = await API.get('stock/mouvements/chart_by_product/', {
+        params: { limit: 20 }
+      })
+      const data = response.data?.data || []
+      setProductMovements(
+        Array.isArray(data)
+          ? data.map((item: any) => ({
+              product: item.product ?? "Inconnu",
+              inbound: item.inbound ?? 0,
+              outbound: item.outbound ?? 0,
+              net: item.net ?? 0,
+            }))
+          : []
+      )
+    } catch (e) {
+      console.error('Erreur mouvements par produit:', e)
+      setProductMovements([])
+    } finally {
+      setProductMovementsLoading(false)
+    }
+  }, [])
+
   const getInventaire = async (id_histo: number) => {
     try {
       const response = await API.get('stock/inventaire/par_historique/', {
@@ -282,7 +318,23 @@ export default function Products() {
   const handleAddCategory = () => { setEditingCategory(null); setShowCategoryForm(true) }
   const handleCloseCategoryForm = () => { setShowCategoryForm(false); setEditingCategory(null) }
   const handleDeleteClick = (product: Product) => { setProductToDelete(product); setShowDeleteModal(true) }
-  const handleConfirmDelete = () => { setShowDeleteModal(false); setProductToDelete(null); refetch() }
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return
+    try {
+      await API.delete(`catalogue/products/${productToDelete.id}/`)
+      toast({ title: "Succès", description: "Produit supprimé." })
+      setShowDeleteModal(false)
+      setProductToDelete(null)
+      refetch() // ← rafraîchit la liste
+    } catch (error) {
+      console.error("Erreur suppression:", error)
+      toast({ 
+        title: "Erreur", 
+        description: "Impossible de supprimer le produit.", 
+        variant: "destructive" 
+      })
+    }
+  }
 
   const handleSubmitCategory = async (data: Category) => {
     setShowCategoryForm(false); setEditingCategory(null); refetch()
@@ -349,8 +401,8 @@ export default function Products() {
 
   // ── Effets ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    getListeHisto(); getStats(); getRevenueData(); loadCategories()
-  }, [getListeHisto, getStats, getRevenueData, loadCategories])
+    getListeHisto(); getStats(); getRevenueData(); getProductMovements(); loadCategories()
+  }, [getListeHisto, getStats, getRevenueData, getProductMovements, loadCategories])
 
   // Re-fetch mouvements quand timeRange change
   useEffect(() => {
@@ -673,29 +725,44 @@ export default function Products() {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Performance par Produit</CardTitle>
-                  <CardDescription>Stock actuel vs seuil par produit</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto">
-                    <div style={{ minWidth: '800px', width: `${products.length * 80}px` }}>
-                      <BarChart
-                        data={products.filter(p => p.name.toLowerCase().includes(analyticsSearchTerm.toLowerCase()))
-                          .map(p => ({
-                            ...p,
-                            current_stock_ok: p.current_stock >= p.stock_threshold ? p.current_stock : 0,
-                            current_stock_low: p.current_stock < p.stock_threshold ? p.current_stock : 0,
-                          }))}
-                        xAxisKey="name"
-                        bars={[
-                          { key: "stock_threshold", name: "Seuil", color: "rgb(67, 110, 240)" },
-                          { key: "current_stock_ok", name: "Stock OK", color: "hsl(var(--success))" },
-                          { key: "current_stock_low", name: "Stock faible", color: "hsl(var(--destructive))" },
-                        ]}
-                        height={350}
-                      />
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        Mouvements par produit
+                        {productMovements.length === 0 && !productMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>
+                        )}
+                        {productMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">Chargement...</span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>Entrées, sorties et net par produit · données réelles</CardDescription>
                     </div>
                   </div>
+                </CardHeader>
+                <CardContent>
+                  {productMovements.length === 0 ? (
+                    <div className="flex items-center justify-center h-[350px] text-muted-foreground text-sm">
+                      {productMovementsLoading ? "Chargement des données..." : "Aucun mouvement par produit disponible"}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <div style={{ minWidth: '800px', width: `${productMovements.length * 80}px` }}>
+                        <BarChart
+                          data={productMovements.filter((p) =>
+                            p.product.toLowerCase().includes(analyticsSearchTerm.toLowerCase())
+                          )}
+                          xAxisKey="product"
+                          bars={[
+                            { key: "inbound", name: "Entrées", color: "rgb(67, 110, 240)" },
+                            { key: "outbound", name: "Sorties", color: "hsl(var(--destructive))" },
+                            { key: "net", name: "Net", color: "hsl(var(--success))" },
+                          ]}
+                          height={350}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

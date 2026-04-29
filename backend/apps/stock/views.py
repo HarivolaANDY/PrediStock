@@ -185,6 +185,44 @@ class MouvementStockViewSet(GenericCRUDViewSet):
             message="Données du graphique",
             status_code=200
         )
+        
+    @action(detail=False, methods=['get'])
+    def chart_by_category(self, request):
+        """
+        Retourne les entrées et sorties totales par catégorie de produit.
+        Réponse : [{ category: "Nom", inbound: N, outbound: N, net: N, stock: N }, ...]
+        """
+        qs = (
+            self.get_queryset()
+            .filter(produit__isnull=False, produit__category__isnull=False)
+            .values("produit__category__id", "produit__category__name", "movement_type")
+            .annotate(total=Sum("quantity"))
+            .order_by("produit__category__name")
+        )
+
+        result: dict[int, dict] = {}
+        for item in qs:
+            cid = item["produit__category__id"]
+            cname = item["produit__category__name"] or f"Catégorie #{cid}"
+            if cid not in result:
+                result[cid] = {"category": cname, "inbound": 0, "outbound": 0, "net": 0}
+
+            if item["movement_type"] in ("IN", "RETURN"):
+                result[cid]["inbound"] += item["total"] or 0
+            elif item["movement_type"] in ("OUT", "SCRAP"):
+                result[cid]["outbound"] += item["total"] or 0
+
+        for cid in result:
+            result[cid]["net"] = result[cid]["inbound"] - result[cid]["outbound"]
+            result[cid]["stock"] = result[cid]["net"]  # alias pour le BarChart existant
+
+        sorted_data = sorted(result.values(), key=lambda x: x["inbound"] + x["outbound"], reverse=True)
+
+        return StandardResponse.render(
+            data=sorted_data,
+            message="Entrées/sorties par catégorie",
+            status_code=200
+        )
 
     # ── NOUVEAU : entrées/sorties agrégées par produit ───────────────────────
     @action(detail=False, methods=['get'])

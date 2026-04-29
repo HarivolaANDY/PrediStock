@@ -171,6 +171,11 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
     ],
+    'DEFAULT_PARSER_CLASSES': [
+        'rest_framework.parsers.JSONParser',
+        'rest_framework.parsers.MultiPartParser',  # ← ajouter si absent
+        'rest_framework.parsers.FormParser',
+    ],
 }
 
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')  # ← doit être 'media', pas la racine

@@ -211,7 +211,10 @@ export default function Dashboard() {
       // Inclut critique (<=25%) + stock_faible (25%-50%) + ok (50%-100%)
       // = tout ce qui est <= seuil
       const criticalProducts = allResults
-        .filter((p: ProductData) => p.current_stock <= p.stock_threshold)
+        .filter((p) => {
+          const ratio = p.stock_threshold > 0 ? p.current_stock / p.stock_threshold : 1
+          return p.current_stock === 0 || ratio <= 0.50  // rupture + critique + faible uniquement
+        })
         .map((p: ProductData) => ({
           id: p.id,
           name: p.name,
@@ -356,7 +359,7 @@ export default function Dashboard() {
           trend={{ value: 2.1, label: "amélioration" }}
         />
 
-        {/* 🔥 Alertes version MetricCard-like */}
+        {/* 🔥 Alertes version MetricCard-like — 3 colonnes */}
         <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
           
           {/* Header comme MetricCard */}
@@ -372,8 +375,8 @@ export default function Dashboard() {
             <AlertTriangle className="h-5 w-5 text-amber-500" />
           </div>
 
-          {/* Contenu (remplace value classique) */}
-          <div className="grid grid-cols-2 gap-3 mt-2">
+          {/* Contenu : 3 colonnes */}
+          <div className="grid grid-cols-3 gap-3 mt-2">
             <div className="rounded-lg border p-3 text-center">
               <p className="text-xs text-muted-foreground">Faible</p>
               <p className="text-xl font-bold text-orange-500">
@@ -387,11 +390,20 @@ export default function Dashboard() {
                 {stats?.total_stock_critique ?? 0}
               </p>
             </div>
+
+            <div className="rounded-lg border p-3 text-center">
+              <p className="text-xs text-muted-foreground">Rupture</p>
+              <p className="text-xl font-bold text-red-700">
+                {stats?.total_stock_rupture ?? 0}
+              </p>
+            </div>
           </div>
 
           {/* Trend style comme MetricCard */}
           <div className="mt-4 text-xs text-muted-foreground">
-            Surveillance des stocks critiques
+            {stats
+              ? `${stats.total_stock_rupture} rupture · ${stats.total_stock_critique} critique · ${stats.total_stock_faible} faible`
+              : "Surveillance des stocks critiques"}
           </div>
         </div>
       </div>

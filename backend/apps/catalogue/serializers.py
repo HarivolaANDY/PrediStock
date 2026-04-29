@@ -116,14 +116,26 @@ class ProductSerializer(serializers.ModelSerializer):
     product_img = serializers.ImageField(required=False, allow_null=True)
     est_perissable = serializers.BooleanField(required=False, default=False)
     image_url = serializers.SerializerMethodField()
-
-    # ── NOUVEAU : nom de la catégorie en lecture seule ──────────────────────
     category_name = serializers.SerializerMethodField()
+    
+    # ✅ Ajouter ce champ
+    extra_images = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
+
+    # ✅ Ajouter cette méthode
+    def get_extra_images(self, obj):
+        request = self.context.get('request')
+        images = []
+        for img in obj.images.all():  # ✅ PAS productimage_set
+            if request:
+                images.append(request.build_absolute_uri(img.image.url))
+            else:
+                images.append(f"{settings.MEDIA_URL}{img.image}")
+        return images
 
     def get_category_name(self, obj):
         """Retourne le nom de la catégorie, ou 'Non catégorisé' si absente."""

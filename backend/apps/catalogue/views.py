@@ -1,4 +1,5 @@
 import os
+import traceback
 from datetime import date
 from django.conf import settings
 
@@ -10,8 +11,8 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from rest_framework import filters, status
 from rest_framework.decorators import action
+from rest_framework.decorators import parser_classes as parser_classes_decorator
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -91,24 +92,18 @@ class CategoryViewSet(GenericCRUDViewSet):
         )
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
         instance = self.get_object()
-        try:
-            with transaction.atomic():
-                serializer = self.get_serializer(instance, data=request.data, partial=partial)
-                serializer.is_valid(raise_exception=True)
-                category = serializer.save()
-                return StandardResponse.render(
-                    data=CategorySerializer(category).data,
-                    message=f'Catégorie "{category.name}" mise à jour',
-                    status_code=200
-                )
-        except Exception as e:
-            return StandardResponse.render(
-                message=str(e),
-                data=getattr(e, 'detail', str(e)),
-                status_code=status.HTTP_400_BAD_REQUEST
-            )
+
+        # Si de nouvelles images arrivent, supprimer les anciennes ProductImage
+        if request.FILES.getlist('product_img'):
+            instance.images.all().delete()  # supprime les images liées
+            # Optionnel : supprimer aussi l'image principale
+            if instance.product_img:
+                instance.product_img.delete(save=False)
+                instance.product_img = None
+                instance.save()
+
+        return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
@@ -257,7 +252,6 @@ class ProductViewSet(GenericCRUDViewSet):
         if 'est_perissable' in data:
             val = data['est_perissable']
             data['est_perissable'] = val.lower() == 'true' if isinstance(val, str) else bool(val)
-        request._full_data = data
 
         produit = super().create(request, *args, **kwargs)
         if not produit:
@@ -280,16 +274,60 @@ class ProductViewSet(GenericCRUDViewSet):
                 print(f"Erreur post-création : {e}")
         return produit
 
+    # ✅ CORRIGÉ : destroy dans ProductViewSet avec parenthèse fermante manquante
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            product_id = instance.id
+            product_name = instance.name
+            
+            # 1. Supprimer les images secondaires (fichiers + DB)
+            for pi in instance.images.all():
+                try:
+                    if pi.image and hasattr(pi.image, 'path') and os.path.isfile(pi.image.path):
+                        os.remove(pi.image.path)
+                except Exception as e:
+                    print(f"[destroy] Erreur suppression image {pi.id}: {e}")
+            instance.images.all().delete()
+            
+            # 2. Supprimer l'image principale (fichier)
+            if instance.product_img:
+                try:
+                    if hasattr(instance.product_img, 'path') and os.path.isfile(instance.product_img.path):
+                        os.remove(instance.product_img.path)
+                except Exception as e:
+                    print(f"[destroy] Erreur suppression product_img: {e}")
+                instance.product_img.delete(save=False)
+            
+            # 3. Supprimer les sous-produits (ProduitDv)
+            instance.produitdv_set.all().delete()
+            
+            # 4. Supprimer l'historique des seuils
+            HistoriqueSeuilStock.objects.filter(produit=instance).delete()
+            
+            # 5. Désassocier les mouvements de stock (garder l'historique mais sans produit)
+            MouvementStock.objects.filter(produit=instance).update(produit=None)
+            
+            # 6. Supprimer le produit
+            instance.delete()
+            
+            return StandardResponse.render(
+                message=f'Produit "{product_name}" supprimé.',
+                status_code=status.HTTP_200_OK
+            )  # ← PARENTHÈSE FERMANTE AJOUTÉE ICI
+        except Exception as e:
+            print(f"[destroy] ERREUR: {str(e)}")
+            traceback.print_exc()
+            return StandardResponse.render(
+                message=f"Erreur lors de la suppression: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
         from django.db.models import ExpressionWrapper, FloatField
         all_products = list(Product.objects.all())
 
-        # Seuils alignés sur filter_stock_status (filters.py)
-        # rupture     : stock = 0
-        # critique    : 0 < stock <= 25% du seuil
-        # stock_faible: 25% < stock <= 50% du seuil
-        # en_stock    : stock > 50% du seuil
         total_rupture = 0
         total_critique = 0
         total_stock_faible = 0
@@ -303,7 +341,6 @@ class ProductViewSet(GenericCRUDViewSet):
                     total_critique += 1
                 elif ratio <= 0.50:
                     total_stock_faible += 1
-            # en_stock (ratio > 0.50) non comptabilisé dans les alertes
 
         return StandardResponse.render(data={
             'total_produits': Product.objects.count(),
@@ -320,38 +357,62 @@ class ProductViewSet(GenericCRUDViewSet):
             'total_litres': Product.objects.filter(
                 unite_mesure__in=['Litres', 'litres', 'L', 'l']
             ).aggregate(total=Sum('current_stock'))['total'],
-            # ✅ Alignés sur filter_stock_status
-            'total_stock_faible': total_stock_faible,   # 25% < stock <= 50%
-            'total_stock_critique': total_critique,      # 0 < stock <= 25%
-            'total_stock_rupture': total_rupture,        # stock = 0
+            'total_stock_faible': total_stock_faible,
+            'total_stock_critique': total_critique,
+            'total_stock_rupture': total_rupture,
         }, message="Statistiques récupérées.", status_code=200)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request, pk=None):
         product = self.get_object()
+
         if 'product_img' not in request.FILES:
             return StandardResponse.render(message="Aucune image fournie.", status_code=400)
-        if product.product_img and os.path.isfile(product.product_img.path):
-            os.remove(product.product_img.path)
-        product.product_img = request.FILES['product_img']
-        product.save()
+
+        files = request.FILES.getlist('product_img')
+        is_first_upload = not product.product_img
+
+        for index, img_file in enumerate(files):
+            if index == 0 and is_first_upload:
+                product.product_img = img_file
+                product.save()
+            else:
+                ProductImage.objects.create(product=product, image=img_file)
+
         return StandardResponse.render(
             data=ProductSerializer(product, context={'request': request}).data,
-            message="Image mise à jour.", status_code=200
+            message=f"{len(files)} image(s) ajoutée(s).",
+            status_code=200
         )
-
+        
     @action(detail=True, methods=['delete'])
     def remove_image(self, request, pk=None):
         product = self.get_object()
-        if not product.product_img:
-            return StandardResponse.render(message="Aucune image à supprimer.", status_code=400)
-        if os.path.isfile(product.product_img.path):
-            os.remove(product.product_img.path)
-        product.product_img.delete(save=False)
-        product.save()
+
+        for pi in product.images.all():
+            try:
+                if pi.image and hasattr(pi.image, 'path') and os.path.isfile(pi.image.path):
+                    os.remove(pi.image.path)
+            except Exception as e:
+                print(f"[remove_image] Erreur suppression fichier ProductImage {pi.id}: {e}")
+
+        product.images.all().delete()
+
+        if product.product_img:
+            try:
+                if hasattr(product.product_img, 'path') and os.path.isfile(product.product_img.path):
+                    os.remove(product.product_img.path)
+            except Exception as e:
+                print(f"[remove_image] Erreur suppression product_img: {e}")
+
+            product.product_img.delete(save=False)
+            product.product_img = None
+            product.save(update_fields=['product_img'])
+
         return StandardResponse.render(
             data=ProductSerializer(product, context={'request': request}).data,
-            message="Image supprimée.", status_code=200
+            message="Toutes les images supprimées.",
+            status_code=200
         )
 
 
@@ -486,8 +547,6 @@ class RevenueViewSet(GenericCRUDViewSet):
             7: 'Juil', 8: 'Août', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Déc'
         }
 
-        # ✅ FIX : 'timestamp' au lieu de 'date' (champ réel sur MouvementStock)
-        # + filtre timestamp__isnull=False pour ignorer les anciens enregistrements sans date
         sorties = (
             MouvementStock.objects
             .filter(movement_type='OUT', timestamp__isnull=False)
