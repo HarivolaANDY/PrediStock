@@ -12,7 +12,6 @@ import Alerts from "@/pages/Alerts";
 import DataManagement from "@/pages/DataManagement";
 import AIModels from "@/pages/AIModels";
 import Reports from "@/pages/Reports";
-import Users from "@/pages/Users";
 import Notifications from "@/pages/Notifications";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
@@ -53,7 +52,6 @@ const AppRoutes = () => {
         <Route path="/data" element={<Layout><DataManagement /></Layout>} />
         <Route path="/models" element={<Layout><AIModels /></Layout>} />
         <Route path="/reports" element={<Layout><Reports /></Layout>} />
-        <Route path="/users" element={<Layout><Users /></Layout>} />
         <Route path="/suppliers" element={<Layout><Suppliers /></Layout>} />
         <Route path="/profile" element={<Layout><Profile /></Layout>} />
         <Route path="/notifications" element={<Layout><Notifications /></Layout>} />
