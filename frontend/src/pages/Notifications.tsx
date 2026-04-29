@@ -132,6 +132,15 @@ useEffect(() => {
             Gérez vos préférences de notifications et consultez les alertes récentes
           </p>
         </div>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          onClick={() => setSelectedTab("settings")}
+          className="flex items-center gap-2"
+        >
+          <Settings className="h-4 w-4" />
+          Paramètres
+        </Button>
       </div>
 
       {/* Notification Statistics Cards */}
@@ -166,9 +175,18 @@ useEffect(() => {
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">Toutes Notifications</TabsTrigger>
-          <TabsTrigger value="unread">Non lues</TabsTrigger>
-          <TabsTrigger value="settings">Paramètres</TabsTrigger>
+          <TabsTrigger value="all" className="flex items-center gap-2">
+            <Bell className="h-4 w-4" />
+            Toutes Notifications
+          </TabsTrigger>
+          <TabsTrigger value="unread" className="flex items-center gap-2">
+            <Mail className="h-4 w-4" />
+            Non lues
+          </TabsTrigger>
+          <TabsTrigger value="settings" className="flex items-center gap-2">
+            <Settings className="h-4 w-4" />
+            Paramètres
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value={selectedTab}>
