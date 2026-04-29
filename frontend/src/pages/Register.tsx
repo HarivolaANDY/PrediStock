@@ -35,7 +35,7 @@ export default function Register() {
     setIsLoading(true)
     
     try {
-      const res = await UserService.createUser({
+      await UserService.createUser({
         email: data.email,
         first_name: data.firstName,
         last_name: data.lastName,
@@ -45,8 +45,8 @@ export default function Register() {
         password: data.password,
       })
 
-      // Redirect to login page after successful account creation
-      // Note: Success toast is handled by handleHttpErrors in api.ts
+      // Redirection vers la page de connexion après la création réussie du compte
+      // Remarque : La notification de succès est gérée par handleHttpErrors dans api.ts
       navigate("/login")
     } catch (err: unknown) {
       const errorMessage = err instanceof Error ? err.message : "Erreur lors de l'inscription."
