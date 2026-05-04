@@ -10,6 +10,7 @@ import { toast } from "@/components/ui/use-toast"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { DashboardSkeleton } from "@/components/SkeletonLoader"
 import { API_BASE_URL } from "@/services/api"
 
@@ -97,6 +98,7 @@ export default function Dashboard() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [salesData, setSalesData] = useState<RevenueItem[]>([])
   const [categoryStockData, setCategoryStockData] = useState<CategoryStockData[]>([])
+  const [connectionError, setConnectionError] = useState(false)
 
   // ── Pagination produits critiques ──────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1)
@@ -125,8 +127,10 @@ export default function Dashboard() {
     try {
       const response = await axios.get(`${API_BASE_URL}/api/catalogue/products/stats/`, authHeaders())
       if (response.data?.data) setStats(response.data.data)
+      setConnectionError(false)
     } catch (error) {
       console.error('Erreur stats:', error)
+      setConnectionError(true)
     }
   }, [])
 
@@ -188,10 +192,10 @@ export default function Dashboard() {
 
   const fetchCriticalProducts = useCallback(async () => {
     try {
-      const firstRes = await axios.get<any>(
+      const firstRes = await axios.get<StockApiResponse>(
         `${API_BASE_URL}/api/catalogue/products/?page_size=50&page=1`, authHeaders()
       )
-      const firstData = firstRes.data?.data ?? firstRes.data
+      const firstData = (firstRes.data?.data ?? firstRes.data) as { count?: number; results?: ProductData[] }
       const total: number = firstData?.count ?? 0
       let allResults: ProductData[] = Array.isArray(firstData?.results) ? firstData.results : []
 
@@ -199,11 +203,11 @@ export default function Dashboard() {
         const pages = Math.ceil(total / 50)
         const responses = await Promise.all(
           Array.from({ length: pages - 1 }, (_, i) =>
-            axios.get<any>(`${API_BASE_URL}/api/catalogue/products/?page_size=50&page=${i + 2}`, authHeaders())
+            axios.get<StockApiResponse>(`${API_BASE_URL}/api/catalogue/products/?page_size=50&page=${i + 2}`, authHeaders())
           )
         )
         responses.forEach(res => {
-          const d = res.data?.data ?? res.data
+          const d = (res.data?.data ?? res.data) as { count?: number; results?: ProductData[] }
           if (Array.isArray(d?.results)) allResults = allResults.concat(d.results)
         })
       }
@@ -329,6 +333,16 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {connectionError && (
+        <Alert variant="destructive" className="animate-in fade-in slide-in-from-top-4 duration-500">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Erreur de connexion</AlertTitle>
+          <AlertDescription>
+            Impossible de joindre le serveur. Assurez-vous que le backend est en cours d'exécution et vérifiez votre connexion réseau.
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* ── Métriques — 5 cartes sur 2 lignes ──────────────────────────────── */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
