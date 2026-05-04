@@ -158,12 +158,6 @@ class MouvementStock(models.Model):
         verbose_name="Horodatage"
     )
     
-    batch = models.ForeignKey(
-        'catalogue.ProductBatch',
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name='mouvements'
-    )
 
     class Meta:
         db_table = 'MOVEMENT_STOCK'
