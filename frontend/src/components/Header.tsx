@@ -19,25 +19,28 @@ interface UserData {
 }
 
 export function Header() {
-  const [pseudo, setPseudo] = useState("")
-  const [unreadCount, setUnreadCount] = useState(0)
-  
-  useEffect(() => {
+  const [pseudo] = useState(() => {
     const user = localStorage.getItem("user");
     if (user) {
       try {
         const userData: UserData = JSON.parse(user);
-        const name = (userData.last_name && userData.first_name) 
+        return (userData.last_name && userData.first_name) 
           ? `${userData.last_name} ${userData.first_name}` 
           : (userData.username || "Utilisateur");
-        
-        setPseudo(name);
-        document.title = "Predistock - " + name;
       } catch (e) {
         console.error("Error parsing user data in Header", e);
       }
     }
-  }, []);
+    return "";
+  });
+
+  const [unreadCount, setUnreadCount] = useState(0)
+  
+  useEffect(() => {
+    if (pseudo) {
+      document.title = "Predistock - " + pseudo;
+    }
+  }, [pseudo]);
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
