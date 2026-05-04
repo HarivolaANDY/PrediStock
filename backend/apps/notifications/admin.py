@@ -1,12 +1,8 @@
 from django.contrib import admin
-from .models import Activite, Alerte, Notification
+from .models import Alerte, Notification
 
 
-@admin.register(Activite)
-class ActiviteAdmin(admin.ModelAdmin):
-    list_display = ['user', 'action', 'date']
-    search_fields = ['user__username', 'action']
-    ordering = ['-date']
+
 
 
 @admin.register(Alerte)
