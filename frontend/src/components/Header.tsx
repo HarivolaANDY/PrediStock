@@ -20,6 +20,7 @@ interface UserData {
 
 export function Header() {
   const [pseudo, setPseudo] = useState("")
+  const [unreadCount, setUnreadCount] = useState(0)
   
   useEffect(() => {
     const user = localStorage.getItem("user");
@@ -37,6 +38,30 @@ export function Header() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    const fetchUnreadCount = async () => {
+      try {
+        const response = await fetch("http://localhost:8000/api/notifications/?status=non%20lu", {
+          headers: {
+            "Authorization": `Token ${localStorage.getItem('token')}`
+          }
+        });
+        if (response.ok) {
+          const data = await response.json();
+          const list = Array.isArray(data) ? data : (data.results || []);
+          setUnreadCount(list.length);
+        }
+      } catch (err) {
+        console.error("Error fetching unread count", err);
+      }
+    };
+
+    fetchUnreadCount();
+    // Refresh count every 30 seconds
+    const interval = setInterval(fetchUnreadCount, 30000);
+    return () => clearInterval(interval);
+  }, []);
   return (
     <header className="sticky top-0 z-30 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="flex h-16 items-center gap-4 px-6">
@@ -47,9 +72,11 @@ export function Header() {
         <div className="flex items-center gap-4">
           <Button variant="ghost" size="icon" className="relative h-9 w-9" onClick={() => window.location.href = '/notifications'}>
             <Bell className="h-5 w-5 text-muted-foreground" />
-            <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-bold text-white flex items-center justify-center">
-              3
-            </span>
+            {unreadCount > 0 && (
+              <span className="absolute top-1 right-1 h-4 w-4 rounded-full bg-destructive text-[10px] font-bold text-white flex items-center justify-center animate-in zoom-in duration-300">
+                {unreadCount}
+              </span>
+            )}
           </Button>
 
           <DropdownMenu>
