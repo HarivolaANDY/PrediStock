@@ -2,40 +2,6 @@ from django.db import models
 from django.conf import settings
 
 
-class Activite(models.Model):
-    CATEGORIES = {
-        "general": "Général",
-        "stock": "Stock",
-        "alerte": "Alerte",
-        "commande": "Commande",
-        "product": "Produit",
-        "user": "Utilisateur",
-        "role": "Rôle",
-    }
-
-    user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True, blank=True
-    )
-    action = models.CharField(max_length=255)
-    date = models.DateTimeField(auto_now_add=True)
-    details = models.CharField(max_length=255, blank=True)
-
-    class Meta:
-        ordering = ['-date']
-        verbose_name = "Activité"
-        verbose_name_plural = "Activités"
-
-    def __str__(self):
-        return f"{self.user} — {self.action} ({self.date:%Y-%m-%d})"
-
-    @classmethod
-    def log(cls, user, action, details="", categorie=""):
-        label = cls.CATEGORIES.get(categorie.lower(), "Général")
-        cls.objects.create(user=user, action=f"{action} -- {label}", details=details)
-
-
 class Alerte(models.Model):
     class Priorite(models.TextChoices):
         CRITIQUE   = "critique",   "Critique"
