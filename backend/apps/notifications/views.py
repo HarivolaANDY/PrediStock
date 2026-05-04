@@ -4,12 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from .models import Alerte, Notification
 from .serializers import AlerteSerializer, NotificationSerializer
-<<<<<<< HEAD
 
-
-
-=======
->>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 
 
 class AlerteViewSet(viewsets.ModelViewSet):

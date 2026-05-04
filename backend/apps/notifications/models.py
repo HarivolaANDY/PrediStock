@@ -2,12 +2,7 @@ from django.db import models
 from django.conf import settings
 
 
-<<<<<<< HEAD
 
-
-
-=======
->>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 class Alerte(models.Model):
     class Priorite(models.TextChoices):
         CRITIQUE   = "critique",   "Critique"

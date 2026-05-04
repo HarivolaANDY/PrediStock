@@ -159,8 +159,6 @@ class MouvementStock(models.Model):
         verbose_name="Horodatage"
     )
     
-<<<<<<< HEAD
-=======
     batch = models.ForeignKey(
         'catalogue.ProductBatch',
         null=True, blank=True,
@@ -171,7 +169,6 @@ class MouvementStock(models.Model):
         null=True, blank=True,
         verbose_name="Nombre d'unités (Saisie manuelle)"
     )
->>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 
     class Meta:
         db_table = 'MOVEMENT_STOCK'
