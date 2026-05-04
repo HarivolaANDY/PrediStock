@@ -87,7 +87,7 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
         """Enregistre une notification et une activité — seulement si authentifié."""
         if not request.user or not request.user.is_authenticated:
             return
-        from apps.notifications.models import Notification, Activite
+        from apps.notifications.models import Notification
         model_name = self._get_model_name(instance)
         object_nom = getattr(instance, 'nom', None) or getattr(instance, 'name', str(instance))
         user = request.user
@@ -101,12 +101,6 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
                 "objet_nom": object_nom,
                 "notif": action_label,
             },
-        )
-        Activite.log(
-            user=user,
-            action=action_label,
-            details=object_nom,
-            categorie=model_name,
         )
 
     def list(self, request, *args, **kwargs):
