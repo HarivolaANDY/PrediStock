@@ -2,15 +2,11 @@ from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from .models import Activite, Alerte, Notification
-from .serializers import ActiviteSerializer, AlerteSerializer, NotificationSerializer
+from .models import Alerte, Notification
+from .serializers import AlerteSerializer, NotificationSerializer
 
 
-class ActiviteViewSet(viewsets.ReadOnlyModelViewSet):
-    """Journal d'activités — lecture seule."""
-    queryset = Activite.objects.all()
-    serializer_class = ActiviteSerializer
-    permission_classes = [IsAuthenticated]
+
 
 
 class AlerteViewSet(viewsets.ModelViewSet):
