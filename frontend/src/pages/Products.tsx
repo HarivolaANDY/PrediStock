@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { categoryAPI } from '@/services/api'
 import { Package, Plus, Search, Edit, Eye, Trash2, BarChart3, DollarSign, Download, Upload, Filter, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react"
@@ -67,6 +67,45 @@ const MOCK_REVENUE_DATA = [
   { month: "Jun", electronics: 62000, clothing: 35000, furniture: 25000 },
 ]
 
+const MetricCardsStats = ({ stats }: { stats: ProductStats | null }) => {
+  if (!stats) return <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"><MetricCard title="Nombre de types de produits" value="Loading..." icon={<Package className="h-4 w-4" />} /></div>
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <MetricCard title="Nombre de types de produits" value={stats.total_produits?.toString() || "0"} icon={<Package className="h-4 w-4" />} />
+      <MetricCard title="Total Stock" value={stats.total_stock?.toString() || "0"} icon={<DollarSign className="h-4 w-4" />} variant="success" />
+      <MetricCard
+        title="Produits en Rupture"
+        value={stats.total_stock_rupture?.toString() || "0"}
+        description={stats.total_produits > 0 ? `${((stats.total_stock_rupture * 100) / stats.total_produits).toFixed(2)}% du catalogue` : "0%"}
+        icon={<BarChart3 className="h-4 w-4" />}
+        variant="destructive"
+      />
+
+      {/* ✅ Carte Alertes splitée — identique au Dashboard */}
+      <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm text-muted-foreground font-medium">Alertes Stock</p>
+            <p className="text-xs text-muted-foreground">Produits sous seuil</p>
+          </div>
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground">Faible</p>
+            <p className="text-xl font-bold text-orange-500">{stats.total_stock_faible ?? 0}</p>
+          </div>
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground">Critique</p>
+            <p className="text-xl font-bold text-red-500">{stats.total_stock_critique ?? 0}</p>
+          </div>
+        </div>
+        <div className="mt-4 text-xs text-muted-foreground">Surveillance des stocks critiques</div>
+      </div>
+    </div>
+  )
+}
+
 export default function Products() {
   const navigate = useNavigate()
   const [currentPage, setCurrentPage] = useState(1)
@@ -109,10 +148,17 @@ export default function Products() {
   const [isUploading, setIsUploading] = useState(false)
 
   // ── Graphique mouvements ───────────────────────────────────────────────────
+  interface StockMovement {
+    period: string
+    inbound: number
+    outbound: number
+    net: number
+    [key: string]: string | number
+  }
   const [timeRange, setTimeRange] = useState<"day" | "month" | "year">("month")
   // ✅ Données réelles depuis /stock/mouvements/chart/?range=...
-  const [stockMovements, setStockMovements] = useState<{ period: string; inbound: number; outbound: number; net: number }[]>([])
-  const [stockMovementsLoading, setStockMovementsLoading] = useState(false)
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+  const [stockMovementsLoading, setStockMovementsLoading] = useState(true)
 
   // ── Revenus ────────────────────────────────────────────────────────────────
   interface ChartDataPoint { [key: string]: unknown }
@@ -128,7 +174,8 @@ export default function Products() {
     [key: string]: string | number
   }
   const [productMovements, setProductMovements] = useState<ProductMovement[]>([])
-  const [productMovementsLoading, setProductMovementsLoading] = useState(false)
+  const [productMovementsLoading, setProductMovementsLoading] = useState(true)
+  const isFirstMount = useRef(true)
 
   // ── Pagination ─────────────────────────────────────────────────────────────
   const PAGE_SIZE = 10
@@ -188,8 +235,8 @@ export default function Products() {
 
   // ✅ Données réelles — endpoint /stock/mouvements/chart/?range=...
   // Backend (views.py stock) : TruncMonth/Day/Year sur 'timestamp'
-  const getStockMovements = useCallback(async () => {
-    setStockMovementsLoading(true)
+  const getStockMovements = useCallback(async (isInitial = false) => {
+    if (!isInitial) setStockMovementsLoading(true)
     try {
       const response = await API.get('stock/mouvements/chart/', {
         params: { range: timeRange }
@@ -197,7 +244,7 @@ export default function Products() {
       const data = response.data?.data || []
       setStockMovements(
         Array.isArray(data)
-          ? data.map((item: any) => ({
+          ? data.map((item: StockMovement) => ({
               period: item.period ?? "—",
               inbound: item.inbound ?? 0,
               outbound: item.outbound ?? 0,
@@ -221,8 +268,8 @@ export default function Products() {
     } catch { setRevenueData([]) }
   }, [])
 
-  const getProductMovements = useCallback(async () => {
-    setProductMovementsLoading(true)
+  const getProductMovements = useCallback(async (isInitial = false) => {
+    if (!isInitial) setProductMovementsLoading(true)
     try {
       const response = await API.get('stock/mouvements/chart_by_product/', {
         params: { limit: 20 }
@@ -230,7 +277,7 @@ export default function Products() {
       const data = response.data?.data || []
       setProductMovements(
         Array.isArray(data)
-          ? data.map((item: any) => ({
+          ? data.map((item: ProductMovement) => ({
               product: item.product ?? "Inconnu",
               inbound: item.inbound ?? 0,
               outbound: item.outbound ?? 0,
@@ -246,7 +293,7 @@ export default function Products() {
     }
   }, [])
 
-  const getInventaire = async (id_histo: number) => {
+  const getInventaire = useCallback(async (id_histo: number) => {
     try {
       const response = await API.get('stock/inventaire/par_historique/', {
         params: id_histo !== 0 ? { historique: id_histo } : {}
@@ -255,7 +302,7 @@ export default function Products() {
       setInventaire(Array.isArray(data) ? data : [])
       setIsLoadingStats(false)
     } catch (e) { console.error('Erreur inventaire:', e) }
-  }
+  }, [])
 
   const Redresser_Inventaire = async (id_histo: number) => {
     await API.post("stock/inventaire/redresser/", { historique: id_histo })
@@ -401,53 +448,29 @@ export default function Products() {
 
   // ── Effets ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    getListeHisto(); getStats(); getRevenueData(); getProductMovements(); loadCategories()
-  }, [getListeHisto, getStats, getRevenueData, getProductMovements, loadCategories])
+    const init = async () => {
+      // Exécuter les appels initiaux en parallèle
+      await Promise.all([
+        getListeHisto(),
+        getStats(),
+        getRevenueData(),
+        getProductMovements(true),
+        loadCategories(),
+        getStockMovements(true) // Appel initial sans déclencher setStockMovementsLoading(true)
+      ])
+    }
+    init()
+  }, [getListeHisto, getStats, getRevenueData, getProductMovements, loadCategories, getStockMovements])
 
-  // Re-fetch mouvements quand timeRange change
+  // Re-fetch mouvements quand timeRange change (après le premier mount)
   useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false
+      return
+    }
     getStockMovements()
-  }, [getStockMovements])
+  }, [timeRange, getStockMovements])
 
-  // ── MetricCards ────────────────────────────────────────────────────────────
-  const MetricCardsStats = () => {
-    if (!stats) return <div>Loading...</div>
-    return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard title="Nombre de types de produits" value={stats.total_produits?.toString() || "0"} icon={<Package className="h-4 w-4" />} />
-        <MetricCard title="Total Stock" value={stats.total_stock?.toString() || "0"} icon={<DollarSign className="h-4 w-4" />} variant="success" />
-        <MetricCard
-          title="Produits en Rupture"
-          value={stats.total_stock_rupture?.toString() || "0"}
-          description={stats.total_produits > 0 ? `${((stats.total_stock_rupture * 100) / stats.total_produits).toFixed(2)}% du catalogue` : "0%"}
-          icon={<BarChart3 className="h-4 w-4" />}
-          variant="destructive"
-        />
-
-        {/* ✅ Carte Alertes splitée — identique au Dashboard */}
-        <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <p className="text-sm text-muted-foreground font-medium">Alertes Stock</p>
-              <p className="text-xs text-muted-foreground">Produits sous seuil</p>
-            </div>
-            <AlertTriangle className="h-5 w-5 text-amber-500" />
-          </div>
-          <div className="grid grid-cols-2 gap-3 mt-2">
-            <div className="rounded-lg border p-3 text-center">
-              <p className="text-xs text-muted-foreground">Faible</p>
-              <p className="text-xl font-bold text-orange-500">{stats.total_stock_faible ?? 0}</p>
-            </div>
-            <div className="rounded-lg border p-3 text-center">
-              <p className="text-xs text-muted-foreground">Critique</p>
-              <p className="text-xl font-bold text-red-500">{stats.total_stock_critique ?? 0}</p>
-            </div>
-          </div>
-          <div className="mt-4 text-xs text-muted-foreground">Surveillance des stocks critiques</div>
-        </div>
-      </div>
-    )
-  }
 
   if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-xl font-medium">Chargement...</div></div>
   if (error) return <div className="flex flex-col items-center justify-center h-screen"><div className="max-w-md p-6 bg-red-50 border border-red-200 rounded-lg"><h2 className="text-xl font-bold text-red-700 mb-2">Erreur</h2><p className="text-red-600">{error}</p></div></div>
@@ -472,7 +495,7 @@ export default function Products() {
         </div>
       </div>
 
-      {stats && !isloadingStats ? <MetricCardsStats /> : <div>Loading...</div>}
+      {stats && !isloadingStats ? <MetricCardsStats stats={stats} /> : <div>Loading...</div>}
 
       <Tabs defaultValue="inventory" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
