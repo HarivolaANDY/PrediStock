@@ -490,17 +490,15 @@ export default function ProductDetails() {
                     placeholder="Nom du produit dérivé"
                     className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
                 </div>
-                {["Kg", "kg", "Tonne", "T", "g", "mg"].includes(product.unite_mesure || "") && (
-                   <div className="flex flex-col gap-2">
-                    <label className="text-sm font-medium text-gray-700">Capacité (Unités / {product.unite_mesure})</label>
-                    <div className="flex items-center gap-2">
-                      <input type="number" value={capacite ?? ""} onChange={(e) => setCapacite(parseFloat(e.target.value) || undefined)}
-                        placeholder="Ex: 12"
-                        className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
-                      <span className="text-gray-600 font-medium">/{product.unite_mesure}</span>
-                    </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-gray-700">Capacité (Unités / {product.unite_mesure || 'unité'})</label>
+                  <div className="flex items-center gap-2">
+                    <input type="number" value={capacite ?? ""} onChange={(e) => setCapacite(parseFloat(e.target.value) || undefined)}
+                      placeholder="Ex: 12"
+                      className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
+                    <span className="text-gray-600 font-medium">/{product.unite_mesure || 'unité'}</span>
                   </div>
-                )}
+                </div>
                 <div className="flex flex-col gap-2">
                   <label className="text-sm font-medium text-gray-700">Stock initial à allouer (en {product.unite_mesure})</label>
                   <div className="flex flex-col gap-1">

@@ -78,6 +78,14 @@ class Product(models.Model):
         verbose_name = "Produit"
         verbose_name_plural = "Produits"
 
+    def save(self, *args, **kwargs):
+        # Génération automatique du SKU si vide et catégorie présente
+        if not self.sku and self.category:
+            prefix = "".join(filter(str.isalnum, self.category.name)).upper()[:5]
+            count = Product.objects.filter(category=self.category).count() + 1
+            self.sku = f"{prefix}{count:03d}"
+        super().save(*args, **kwargs)
+
     def __str__(self):
         return self.name
 
@@ -105,11 +113,15 @@ class Product(models.Model):
         Retourne le stock qui n'est alloué à aucune variante.
         Allocated weight = SUM(dv.nombre / dv.quantite)
         """
-        from django.db.models import F, Sum, FloatField, ExpressionWrapper
-        # On utilise FloatField pour la division pour éviter la troncature entière
+        from django.db.models import F, Sum, FloatField, ExpressionWrapper, Case, When, Value
+        # On utilise Case/When pour éviter la division par zéro
         allocated = self.produitdv_set.aggregate(
             total=Sum(
-                ExpressionWrapper(F('nombre') * 1.0 / F('quantite'), output_field=FloatField())
+                Case(
+                    When(quantite=0, then=Value(0.0)),
+                    default=ExpressionWrapper(F('nombre') * 1.0 / F('quantite'), output_field=FloatField()),
+                    output_field=FloatField()
+                )
             )
         )['total'] or 0
         return float(self.current_stock) - float(allocated)

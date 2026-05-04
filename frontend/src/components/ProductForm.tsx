@@ -509,24 +509,22 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
                   </div>
                 </div>
 
-                {["Kg", "kg", "Tonne", "T", "g", "mg"].includes(formData.unite_mesure) && (
-                  <div className="grid grid-cols-1 gap-6 pt-4 border-t border-dashed">
-                    <div className="space-y-2">
-                      <Label htmlFor="theorical_capacity">Capacité (Unités par {formData.unite_mesure})</Label>
-                      <Input
-                        id="theorical_capacity"
-                        type="number"
-                        value={formData.theorical_capacity}
-                        onChange={(e) => handleInputChange("theorical_capacity", e.target.value)}
-                        placeholder="Ex: 7"
-                        min={0}
-                      />
-                      <p className="text-xs text-muted-foreground italic">
-                        Définit combien d'unités de produit final contient 1 {formData.unite_mesure}.
-                      </p>
-                    </div>
+                <div className="grid grid-cols-1 gap-6 pt-4 border-t border-dashed">
+                  <div className="space-y-2">
+                    <Label htmlFor="theorical_capacity">Capacité (Unités par {formData.unite_mesure || 'unité'})</Label>
+                    <Input
+                      id="theorical_capacity"
+                      type="number"
+                      value={formData.theorical_capacity}
+                      onChange={(e) => handleInputChange("theorical_capacity", e.target.value)}
+                      placeholder="Ex: 7"
+                      min={0}
+                    />
+                    <p className="text-xs text-muted-foreground italic">
+                      Définit combien d'unités de produit final contient 1 {formData.unite_mesure || 'unité'}.
+                    </p>
                   </div>
-                )}
+                </div>
               </div>
               <div className="space-y-2">
                 <Label>Étiquettes</Label>

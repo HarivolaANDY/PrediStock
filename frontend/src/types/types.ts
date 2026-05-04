@@ -1,10 +1,11 @@
 export interface PanierItem {
   id?: number;
   designation: string;
-  nombre: number;
-  quantite: number;
+  nombre: number;   // Poids (kg) ou quantité standard
+  quantite: number; // Dupliqué de nombre pour compatibilité backend
+  count?: number;   // Optionnel : nombre d'unités (override manuel)
   ref?: string;
-  is_direct?: boolean; // ✅ true si produit sans dérivée (entrée/sortie directe)
+  is_direct?: boolean;
 };
 
 export interface ProduitInserer {

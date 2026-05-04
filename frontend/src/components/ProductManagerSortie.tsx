@@ -6,11 +6,12 @@ import { toast } from "@/components/ui/use-toast";
 interface StockExitItem {
   id_produit: number;
   nom_produit: string;
-  quantite: number;
+  quantite: number;   // Poids (kg) ou quantité standard
+  count?: number;     // Optionnel : nombre d'unités (override manuel)
   designation: string;
   id_deriv?: number;
   ref?: string;
-  is_direct?: boolean; // ✅ true si produit sans dérivée
+  is_direct?: boolean;
 }
 
 const ProductManagerSortie = () => {
@@ -31,6 +32,7 @@ const ProductManagerSortie = () => {
     id_produit: 0,
     nom_produit: '',
     quantite: 1,
+    count: undefined,
     designation: '',
     ref: '',
   });
@@ -39,7 +41,7 @@ const ProductManagerSortie = () => {
     setFormProductId('');
     setFormProductName('');
     setSearchTerm('');
-    setFormExitItem({ id_produit: 0, nom_produit: '', quantite: 1, designation: '', ref: '' });
+    setFormExitItem({ id_produit: 0, nom_produit: '', quantite: 1, count: undefined, designation: '', ref: '' });
     setSelectedDerivId('');
     setListe_deriv([]);
     setIsDirect(false);
@@ -85,6 +87,7 @@ const ProductManagerSortie = () => {
       id_produit: Number(formProductId),
       nom_produit: formProductName,
       quantite: formExitItem.quantite,
+      count: formExitItem.count,
       designation,
       id_deriv: isDirect ? undefined : (selectedDerivId === '' ? undefined : Number(selectedDerivId)),
       ref: formExitItem.ref || '',
@@ -92,7 +95,7 @@ const ProductManagerSortie = () => {
     }]);
 
     // Reset du formulaire dans la modale (on garde la modale ouverte pour ajouter d'autres sorties)
-    setFormExitItem({ id_produit: 0, nom_produit: '', quantite: 1, designation: '', ref: '' });
+    setFormExitItem({ id_produit: 0, nom_produit: '', quantite: 1, count: undefined, designation: '', ref: '' });
     setFormProductId('');
     setFormProductName('');
     setSearchTerm('');
@@ -121,6 +124,7 @@ const ProductManagerSortie = () => {
     const grouped: Record<number, {
       id: number | null;
       quantite: number;
+      count?: number;
       designation: string;
       ref?: string;
       is_direct?: boolean;
@@ -132,6 +136,7 @@ const ProductManagerSortie = () => {
       grouped[pid].push({
         id: item.id_deriv ?? null,
         quantite: item.quantite,
+        count: item.count,
         designation: item.designation,
         ref: item.ref,
         is_direct: item.is_direct ?? false,
@@ -260,10 +265,13 @@ const ProductManagerSortie = () => {
                   </button>
                 </div>
                 <div className="ml-4 mt-2 flex items-center gap-2 text-gray-700 text-sm flex-wrap">
-                  <span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />
-                  <span>{item.designation}</span>
-                  <span className="text-gray-400">·</span>
                   <span>Quantité : <strong>{item.quantite}</strong></span>
+                  {item.count !== undefined && (
+                    <>
+                      <span className="text-gray-400">·</span>
+                      <span>Unités (théo) : <strong>{item.count}</strong></span>
+                    </>
+                  )}
                   {item.ref && (
                     <>
                       <span className="text-gray-400">·</span>
@@ -403,7 +411,7 @@ const ProductManagerSortie = () => {
                     <option value="">-- Choisir une variante --</option>
                     {liste_deriv.map((deriv: PDV) => (
                       <option key={deriv.id} value={deriv.id}>
-                        {deriv.designation} (en stock : {deriv.nombre ?? 0})
+                        {deriv.designation} (en stock : {deriv.nombre ?? 0} unités)
                       </option>
                     ))}
                   </select>
@@ -415,15 +423,45 @@ const ProductManagerSortie = () => {
               ) : null}
 
               <div>
-                <label className="text-xs text-gray-600 mb-1 block">Nombre à sortir :</label>
+                <label className="text-xs text-gray-600 mb-1 block">
+                  Quantité ({liste_deriv.find(d => d.id === Number(selectedDerivId))?.infos?.unite_mesure || 'u'}) :
+                </label>
                 <input
                   type="number"
+                  step="any"
                   value={formExitItem.quantite}
-                  min={1}
-                  onChange={(e) => setFormExitItem({ ...formExitItem, quantite: Number(e.target.value) })}
+                  min={0}
+                  onChange={(e) => {
+                    const val = Number(e.target.value);
+                    const sel = liste_deriv.find(d => d.id === Number(selectedDerivId));
+                    let newCount = formExitItem.count;
+                    if (sel && sel.quantite > 0) {
+                      newCount = Math.round(val * sel.quantite);
+                    }
+                    setFormExitItem({ ...formExitItem, quantite: val, count: newCount });
+                  }}
                   className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-gray-50"
                 />
               </div>
+
+              {/* Champ modifiable si c'est un produit au poids */}
+              {(() => {
+                const sel = liste_deriv.find(d => d.id === Number(selectedDerivId));
+                if (sel && sel.quantite > 0) {
+                  return (
+                    <div>
+                      <label className="text-xs text-gray-600 mb-1 block">Unités théoriques (modifiable) :</label>
+                      <input
+                        type="number"
+                        value={formExitItem.count || 0}
+                        onChange={(e) => setFormExitItem({ ...formExitItem, count: Number(e.target.value) })}
+                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-red-50/50 font-semibold"
+                      />
+                    </div>
+                  );
+                }
+                return null;
+              })()}
 
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Référence :</label>
@@ -454,7 +492,10 @@ const ProductManagerSortie = () => {
                 <ul className="space-y-1 max-h-36 overflow-y-auto">
                   {stockExits.map((item, index) => (
                     <li key={index} className="flex items-center justify-between text-sm text-gray-700 bg-gray-50 px-3 py-1.5 rounded-lg">
-                      <span>{item.nom_produit} · {item.designation} · <strong>{item.quantite}</strong></span>
+                      <span>
+                        {item.nom_produit} · {item.designation} · Qté: <strong>{item.quantite}</strong>
+                        {item.count !== undefined && <span className="text-red-600 font-medium"> · Théo: {item.count}</span>}
+                      </span>
                       <button
                         onClick={() => removeExitItem(index)}
                         className="text-red-400 hover:text-red-600 ml-2 text-xs"
