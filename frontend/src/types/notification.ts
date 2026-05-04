@@ -3,10 +3,11 @@ export interface Notification {
     message: string;
     titre: string;
     creer_le: string;
-    miseajour: string;
-    user: string;
+    modifie_le: string;
+    utilisateur: string | number | null;
     status: string;
     channel: string;
     active: boolean;
-    type: string;
+    type_notification: string;
+    priorite: number | string;
 }
