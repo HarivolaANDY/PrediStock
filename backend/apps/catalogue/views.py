@@ -93,16 +93,12 @@ class CategoryViewSet(GenericCRUDViewSet):
 
     def update(self, request, *args, **kwargs):
         instance = self.get_object()
-
-        # Si de nouvelles images arrivent, supprimer les anciennes ProductImage
         if request.FILES.getlist('product_img'):
-            instance.images.all().delete()  # supprime les images liées
-            # Optionnel : supprimer aussi l'image principale
+            instance.images.all().delete()
             if instance.product_img:
                 instance.product_img.delete(save=False)
                 instance.product_img = None
                 instance.save()
-
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
@@ -240,14 +236,43 @@ class ProductViewSet(GenericCRUDViewSet):
         return StandardResponse.render(data=serializer.data, status_code=200)
 
     def create(self, request, *args, **kwargs):
+        # ─── Recherche combinée produits parents + dérivées ───────────────
         if request.data.get('chercher'):
-            qs = self.filter_queryset(
-                Product.objects.filter(name__icontains=request.data['chercher'])
+            terme = request.data['chercher']
+
+            # Produits parents qui matchent
+            produits_qs = Product.objects.filter(name__icontains=terme)
+            produits_data = ProductSerializer(
+                produits_qs, many=True, context={'request': request}
+            ).data
+            for p in produits_data:
+                p['is_deriv'] = False
+                p['parent_id'] = None
+                p['parent_name'] = None
+
+            # Dérivées qui matchent
+            derivees_qs = ProduitDv.objects.select_related('product').filter(
+                designation__icontains=terme
             )
+            derivees_data = [
+                {
+                    'id': dv.id,
+                    'name': dv.designation,
+                    'is_deriv': True,
+                    'parent_id': dv.product.id,
+                    'parent_name': dv.product.name,
+                    'current_stock': dv.nombre,
+                    'description': None,
+                }
+                for dv in derivees_qs
+            ]
+
             return StandardResponse.render(
-                data=ProductSerializer(qs, many=True, context={'request': request}).data,
+                data=list(produits_data) + derivees_data,
                 status_code=200
             )
+
+        # ─── Création normale ─────────────────────────────────────────────
         data = request.data.copy()
         if 'est_perissable' in data:
             val = data['est_perissable']
@@ -274,14 +299,12 @@ class ProductViewSet(GenericCRUDViewSet):
                 print(f"Erreur post-création : {e}")
         return produit
 
-    # ✅ CORRIGÉ : destroy dans ProductViewSet avec parenthèse fermante manquante
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         try:
             product_id = instance.id
             product_name = instance.name
-            
-            # 1. Supprimer les images secondaires (fichiers + DB)
+
             for pi in instance.images.all():
                 try:
                     if pi.image and hasattr(pi.image, 'path') and os.path.isfile(pi.image.path):
@@ -289,8 +312,7 @@ class ProductViewSet(GenericCRUDViewSet):
                 except Exception as e:
                     print(f"[destroy] Erreur suppression image {pi.id}: {e}")
             instance.images.all().delete()
-            
-            # 2. Supprimer l'image principale (fichier)
+
             if instance.product_img:
                 try:
                     if hasattr(instance.product_img, 'path') and os.path.isfile(instance.product_img.path):
@@ -298,23 +320,16 @@ class ProductViewSet(GenericCRUDViewSet):
                 except Exception as e:
                     print(f"[destroy] Erreur suppression product_img: {e}")
                 instance.product_img.delete(save=False)
-            
-            # 3. Supprimer les sous-produits (ProduitDv)
+
             instance.produitdv_set.all().delete()
-            
-            # 4. Supprimer l'historique des seuils
             HistoriqueSeuilStock.objects.filter(produit=instance).delete()
-            
-            # 5. Désassocier les mouvements de stock (garder l'historique mais sans produit)
             MouvementStock.objects.filter(produit=instance).update(produit=None)
-            
-            # 6. Supprimer le produit
             instance.delete()
-            
+
             return StandardResponse.render(
                 message=f'Produit "{product_name}" supprimé.',
                 status_code=status.HTTP_200_OK
-            )  # ← PARENTHÈSE FERMANTE AJOUTÉE ICI
+            )
         except Exception as e:
             print(f"[destroy] ERREUR: {str(e)}")
             traceback.print_exc()
@@ -325,7 +340,6 @@ class ProductViewSet(GenericCRUDViewSet):
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
-        from django.db.models import ExpressionWrapper, FloatField
         all_products = list(Product.objects.all())
 
         total_rupture = 0
@@ -384,7 +398,7 @@ class ProductViewSet(GenericCRUDViewSet):
             message=f"{len(files)} image(s) ajoutée(s).",
             status_code=200
         )
-        
+
     @action(detail=True, methods=['delete'])
     def remove_image(self, request, pk=None):
         product = self.get_object()
@@ -457,70 +471,169 @@ class ProduitDvViewSet(GenericCRUDViewSet):
         )
 
     @action(detail=False, methods=['post'])
-    def sortie(self, request):
-        from apps.notifications.models import Notification
-        mouvements = []
-        for pod in request.data.get('liste_sortie', []):
-            produit_mere = Product.objects.get(pk=pod['id_produit'])
-            raison = request.data.get('raison', 'Sortie via interface')
-            for item in pod['panier']:
-                try:
-                    dv = ProduitDv.objects.get(pk=item['id'])
-                    dv.nombre -= item['quantite']
-                    if dv.nombre < 0:
-                        return StandardResponse.render(
-                            message=f"Stock insuffisant pour {item['designation']}.",
-                            status_code=400
-                        )
-                    dv.save()
-                    produit_mere.current_stock -= dv.quantite * item['quantite']
-                    produit_mere.save()
-                    Notification.creer(
-                        utilisateur=request.user,
-                        data={"objet_nom": f"Produit-{produit_mere.name}",
-                              "model_name": "Product", "notif": "sortie(e)"},
-                        titre="Sortie de produit",
-                    )
-                    mouvements.append(MouvementStock.objects.create(
-                        produit=produit_mere, produit_dv=dv,
-                        movement_type="OUT", quantity=item['quantite'],
-                        unit_price=produit_mere.price, utilisateur=request.user,
-                        notes=f"Sortie de {item['quantite']} unités de {item['designation']}",
-                        referrence=item.get('ref', ''), reason=raison,
-                    ))
-                except Exception as e:
-                    return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
-        return self._generer_pdf_mouvement(mouvements, "OUT", request)
-
-    @action(detail=False, methods=['post'])
     def entree(self, request):
         from apps.notifications.models import Notification
         mouvements = []
         for pod in request.data.get('liste_inserer', []):
-            produit = Product.objects.get(pk=pod['id_produit'])
+            try:
+                produit = Product.objects.get(pk=pod['id_produit'])
+            except Product.DoesNotExist:
+                return StandardResponse.render(
+                    message=f"Produit ID {pod['id_produit']} introuvable.",
+                    status_code=400
+                )
+
             for item in pod['panier']:
                 try:
-                    dv = ProduitDv.objects.get(pk=item['id'])
-                    dv.nombre += item['nombre']
-                    dv.save()
-                    produit.current_stock += dv.quantite * item['nombre']
-                    produit.save()
-                    Notification.creer(
-                        utilisateur=request.user,
-                        data={"objet_nom": f"Produit-{produit.name}",
-                              "model_name": "Product", "notif": "inséré(e)"},
-                        titre="Entrée de produit",
+                    if item.get('is_direct'):
+                        # ── Produit sans dérivée : on incrémente directement le stock parent ──
+                        nombre = item['nombre']
+                        produit.current_stock += nombre
+                        produit.save()
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit.name}",
+                                "model_name": "Product",
+                                "notif": "inséré(e)",
+                            },
+                            titre="Entrée de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit,
+                            produit_dv=None,
+                            movement_type="IN",
+                            quantity=nombre,
+                            unit_price=produit.price,
+                            utilisateur=request.user,
+                            notes=f"Entrée directe de {nombre} unités de {produit.name}",
+                            referrence=item.get('ref', ''),
+                        ))
+                    else:
+                        # ── Produit avec dérivée ──────────────────────────────────────────────
+                        dv = ProduitDv.objects.get(pk=item['id'])
+                        dv.nombre += item['nombre']
+                        dv.save()
+                        produit.current_stock += dv.quantite * item['nombre']
+                        produit.save()
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit.name}",
+                                "model_name": "Product",
+                                "notif": "inséré(e)",
+                            },
+                            titre="Entrée de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit,
+                            produit_dv=dv,
+                            movement_type="IN",
+                            quantity=item['nombre'],
+                            unit_price=produit.price,
+                            utilisateur=request.user,
+                            notes=f"Entrée de {item['nombre']} unités de {item['designation']}",
+                            referrence=item.get('ref', ''),
+                        ))
+                except ProduitDv.DoesNotExist:
+                    return StandardResponse.render(
+                        message=f"Dérivée ID {item.get('id')} introuvable.",
+                        status_code=400
                     )
-                    mouvements.append(MouvementStock.objects.create(
-                        produit=produit, produit_dv=dv,
-                        movement_type="IN", quantity=item['nombre'],
-                        unit_price=produit.price, utilisateur=request.user,
-                        notes=f"Entrée de {item['nombre']} unités de {item['designation']}",
-                        referrence=item.get('ref', ''),
-                    ))
                 except Exception as e:
                     return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
+
         return self._generer_pdf_mouvement(mouvements, "IN", request)
+
+    @action(detail=False, methods=['post'])
+    def sortie(self, request):
+        from apps.notifications.models import Notification
+        mouvements = []
+        raison = request.data.get('raison', 'Sortie via interface')
+
+        for pod in request.data.get('liste_sortie', []):
+            try:
+                produit_mere = Product.objects.get(pk=pod['id_produit'])
+            except Product.DoesNotExist:
+                return StandardResponse.render(
+                    message=f"Produit ID {pod['id_produit']} introuvable.",
+                    status_code=400
+                )
+
+            for item in pod['panier']:
+                try:
+                    if item.get('is_direct'):
+                        # ── Produit sans dérivée : on décrémente directement le stock parent ──
+                        quantite = item['quantite']
+                        if produit_mere.current_stock < quantite:
+                            return StandardResponse.render(
+                                message=f"Stock insuffisant pour {produit_mere.name}. "
+                                        f"Disponible : {produit_mere.current_stock}, demandé : {quantite}",
+                                status_code=400
+                            )
+                        produit_mere.current_stock -= quantite
+                        produit_mere.save()
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit_mere.name}",
+                                "model_name": "Product",
+                                "notif": "sortie(e)",
+                            },
+                            titre="Sortie de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit_mere,
+                            produit_dv=None,
+                            movement_type="OUT",
+                            quantity=quantite,
+                            unit_price=produit_mere.price,
+                            utilisateur=request.user,
+                            notes=f"Sortie directe de {quantite} unités de {produit_mere.name}",
+                            referrence=item.get('ref', ''),
+                            reason=raison,
+                        ))
+                    else:
+                        # ── Produit avec dérivée ──────────────────────────────────────────────
+                        dv = ProduitDv.objects.get(pk=item['id'])
+                        dv.nombre -= item['quantite']
+                        if dv.nombre < 0:
+                            return StandardResponse.render(
+                                message=f"Stock insuffisant pour {item['designation']}.",
+                                status_code=400
+                            )
+                        dv.save()
+                        produit_mere.current_stock -= dv.quantite * item['quantite']
+                        produit_mere.save()
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit_mere.name}",
+                                "model_name": "Product",
+                                "notif": "sortie(e)",
+                            },
+                            titre="Sortie de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit_mere,
+                            produit_dv=dv,
+                            movement_type="OUT",
+                            quantity=item['quantite'],
+                            unit_price=produit_mere.price,
+                            utilisateur=request.user,
+                            notes=f"Sortie de {item['quantite']} unités de {item['designation']}",
+                            referrence=item.get('ref', ''),
+                            reason=raison,
+                        ))
+                except ProduitDv.DoesNotExist:
+                    return StandardResponse.render(
+                        message=f"Dérivée ID {item.get('id')} introuvable.",
+                        status_code=400
+                    )
+                except Exception as e:
+                    return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
+
+        return self._generer_pdf_mouvement(mouvements, "OUT", request)
 
     @action(detail=False, methods=['get'])
     def par_produit(self, request):

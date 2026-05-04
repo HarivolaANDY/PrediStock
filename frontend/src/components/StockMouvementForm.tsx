@@ -18,16 +18,21 @@ interface StockMouvement {
   reason: string
   notes?: string
   unit_price?: number
-  //champs pour FEFO
-  // date_entree?: string
-  // lot_number?: string
-  // fifo_reference?: string
 }
 
 interface StockMouvementFormProps {
   onClose: () => void
   onSubmit: (data: StockMouvement) => void
   initialData?: StockMouvement | null
+}
+
+// ✅ Badge coloré par type de mouvement
+const TYPE_CONFIG: Record<string, { label: string; color: string; bg: string }> = {
+  IN:         { label: "Entrée",      color: "text-green-700",  bg: "bg-green-100 border-green-200" },
+  OUT:        { label: "Sortie",      color: "text-red-700",    bg: "bg-red-100 border-red-200" },
+  ADJUSTMENT: { label: "Ajustement", color: "text-blue-700",   bg: "bg-blue-100 border-blue-200" },
+  RETURN:     { label: "Retour",      color: "text-yellow-700", bg: "bg-yellow-100 border-yellow-200" },
+  SCRAP:      { label: "Rebut",       color: "text-gray-700",   bg: "bg-gray-100 border-gray-200" },
 }
 
 export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouvementFormProps) {
@@ -50,81 +55,59 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
 
   const handleSaveClick = () => {
     if (!formData.id_product) {
-      toast({
-        title: "Erreur",
-        description: "Le produit est requis",
-        variant: "destructive",
-      })
+      toast({ title: "Erreur", description: "Le produit est requis.", variant: "destructive" })
       return
     }
     const quantity = parseFloat(formData.quantity.toString() || "0")
     if (isNaN(quantity) || quantity <= 0) {
-      toast({
-        title: "Erreur",
-        description: "La quantité doit être supérieure à 0",
-        variant: "destructive",
-      })
+      toast({ title: "Erreur", description: "La quantité doit être supérieure à 0.", variant: "destructive" })
       return
     }
     if (!formData.reason.trim()) {
-      toast({
-        title: "Erreur",
-        description: "La raison du mouvement est requise",
-        variant: "destructive",
-      })
+      toast({ title: "Erreur", description: "La raison du mouvement est requise.", variant: "destructive" })
       return
     }
     setShowConfirmationModal(true)
   }
 
   const handleConfirmSave = async () => {
-    setLoading(true);
+    setLoading(true)
     try {
-      // Convertir et valider les valeurs numériques
       const quantity = parseFloat(formData.quantity.toString() || "0")
-      
+
       const mouvementData = {
         id_product: formData.id_product,
-        quantity: quantity,
+        quantity,
         movement_type: formData.movement_type,
         reason: formData.reason.trim(),
         notes: formData.notes?.trim(),
         product_name: formData.product_name
-      };
+      }
 
       const response = initialData?.id_movement
         ? await stockMouvementService.updateStockMouvement(initialData.id_movement, mouvementData)
-        : await stockMouvementService.createStockMouvement(mouvementData);
+        : await stockMouvementService.createStockMouvement(mouvementData)
 
       if (response.status === "success") {
         toast({
           title: initialData ? "Mouvement modifié" : "Mouvement créé",
-          description: `Le mouvement de stock pour ${formData.product_name} a été ${initialData ? "modifié" : "créé"} avec succès.`,
-          variant: "default",
-        });
-
-        onSubmit(response.data);
-        setShowConfirmationModal(false);
-        onClose();
+          description: `Le mouvement pour ${formData.product_name} a été ${initialData ? "modifié" : "créé"} avec succès.`,
+        })
+        onSubmit(response.data)
+        setShowConfirmationModal(false)
+        onClose()
       } else {
-        throw new Error(response.message || "Une erreur est survenue");
+        throw new Error(response.message || "Une erreur est survenue")
       }
     } catch (error: unknown) {
-      console.error("Erreur:", error);
-      const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue';
-      toast({
-        title: "Erreur",
-        description: errorMessage,
-        variant: "destructive",
-      });
+      const errorMessage = error instanceof Error ? error.message : "Une erreur inconnue est survenue"
+      toast({ title: "Erreur", description: errorMessage, variant: "destructive" })
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
-  const handleCancelConfirmation = () => {
-    setShowConfirmationModal(false)
-  }
+  const typeConfig = TYPE_CONFIG[formData.movement_type]
 
   return (
     <>
@@ -135,27 +118,41 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
             <CardHeader>
               <CardTitle>Confirmer l'enregistrement</CardTitle>
               <CardDescription>
-                Êtes-vous sûr de vouloir enregistrer ce mouvement de stock ?
+                Vérifiez les informations avant de confirmer.
               </CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <p><strong>Produit:</strong> {formData.product_name}</p>
-              <p><strong>Quantité:</strong> {formData.quantity}</p>
-              <p><strong>Type:</strong> {formData.movement_type}</p>
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Produit</span>
+                <span className="font-medium text-gray-900">{formData.product_name || "—"}</span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Quantité</span>
+                <span className="font-medium text-gray-900">{formData.quantity}</span>
+              </div>
+              <div className="flex items-center justify-between py-2 border-b border-gray-100">
+                <span className="text-sm text-gray-600">Type</span>
+                {/* ✅ Badge coloré */}
+                <span className={`px-3 py-1 rounded-full text-sm font-medium border ${typeConfig.bg} ${typeConfig.color}`}>
+                  {typeConfig.label}
+                </span>
+              </div>
+              <div className="flex items-center justify-between py-2">
+                <span className="text-sm text-gray-600">Raison</span>
+                <span className="font-medium text-gray-900 text-right max-w-[200px] truncate">{formData.reason}</span>
+              </div>
             </CardContent>
-            <div className="p-6 flex justify-end space-x-2">
-              <Button
-                variant="outline"
-                onClick={handleCancelConfirmation}
-                disabled={loading}
-              >
+            <div className="p-6 flex justify-end gap-3">
+              <Button variant="outline" onClick={() => setShowConfirmationModal(false)} disabled={loading}>
                 Annuler
               </Button>
-              <Button
-                onClick={handleConfirmSave}
-                disabled={loading}
-              >
-                {loading ? "Enregistrement..." : "Confirmer"}
+              <Button onClick={handleConfirmSave} disabled={loading}>
+                {loading ? (
+                  <span className="flex items-center gap-2">
+                    <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    Enregistrement...
+                  </span>
+                ) : "Confirmer"}
               </Button>
             </div>
           </Card>
@@ -172,7 +169,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
                   {initialData ? "Modifier le mouvement" : "Nouveau mouvement de stock"}
                 </CardTitle>
                 <CardDescription>
-                  Enregistrez un nouveau mouvement de stock
+                  Enregistrez un mouvement de stock
                 </CardDescription>
               </div>
               <Button variant="ghost" size="icon" onClick={onClose}>
@@ -183,19 +180,24 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
 
           <CardContent className="space-y-6">
             <div className="space-y-4">
+
+              {/* Produit — readOnly avec explication */}
               <div className="space-y-2">
-                <Label htmlFor="product_name">Nom du produit</Label>
+                <Label htmlFor="product_name">
+                  Produit
+                  <span className="ml-2 text-xs text-gray-400 font-normal">(pré-rempli automatiquement)</span>
+                </Label>
                 <Input
                   id="product_name"
                   value={formData.product_name}
-                  onChange={(e) => handleInputChange("product_name", e.target.value)}
-                  placeholder="Nom du produit"
                   readOnly
+                  className="bg-gray-50 cursor-not-allowed text-gray-600"
                 />
               </div>
 
+              {/* Quantité */}
               <div className="space-y-2">
-                <Label htmlFor="quantity">Quantité *</Label>
+                <Label htmlFor="quantity">Quantité <span className="text-red-500">*</span></Label>
                 <Input
                   id="quantity"
                   type="number"
@@ -206,86 +208,56 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
                 />
               </div>
 
+              {/* Type de mouvement avec badge coloré inline */}
               <div className="space-y-2">
-                <Label htmlFor="type_mouvement">Type de mouvement *</Label>
-                <Select 
-                  value={formData.movement_type} 
-                  onValueChange={(value) => handleInputChange("movement_type", value)}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Sélectionner le type" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="IN">Entrée</SelectItem>
-                    <SelectItem value="OUT">Sortie</SelectItem>
-                    <SelectItem value="ADJUSTMENT">Ajustement</SelectItem>
-                    <SelectItem value="RETURN">Retour</SelectItem>
-                    <SelectItem value="SCRAP">Rebut</SelectItem>
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="type_mouvement">Type de mouvement <span className="text-red-500">*</span></Label>
+                <div className="flex items-center gap-3">
+                  <Select
+                    value={formData.movement_type}
+                    onValueChange={(value) => handleInputChange("movement_type", value)}
+                  >
+                    <SelectTrigger className="flex-1">
+                      <SelectValue placeholder="Sélectionner le type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="IN">Entrée</SelectItem>
+                      <SelectItem value="OUT">Sortie</SelectItem>
+                      <SelectItem value="ADJUSTMENT">Ajustement</SelectItem>
+                      <SelectItem value="RETURN">Retour</SelectItem>
+                      <SelectItem value="SCRAP">Rebut</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  {/* ✅ Badge coloré en temps réel */}
+                  <span className={`px-3 py-1.5 rounded-full text-sm font-medium border whitespace-nowrap ${typeConfig.bg} ${typeConfig.color}`}>
+                    {typeConfig.label}
+                  </span>
+                </div>
               </div>
 
+              {/* Raison */}
               <div className="space-y-2">
-                <Label htmlFor="raison">Raison du mouvement *</Label>
+                <Label htmlFor="raison">Raison du mouvement <span className="text-red-500">*</span></Label>
                 <Input
                   id="raison"
                   value={formData.reason}
                   onChange={(e) => handleInputChange("reason", e.target.value)}
-                  placeholder="Raison du mouvement de stock"
+                  placeholder="Ex : Livraison fournisseur, vente client..."
                   required
                 />
               </div>
 
+              {/* Notes */}
               <div className="space-y-2">
-                <Label htmlFor="notes">Notes (facultatif)</Label>
+                <Label htmlFor="notes">Notes <span className="text-gray-400 font-normal text-xs">(facultatif)</span></Label>
                 <Textarea
                   id="notes"
                   value={formData.notes}
                   onChange={(e) => handleInputChange("notes", e.target.value)}
                   placeholder="Notes additionnelles..."
+                  rows={3}
                 />
               </div>
             </div>
-
-            {/* Ajouter les champs FIFO conditionnels */}
-            {/* {formData.movement_type === 'IN' && (
-              <div className="space-y-4 border p-4 rounded-lg bg-slate-50">
-                <div className="text-sm font-medium text-slate-500">Informations FIFO requises</div>
-                
-                <div className="space-y-2">
-                  <Label htmlFor="date_entree">Date d'entrée du lot *</Label>
-                  <Input
-                    id="date_entree"
-                    type="date"
-                    value={formData.date_entree}
-                    onChange={(e) => handleInputChange("date_entree", e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="lot_number">Numéro de lot *</Label>
-                  <Input
-                    id="lot_number"
-                    value={formData.lot_number}
-                    onChange={(e) => handleInputChange("lot_number", e.target.value)}
-                    placeholder="Numéro du lot à sortir"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="fifo_reference">Référence FIFO *</Label>
-                  <Input
-                    id="fifo_reference"
-                    value={formData.fifo_reference}
-                    onChange={(e) => handleInputChange("fifo_reference", e.target.value)}
-                    placeholder="Référence FIFO du lot"
-                    required
-                  />
-                </div>
-              </div>
-            )} */}
 
             <div className="flex justify-between pt-6">
               <Button variant="outline" onClick={onClose}>
@@ -299,7 +271,6 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
           </CardContent>
         </Card>
       </div>
-
     </>
   )
 }

@@ -272,3 +272,33 @@ class MouvementStockViewSet(GenericCRUDViewSet):
             message="Entrées/sorties par produit",
             status_code=200
         )
+        
+    @action(detail=True, methods=['post'])
+    def annuler(self, request, pk=None):
+        mouvement = self.get_object()
+        
+        if hasattr(mouvement, 'annulation'):
+            return StandardResponse.render(
+                message="Ce mouvement est déjà annulé.", status_code=400
+            )
+        
+        # Créer le mouvement inverse
+        inverse_type = {
+            "IN": "OUT", "OUT": "IN",
+            "RETURN": "SCRAP", "SCRAP": "RETURN",
+            "ADJUSTMENT": "ADJUSTMENT"
+        }.get(mouvement.movement_type, "ADJUSTMENT")
+
+        MouvementStock.objects.create(
+            produit=mouvement.produit,
+            produit_dv=mouvement.produit_dv,
+            quantity=mouvement.quantity if inverse_type != "ADJUSTMENT" else -mouvement.quantity,
+            movement_type=inverse_type,
+            utilisateur=request.user,
+            reason=f"Annulation du mouvement #{mouvement.id}",
+            referrence=mouvement.referrence,
+        )
+        
+        return StandardResponse.render(
+            message=f"Mouvement #{mouvement.id} annulé.", status_code=200
+        )

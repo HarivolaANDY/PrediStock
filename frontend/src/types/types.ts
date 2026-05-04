@@ -3,7 +3,8 @@ export interface PanierItem {
   designation: string;
   nombre: number;
   quantite: number;
-  ref?: string
+  ref?: string;
+  is_direct?: boolean; // ✅ true si produit sans dérivée (entrée/sortie directe)
 };
 
 export interface ProduitInserer {
@@ -195,6 +196,10 @@ export interface CreateProductData {
   unite_mesure: string;
   est_perissable: boolean;
   image?: File | null;
+  // ✅ Champs pour la recherche combinée produits + dérivées
+  is_deriv?: boolean;
+  parent_id?: number;
+  parent_name?: string;
 }
 
 export interface ProductResponse {
@@ -362,13 +367,12 @@ export interface ChartDataPoint {
   [key: string]: string | number | boolean | null | undefined | unknown;
 }
 
-// ✅ total_stock_critique ajouté — produits avec 0 < stock <= 25% du seuil
 export interface ProductStats {
   total_produits: number;
   total_stock: number;
-  total_stock_faible: number;    // stock > 0 ET stock <= seuil (tous les sous-seuil)
-  total_stock_critique: number;  // stock > 0 ET stock <= 25% du seuil
-  total_stock_rupture: number;   // stock = 0
+  total_stock_faible: number;
+  total_stock_critique: number;
+  total_stock_rupture: number;
   valeur_totale_stock: number;
 }
 

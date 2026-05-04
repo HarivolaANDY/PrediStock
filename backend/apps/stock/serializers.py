@@ -54,6 +54,22 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 class MouvementStockSerializer(serializers.ModelSerializer):
     utilisateur_info = UserMinimalSerializer(source='utilisateur', read_only=True)
+    
+    def validate(self, data):
+        movement_type = data.get("movement_type")
+        quantity = data.get("quantity", 0)
+        produit = data.get("produit")
+
+        if movement_type in ["OUT", "SCRAP"] and produit:
+            if quantity > produit.current_stock:
+                raise serializers.ValidationError(
+                    f"Stock insuffisant — disponible : {produit.current_stock}, demandé : {quantity}"
+                )
+        
+        if quantity <= 0:
+            raise serializers.ValidationError("La quantité doit être positive.")
+        
+        return data
 
     class Meta:
         model = MouvementStock

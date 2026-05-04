@@ -1,6 +1,8 @@
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
+from django.db.models.signals import post_save
+from django.dispatch import receiver
 
 
 class HistoriqueInventaire(models.Model):
@@ -155,6 +157,13 @@ class MouvementStock(models.Model):
         auto_now_add=True,
         verbose_name="Horodatage"
     )
+    
+    batch = models.ForeignKey(
+        'catalogue.ProductBatch',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='mouvements'
+    )
 
     class Meta:
         db_table = 'MOVEMENT_STOCK'
@@ -164,9 +173,27 @@ class MouvementStock(models.Model):
 
     def __str__(self):
         return f"{self.movement_type} — {self.quantity} ({self.timestamp:%Y-%m-%d %H:%M})"
+    
 
     def save(self, *args, **kwargs):
         # Hérite le prix unitaire du produit si non renseigné
         if not self.unit_price and self.produit:
             self.unit_price = self.produit.price
         super().save(*args, **kwargs)
+        
+@receiver(post_save, sender=MouvementStock)
+def update_stock_on_mouvement(sender, instance, created, **kwargs):
+    if not created or not instance.produit:
+        return
+    
+    produit = instance.produit
+    qty = instance.quantity
+
+    if instance.movement_type in ["IN", "RETURN"]:
+        produit.current_stock += qty
+    elif instance.movement_type in ["OUT", "SCRAP"]:
+        produit.current_stock = max(0, produit.current_stock - qty)
+    elif instance.movement_type == "ADJUSTMENT":
+        produit.current_stock = max(0, produit.current_stock + qty)  # qty peut être négatif
+    
+    produit.save(update_fields=["current_stock"])
