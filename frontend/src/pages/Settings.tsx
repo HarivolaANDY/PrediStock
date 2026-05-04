@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react"
 import { useSettings } from "@/hooks/useSettings"
-import { Settings as SettingsIcon, Database, Shield, Globe, Download } from "lucide-react"
+import { Settings as SettingsIcon, Database, Shield, Globe } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -105,10 +105,6 @@ export default function Settings() {
             Configurer les préférences système et les paramètres globaux
           </p>
         </div>
-        <Button className="text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-          <Download className="h-4 w-4 mr-2" />
-          Paramètres d'exportation
-        </Button>
       </div>
 
       {/* System Overview Cards — données réelles */}
