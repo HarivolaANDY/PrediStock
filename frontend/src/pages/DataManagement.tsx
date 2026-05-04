@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { Upload, Download, Database, FileText, AlertCircle, CheckCircle, Loader2, RefreshCw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -35,6 +35,7 @@ export default function GestionDonnees() {
   const [showImportDataModal, setShowImportDataModal] = useState(false)
   const [dataSources, setDataSources] = useState<DataImport[]>([])
   const [loading, setLoading] = useState(true)
+  const isFirstMount = useRef(true)
 
   // Filtrer les données selon leur statut
   const pendingSources = dataSources.filter(source => 
@@ -61,7 +62,8 @@ export default function GestionDonnees() {
     return descriptions[target_table] || `Données de ${target_table}`
   }
 
-  const fetchDataSources = useCallback(async () => {
+  const fetchDataSources = useCallback(async (isInitial = false) => {
+    if (!isInitial) setLoading(true)
     try {
       const response = await fetch('http://localhost:8000/api/forecasting/data-import/', {
         headers: {
@@ -90,6 +92,11 @@ export default function GestionDonnees() {
   }, [])
 
   useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false
+      fetchDataSources(true)
+      return
+    }
     fetchDataSources()
   }, [fetchDataSources])
 
