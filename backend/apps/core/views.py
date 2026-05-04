@@ -102,7 +102,10 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
                 "notif": action_label,
             },
         )
+<<<<<<< HEAD
 
+=======
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 
     def list(self, request, *args, **kwargs):
         response = super().list(request, *args, **kwargs)

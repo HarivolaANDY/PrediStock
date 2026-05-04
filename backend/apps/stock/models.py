@@ -107,6 +107,7 @@ class MouvementStock(models.Model):
         ADJUSTMENT = 'ADJUSTMENT', 'Ajustement'
         RETURN     = 'RETURN',     'Retour Client'
         SCRAP      = 'SCRAP',      'Rebut'
+        ALLOCATION = 'ALLOCATION', 'Allocation'
 
     # Deux FK dans l'original (id_product + produit_dv) → unifiées :
     # produit     = Product (la fiche produit principale)
@@ -158,6 +159,19 @@ class MouvementStock(models.Model):
         verbose_name="Horodatage"
     )
     
+<<<<<<< HEAD
+=======
+    batch = models.ForeignKey(
+        'catalogue.ProductBatch',
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name='mouvements'
+    )
+    count_override = models.IntegerField(
+        null=True, blank=True,
+        verbose_name="Nombre d'unités (Saisie manuelle)"
+    )
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 
     class Meta:
         db_table = 'MOVEMENT_STOCK'
@@ -181,13 +195,39 @@ def update_stock_on_mouvement(sender, instance, created, **kwargs):
         return
     
     produit = instance.produit
-    qty = instance.quantity
+    dv = instance.produit_dv
+    qty = float(instance.quantity)
 
+    # 1. Mise à jour du stock parent (Poids total)
     if instance.movement_type in ["IN", "RETURN"]:
-        produit.current_stock += qty
+        produit.current_stock = float(produit.current_stock) + qty
     elif instance.movement_type in ["OUT", "SCRAP"]:
-        produit.current_stock = max(0, produit.current_stock - qty)
+        produit.current_stock = max(0.0, float(produit.current_stock) - qty)
     elif instance.movement_type == "ADJUSTMENT":
-        produit.current_stock = max(0, produit.current_stock + qty)  # qty peut être négatif
+        produit.current_stock = max(0.0, float(produit.current_stock) + qty)
+    
+    produit.save(update_fields=["current_stock"])
+
+    # 2. Mise à jour du produit dérivé (Nombre d'unités)
+    if dv:
+        if instance.count_override is not None:
+            # On utilise la saisie manuelle si présente
+            # Note: count_override est le nombre TOTAL d'unités entrant/sortant
+            # On l'ajoute directement au stock du DV (avec le bon signe)
+            multiplier = 1.0
+            if instance.movement_type in ["OUT", "SCRAP"]:
+                multiplier = -1.0
+            unit_change = float(instance.count_override) * multiplier
+        else:
+            # Sinon on utilise le calcul théorique (poids * capacité)
+            capacity = float(dv.quantite) or 1.0
+            multiplier = 1.0
+            if instance.movement_type in ["OUT", "SCRAP"]:
+                multiplier = -1.0
+            unit_change = qty * capacity * multiplier
+        
+        dv.nombre = max(0, int(dv.nombre + unit_change))
+        dv.save(update_fields=["nombre"])
+    # On ignore ALLOCATION car c'est un mouvement interne qui ne change pas le total de la mère
     
     produit.save(update_fields=["current_stock"])

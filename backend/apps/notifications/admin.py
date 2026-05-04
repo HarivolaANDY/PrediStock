@@ -1,8 +1,11 @@
 from django.contrib import admin
 from .models import Alerte, Notification
+<<<<<<< HEAD
 
 
 
+=======
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 
 
 @admin.register(Alerte)

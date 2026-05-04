@@ -23,7 +23,6 @@ import Chatbot from "@/components/Chatbot";
 import Suppliers from "@/pages/Suppliers";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { SupplierProvider } from "@/contexts/SupplierContext";
-import Activite from "@/components/Activitelist";
 import DashboardAdmin from "@/pages/DashboardAdmin";
 import ProductManagerPage from "@/pages/ProductManagerPage";
 import { useSettings } from "@/hooks/useSettings";
@@ -58,7 +57,6 @@ const AppRoutes = () => {
         <Route path="/settings" element={<Layout><Settings /></Layout>} />
         <Route path="/product/:id" element={<Layout><ProductDetails /></Layout>} />
         <Route path="/product" element={<Layout><Products /></Layout>} />
-        <Route path="/activite" element={<Layout><Activite /></Layout>} />
         <Route path="/product-manager" element={<Layout><ProductManagerPage /></Layout>} />
         <Route path="*" element={<NotFound />} />
       </Routes>

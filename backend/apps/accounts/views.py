@@ -94,7 +94,10 @@ class ExternalLoginView(APIView):
         authenticated.last_login = timezone.now()
         authenticated.save(update_fields=['last_login'])
         token, _ = Token.objects.get_or_create(user=authenticated)
+<<<<<<< HEAD
 
+=======
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
         return StandardResponse.render(
             data={
                 'token': token.key,
@@ -111,7 +114,10 @@ class LogoutView(APIView):
     def post(self, request):
         try:
             request.user.auth_token.delete()
+<<<<<<< HEAD
 
+=======
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
             return StandardResponse.render(message='Déconnexion réussie.', status_code=status.HTTP_200_OK)
         except Exception:
             return StandardResponse.render(

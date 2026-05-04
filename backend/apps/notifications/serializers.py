@@ -11,9 +11,12 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         fields = ['id', 'username']
 
 
+<<<<<<< HEAD
 
 
 
+=======
+>>>>>>> d6af1f17c084ea42418aebbcec62eea48818ea0e
 class AlerteSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source='produit.name', read_only=True)
     product_sku = serializers.CharField(source='produit.sku', read_only=True)

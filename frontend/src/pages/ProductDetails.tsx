@@ -27,6 +27,9 @@ type Product = {
   est_perissable?: boolean
   unite_mesure?: string
   extra_images?: string[]
+  unassigned_stock?: number
+  theorical_capacity?: number
+  theorical_unit?: string
 }
 
 interface PDV {
@@ -270,6 +273,7 @@ export default function ProductDetails() {
   const [listePDV, setListePDV] = useState<PDV[]>([])
   const [designation, setDesignation] = useState("")
   const [capacite, setCapacite] = useState<number | undefined>(undefined)
+  const [stockInitial, setStockInitial] = useState<number>(0)
 
   const { id } = useParams<{ id: string }>()
 
@@ -316,14 +320,19 @@ export default function ProductDetails() {
   useEffect(() => { fetch_liste_PDV() }, [fetch_liste_PDV])
 
   const setPDV = async () => {
-    if (!designation || !capacite || !id) { alert("Veuillez remplir tous les champs."); return }
-    const pdvData: PDVData = { designation, quantite: Number(capacite), product: parseInt(id) }
+    const pdvData: PDVData & { stock_initial?: number } = { 
+      designation, 
+      quantite: Number(capacite), 
+      product: parseInt(id || "0"),
+      stock_initial: stockInitial
+    }
     try {
       const response = await API.post('catalogue/produits-dv/', pdvData)
-      alert(`Enregistrement réussi : ${response.status}`)
-      setDesignation(""); setCapacite(undefined); fetch_liste_PDV()
-    } catch {
-      alert("Une erreur s'est produite lors de l'enregistrement.")
+      toast({ title: "Succès", description: (response.data.message || "Sous-produit créé.") as string })
+      setDesignation(""); setCapacite(undefined); setStockInitial(0); fetch_liste_PDV(); fetchProductImages()
+    } catch (error: any) {
+      const msg = error.response?.data?.message || "Une erreur s'est produite lors de l'enregistrement."
+      toast({ title: "Erreur", description: msg, variant: "destructive" })
     }
   }
 
@@ -452,9 +461,9 @@ export default function ProductDetails() {
                     <BarChart3 className="w-6 h-6 text-white" />
                   </div>
                   <div>
-                    <p className="text-sm text-gray-600">Valeur totale stock</p>
+                    <p className="text-sm text-gray-600">Stock non-alloué</p>
                     <p className={`text-xl font-bold ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>
-                      {(product.current_stock * Number(product.price)).toFixed(2)} Ar
+                      {product.unassigned_stock} {product.unite_mesure}
                     </p>
                   </div>
                 </div>
@@ -482,12 +491,25 @@ export default function ProductDetails() {
                     className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
                 </div>
                 <div className="flex flex-col gap-2">
-                  <label className="text-sm font-medium text-gray-700">Capacité (par unité)</label>
+                  <label className="text-sm font-medium text-gray-700">Capacité (Unités / {product.unite_mesure || 'unité'})</label>
                   <div className="flex items-center gap-2">
                     <input type="number" value={capacite ?? ""} onChange={(e) => setCapacite(parseFloat(e.target.value) || undefined)}
-                      placeholder="Capacité par unité"
+                      placeholder="Ex: 12"
                       className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
-                    <span className="text-gray-600 font-medium">/{product.unite_mesure}</span>
+                    <span className="text-gray-600 font-medium">/{product.unite_mesure || 'unité'}</span>
+                  </div>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="text-sm font-medium text-gray-700">Stock initial à allouer (en {product.unite_mesure})</label>
+                  <div className="flex flex-col gap-1">
+                    <input type="number" value={stockInitial} onChange={(e) => setStockInitial(parseFloat(e.target.value) || 0)}
+                      placeholder="Quantité à allouer"
+                      min={0}
+                      className="w-full border border-gray-200 px-4 py-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50" />
+                    <p className="text-xs text-gray-500 italic">
+                      Disponible : {product.unassigned_stock} {product.unite_mesure} 
+                      {capacite && ` (${(stockInitial * capacite).toFixed(0)} unités théoriques)`}
+                    </p>
                   </div>
                 </div>
                 <Button onClick={setPDV} className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white font-medium py-3 rounded-xl shadow-lg">
@@ -518,8 +540,9 @@ export default function ProductDetails() {
                 <TableHeader>
                   <TableRow className="bg-gray-50/50">
                     <TableHead className="py-4 px-6">Désignation</TableHead>
-                    <TableHead className="py-4 px-6">Quantité</TableHead>
-                    <TableHead className="py-4 px-6">Nombre</TableHead>
+                    <TableHead className="py-4 px-6">Capacité (/{product.unite_mesure})</TableHead>
+                    <TableHead className="py-4 px-6 text-blue-600">Stock (théorique)</TableHead>
+                    <TableHead className="py-4 px-6">Stock ({product.unite_mesure})</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -533,8 +556,11 @@ export default function ProductDetails() {
                           <p className={`font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{pdv.designation}</p>
                         </div>
                       </TableCell>
-                      <TableCell className={`py-4 px-6 font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{pdv.quantite}</TableCell>
-                      <TableCell className={`py-4 px-6 font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{pdv.nombre}</TableCell>
+                      <TableCell className={`py-4 px-6 font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>{pdv.quantite} / {product.unite_mesure}</TableCell>
+                      <TableCell className={`py-4 px-6 font-bold text-blue-600 bg-blue-50/20`}>{pdv.nombre}</TableCell>
+                      <TableCell className={`py-4 px-6 font-medium ${settings.darkMode ? 'text-white' : 'text-gray-900'}`}>
+                        {(pdv.nombre / (parseFloat(pdv.quantite as any) || 1)).toFixed(2)} {product.unite_mesure}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
