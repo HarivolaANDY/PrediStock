@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 from apps.core.emailor import send_email_to_user
 from apps.core.views import GenericCRUDViewSet
 from apps.core.utils import StandardResponse
-from apps.notifications.models import Notification, Activite
+from apps.notifications.models import Notification
 from .models import User, Role
 from .serializers import UserSerializer, RegisterSerializer
 
@@ -94,12 +94,7 @@ class ExternalLoginView(APIView):
         authenticated.last_login = timezone.now()
         authenticated.save(update_fields=['last_login'])
         token, _ = Token.objects.get_or_create(user=authenticated)
-        Activite.log(
-            user=authenticated,
-            action="Connexion",
-            details="Authentification réussie.",
-            categorie="user"
-        )
+
         return StandardResponse.render(
             data={
                 'token': token.key,
@@ -116,12 +111,7 @@ class LogoutView(APIView):
     def post(self, request):
         try:
             request.user.auth_token.delete()
-            Activite.log(
-                user=request.user,
-                action="Déconnexion",
-                details="Déconnexion réussie.",
-                categorie="user"
-            )
+
             return StandardResponse.render(message='Déconnexion réussie.', status_code=status.HTTP_200_OK)
         except Exception:
             return StandardResponse.render(
