@@ -51,7 +51,6 @@ const dataItems = [
 ]
 
 const systemItems = [
-  { title: "Utilisateurs", url: "/users", icon: Users },
   { title: "Activité", url: "/activite", icon: Users },
   { title: "Notifications", url: "/notifications", icon: Bell },
   { title: "Paramètres", url: "/settings", icon: Settings },

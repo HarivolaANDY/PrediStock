@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Bell,Search, AlertTriangle, CheckCircle, Clock, Filter } from "lucide-react"
+import { Bell,Search, AlertTriangle, CheckCircle, Clock } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -7,27 +7,25 @@ import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { MetricCard } from "@/components/MetricCard"
-import { fetchAlerts, AlertData } from "@/services/alertService"
+import { fetchAlerts, resolveAlert, AlertData } from "@/services/alertService"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { AlertConfigModal } from "@/components/AlertConfigModal"
 
 function mapType(type_alert: string): string {
-  if (type_alert === "rupture") return "stockout";
-  if (type_alert === "faible stock") return "low_stock";
-  if (type_alert === "surstock") return "overstock";
+  const t = type_alert.toLowerCase();
+  if (t.includes("rupture") || t === "stockout") return "stockout";
+  if (t.includes("faible") || t.includes("low")) return "low_stock";
+  if (t.includes("surstock") || t.includes("over")) return "overstock";
+  if (t.includes("predict") || t.includes("prédict")) return "prediction";
   return type_alert;
 }
 
 function mapPriority(priorite: string): string {
-  if (priorite.toLowerCase().includes("high")) return "high";
-  if (priorite.toLowerCase().includes("medium")) return "medium";
-  if (priorite.toLowerCase().includes("low")) return "low";
+  const p = priorite.toLowerCase();
+  if (p.includes("high") || p.includes("haute") || p.includes("critique")) return "high";
+  if (p.includes("medium") || p.includes("moyen")) return "medium";
+  if (p.includes("low") || p.includes("faible") || p.includes("secondaire")) return "low";
   return "unknown";
-}
-
-interface AertStatsProps {
-  selectedAlert: string;
-  onStatusChange: (value: string) => void;
 }
 
 export default function Alerts() {
@@ -51,6 +49,15 @@ export default function Alerts() {
         setLoading(false)
       })
   }, [])
+
+  const handleResolveAlert = async (id: string) => {
+    try {
+      await resolveAlert(id)
+      setAlerts(alerts.map(a => a.id === id ? { ...a, est_resolu: true } : a))
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const getPriorityBadge = (priority: string) => {
     switch (priority) {
@@ -129,8 +136,18 @@ export default function Alerts() {
           </AlertConfigModal>
       </div>
 
-      {/* Alert Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      {loading ? (
+        <div className="flex justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </div>
+      ) : error ? (
+        <div className="bg-destructive/15 text-destructive p-4 rounded-md">
+          Erreur lors du chargement des alertes: {error}
+        </div>
+      ) : (
+        <>
+          {/* Alert Summary Cards */}
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Alertes Actives"
           value={filteredAlerts.filter(a => a.status === "active").length.toString()}
@@ -257,13 +274,18 @@ export default function Alerts() {
                           <div className="flex items-center gap-2">
                             {alert.status === "active" ? (
                               <>
-                                <Button size="sm" variant="outline" title="Resoudre">
+                                <Button 
+                                  size="sm" 
+                                  variant="outline" 
+                                  title="Résoudre"
+                                  onClick={() => handleResolveAlert(alert.id)}
+                                >
                                   <CheckCircle className="h-4 w-4" />
                                 </Button>
 
                               </>
                             ) : (
-                              <span className="text-sm text-muted-foreground">No action needed</span>
+                              <span className="text-sm text-muted-foreground">Aucune action</span>
                             )}
                           </div>
                         </TableCell>
@@ -276,6 +298,8 @@ export default function Alerts() {
           </Card>
         </TabsContent>
       </Tabs>
+        </>
+      )}
     </div>
   );
 }
