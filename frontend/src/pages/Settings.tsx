@@ -1,11 +1,9 @@
 import { useState, useEffect } from "react"
 import { useSettings } from "@/hooks/useSettings"
-import { Settings as SettingsIcon, Database, Shield, Bell, Palette, Globe, Download } from "lucide-react"
+import { Settings as SettingsIcon, Database, Shield, Globe, Download } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Label } from "@/components/ui/label"
 import { 
   Select,
@@ -14,13 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Textarea } from "@/components/ui/textarea"
 import { MetricCard } from "@/components/MetricCard"
-import i18n from "../utils/i18n"
+
 
 export default function Settings() {
-  const [autoBackup, setAutoBackup] = useState(true)
-  const [twoFactorAuth, setTwoFactorAuth] = useState(false)
   const [metrics, setMetrics] = useState({
     uptime: "...",
     dbSize: "...",
@@ -31,17 +26,8 @@ export default function Settings() {
 
   const [systemName, setSystemName] = useState("")
   const [companyName, setCompanyName] = useState("")
-  const [sessionTimeout, setSessionTimeout] = useState(60)
-  const [backupStatus, setBackupStatus] = useState({
-    lastBackup: "",
-    backupSize: "",
-    nextBackup: "",
-    storageUsed: ""
-  })
-
-  const [criticalAlerts, setCriticalAlerts] = useState(true)
   const [themeColor, setThemeColor] = useState(settings.themeColor || "blue")
-  const [language, setLanguage] = useState(settings.language || "en")
+
 
   // ✅ Thème couleur
   useEffect(() => {
@@ -49,10 +35,7 @@ export default function Settings() {
     updateSettings({ themeColor: themeColor });
   }, [themeColor, updateSettings])
 
-  // ✅ Langue initiale
-  useEffect(() => {
-    setLanguage(i18n.language)
-  }, [])
+
 
   // ✅ Chargement des données réelles — tous les fetches dans un seul useEffect
   useEffect(() => {
@@ -67,29 +50,8 @@ export default function Settings() {
       .then(data => {
         setCompanyName(data.company_name || "Predistock Inc.")
         setSystemName(data.system_name || "Predistock Analytics")
-        setSessionTimeout(data.session_timeout || 60)
-        setAutoBackup(data.auto_backup ?? true)
-        setTwoFactorAuth(data.two_factor_auth ?? false)
       })
       .catch(err => console.error("Erreur profil:", err))
-
-    // Historique PDF → remplace /api/backup/status/ inexistant
-    fetch("http://localhost:8000/api/core/pdf-historique/", { headers })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then(data => {
-        const list = Array.isArray(data) ? data : data?.results || []
-        const last = list[0]
-        setBackupStatus({
-          lastBackup: last?.created_at || "N/A",
-          backupSize: "N/A",
-          nextBackup: "N/A",
-          storageUsed: `${list.length} fichiers`
-        })
-      })
-      .catch(err => console.error("Erreur backup:", err))
 
     // Métriques → remplace /api/metrics/ inexistant
     Promise.all([
@@ -123,7 +85,6 @@ export default function Settings() {
       body: JSON.stringify({
         company_name: companyName,
         system_name: systemName,
-        language: language,
       })
     })
       .then(res => {
@@ -132,27 +93,6 @@ export default function Settings() {
       })
       .then(() => alert("Paramètres généraux sauvegardés !"))
       .catch(err => console.error("Erreur sauvegarde général:", err))
-  }
-
-  // ✅ Sauvegarde paramètres sécurité
-  const handleSaveSecurity = () => {
-    fetch("http://localhost:8000/api/accounts/update-user/", {
-      method: "PATCH",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Token ${localStorage.getItem('token')}`
-      },
-      body: JSON.stringify({
-        two_factor_auth: twoFactorAuth,
-        session_timeout: sessionTimeout,
-      })
-    })
-      .then(res => {
-        if (!res.ok) throw new Error(`HTTP ${res.status}`)
-        return res.json()
-      })
-      .then(() => alert("Paramètres de sécurité sauvegardés !"))
-      .catch(err => console.error("Erreur sauvegarde sécurité:", err))
   }
 
   return (
@@ -199,18 +139,8 @@ export default function Settings() {
         />
       </div>
 
-      <Tabs defaultValue="general" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-5">
-          <TabsTrigger value="general">Général</TabsTrigger>
-          <TabsTrigger value="security">Sécurité</TabsTrigger>
-          <TabsTrigger value="notifications">Notifications</TabsTrigger>
-          <TabsTrigger value="integration">Integration</TabsTrigger>
-          <TabsTrigger value="backup">Sauvegarde</TabsTrigger>
-        </TabsList>
-
-        {/* ===== ONGLET GÉNÉRAL ===== */}
-        <TabsContent value="general">
-          <div className="grid gap-6 lg:grid-cols-2">
+      {/* ===== CONTENU GÉNÉRAL ===== */}
+      <div className="grid gap-6 lg:grid-cols-2 mt-6">
             <Card>
               <CardHeader>
                 <CardTitle>Informations système</CardTitle>
@@ -254,25 +184,7 @@ export default function Settings() {
                   </Select>
                 </div>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="language">Langue par défaut</Label>
-                  <Select 
-                    value={language}
-                    onValueChange={(value) => {
-                      setLanguage(value)
-                      i18n.changeLanguage(value)
-                      updateSettings({ language: value })
-                    }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="en">Anglais</SelectItem>
-                      <SelectItem value="fr">Français</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+
 
                 {/* ✅ Bouton général appelle handleSaveGeneral */}
                 <Button
@@ -328,20 +240,6 @@ export default function Settings() {
                   </Select>
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="currency">Devise</Label>
-                  <Select defaultValue="usd">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="usd">USD ($)</SelectItem>
-                      <SelectItem value="eur">EUR (€)</SelectItem>
-                      <SelectItem value="gbp">GBP (£)</SelectItem>
-                      <SelectItem value="jpy">JPY (¥)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
 
                 <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
                   Enregistrer les paramètres d'apparence
@@ -349,383 +247,6 @@ export default function Settings() {
               </CardContent>
             </Card>
           </div>
-        </TabsContent>
-
-        {/* ===== ONGLET SÉCURITÉ ===== */}
-        <TabsContent value="security">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Authentification</CardTitle>
-                <CardDescription>
-                  Gestion d'authentification et accès au paramètre de contrôle
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Facteur de double authentification</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Requis le F2A pour toutes les comptes utilisateurs
-                    </p>
-                  </div>
-                  <Switch checked={twoFactorAuth} onCheckedChange={setTwoFactorAuth} />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="session-timeout">Fin de session (minutes)</Label>
-                  {/* ✅ value + onChange au lieu de defaultValue */}
-                  <Input
-                    id="session-timeout"
-                    type="number"
-                    value={sessionTimeout}
-                    onChange={e => setSessionTimeout(Number(e.target.value))}
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="password-policy">Police de mot de passe</Label>
-                  <Select defaultValue="strong">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="basic">Basic (8 characters)</SelectItem>
-                      <SelectItem value="medium">Medium (10 characters + symbols)</SelectItem>
-                      <SelectItem value="strong">Strong (12 characters + complexity)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                {/* ✅ Bouton sécurité appelle handleSaveSecurity */}
-                <Button
-                  className="w-full text-white bg-bouton hover:bg-bouton-hover"
-                  variant="outline"
-                  onClick={handleSaveSecurity}
-                >
-                  Enregistrer les paramètres de sécurité
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Contrôle d'accès</CardTitle>
-                <CardDescription>
-                  Configurer la restrictions IP et l'accès au configuration
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="allowed-ips">Accordé l'adresse IP</Label>
-                  <Textarea 
-                    id="allowed-ips" 
-                    placeholder="Enter IP addresses or ranges, one per line"
-                    rows={4}
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    Leave empty to allow all IPs
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="api-rate-limit">API Rate Limit (requests/hour)</Label>
-                  <Input id="api-rate-limit" type="number" defaultValue="1000" />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Audit Logging</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Log all user actions and system events
-                    </p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Save Access Control
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ===== ONGLET NOTIFICATIONS ===== */}
-        <TabsContent value="notifications">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>System Notifications</CardTitle>
-                <CardDescription>
-                  Configure system-wide notification settings
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Critical Alerts</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Enable critical system alerts
-                    </p>
-                  </div>
-                  <Switch checked={criticalAlerts} onCheckedChange={setCriticalAlerts} />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="admin-email">Admin Email</Label>
-                  <Input id="admin-email" type="email" defaultValue="admin@predistock.com" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-server">SMTP Server</Label>
-                  <Input id="smtp-server" defaultValue="smtp.predistock.com" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="smtp-port">SMTP Port</Label>
-                  <Input id="smtp-port" type="number" defaultValue="587" />
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Save Notification Settings
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Alert Thresholds</CardTitle>
-                <CardDescription>
-                  Set system-wide alert thresholds and conditions
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="low-stock-threshold">Low Stock Threshold (%)</Label>
-                  <Input id="low-stock-threshold" type="number" defaultValue="20" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="critical-stock-threshold">Critical Stock Threshold (%)</Label>
-                  <Input id="critical-stock-threshold" type="number" defaultValue="5" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="forecast-accuracy-threshold">Min Forecast Accuracy (%)</Label>
-                  <Input id="forecast-accuracy-threshold" type="number" defaultValue="85" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="prediction-horizon">Default Prediction Horizon (days)</Label>
-                  <Input id="prediction-horizon" type="number" defaultValue="30" />
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Save Alert Thresholds
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ===== ONGLET INTEGRATION ===== */}
-        <TabsContent value="integration">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>API Configuration</CardTitle>
-                <CardDescription>
-                  Manage external API integrations and keys
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-2">
-                  <Label htmlFor="api-key">API Key</Label>
-                  <Input id="api-key" type="password" defaultValue="••••••••••••••••" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="webhook-url">Webhook URL</Label>
-                  <Input id="webhook-url" defaultValue="https://api.predistock.com/webhooks" />
-                </div>
-
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>API Access</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Enable external API access
-                    </p>
-                  </div>
-                  <Switch defaultChecked />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="api-version">API Version</Label>
-                  <Select defaultValue="v1">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="v1">Version 1.0</SelectItem>
-                      <SelectItem value="v2">Version 2.0 (Beta)</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Save API Settings
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>External Services</CardTitle>
-                <CardDescription>
-                  Configure connections to external services
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <h4 className="font-medium">Shopify Integration</h4>
-                      <p className="text-sm text-muted-foreground">Connected</p>
-                    </div>
-                    <Button className="text-white bg-bouton hover:bg-bouton-hover" variant="outline" size="sm">Configure</Button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <h4 className="font-medium">WooCommerce</h4>
-                      <p className="text-sm text-muted-foreground">Not connected</p>
-                    </div>
-                    <Button className="text-white bg-bouton hover:bg-bouton-hover" variant="outline" size="sm">Connect</Button>
-                  </div>
-
-                  <div className="flex items-center justify-between p-4 border rounded-lg">
-                    <div>
-                      <h4 className="font-medium">Amazon Seller Central</h4>
-                      <p className="text-sm text-muted-foreground">Connected</p>
-                    </div>
-                    <Button className="text-white bg-bouton hover:bg-bouton-hover" variant="outline" size="sm">Configure</Button>
-                  </div>
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Add New Integration
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-
-        {/* ===== ONGLET SAUVEGARDE ===== */}
-        <TabsContent value="backup">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Backup Configuration</CardTitle>
-                <CardDescription>
-                  Configure automatic backups and data retention
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <div className="space-y-0.5">
-                    <Label>Automatic Backups</Label>
-                    <p className="text-sm text-muted-foreground">
-                      Enable scheduled database backups
-                    </p>
-                  </div>
-                  <Switch checked={autoBackup} onCheckedChange={setAutoBackup} />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="backup-frequency">Backup Frequency</Label>
-                  <Select defaultValue="daily">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="hourly">Hourly</SelectItem>
-                      <SelectItem value="daily">Daily</SelectItem>
-                      <SelectItem value="weekly">Weekly</SelectItem>
-                      <SelectItem value="monthly">Monthly</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="retention-period">Retention Period (days)</Label>
-                  <Input id="retention-period" type="number" defaultValue="30" />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="backup-location">Backup Location</Label>
-                  <Select defaultValue="cloud">
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="local">Local Storage</SelectItem>
-                      <SelectItem value="cloud">Cloud Storage</SelectItem>
-                      <SelectItem value="both">Both</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                  Save Backup Settings
-                </Button>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Backup Status</CardTitle>
-                <CardDescription>
-                  Monitor backup operations and history
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {/* ✅ Données réelles depuis /api/core/pdf-historique/ */}
-                <div className="space-y-4">
-                  <div className="flex justify-between">
-                    <span className="text-sm">Last Backup</span>
-                    <span className="text-sm font-medium">{backupStatus.lastBackup || "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Backup Size</span>
-                    <span className="text-sm font-medium">{backupStatus.backupSize || "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Next Backup</span>
-                    <span className="text-sm font-medium">{backupStatus.nextBackup || "N/A"}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm">Storage Used</span>
-                    <span className="text-sm font-medium">{backupStatus.storageUsed || "N/A"}</span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                    Create Backup Now
-                  </Button>
-                  <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                    Download Latest Backup
-                  </Button>
-                  <Button className="w-full text-white bg-bouton hover:bg-bouton-hover" variant="outline">
-                    View Backup History
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
-      </Tabs>
     </div>
   )
 }
