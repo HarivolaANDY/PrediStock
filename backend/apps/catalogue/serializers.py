@@ -126,6 +126,8 @@ class ProductSerializer(serializers.ModelSerializer):
         fields = '__all__'
         read_only_fields = ('created_at', 'updated_at')
 
+    unassigned_stock = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
     # ✅ Ajouter cette méthode
     def get_extra_images(self, obj):
         request = self.context.get('request')

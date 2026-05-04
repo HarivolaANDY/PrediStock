@@ -438,6 +438,53 @@ class ProduitDvViewSet(GenericCRUDViewSet):
     def get_queryset(self):
         return ProduitDv.objects.select_related('product').all()
 
+    def create(self, request, *args, **kwargs):
+        product_id = request.data.get('product')
+        quantity_to_allocate = int(request.data.get('stock_initial', 0))
+        designation = request.data.get('designation')
+        quantite_per_unit = float(request.data.get('quantite', 1))
+
+        if not product_id:
+            return StandardResponse.render(message="Produit parent requis.", status_code=400)
+
+        try:
+            product = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return StandardResponse.render(message="Produit parent introuvable.", status_code=404)
+
+        if quantity_to_allocate > 0:
+            # quantity_to_allocate est en poids (ex: 3kg)
+            # unassigned_stock est aussi en poids
+            if product.unassigned_stock < quantity_to_allocate:
+                return StandardResponse.render(
+                    message=f"Stock insuffisant pour cette allocation. Disponible (non-alloué) : {product.unassigned_stock} {product.unite_mesure}.",
+                    status_code=400
+                )
+
+        with transaction.atomic():
+            # Créer le ProduitDv avec un nombre initial de 0
+            # Le signal de MouvementStock se chargera d'incrémenter dv.nombre
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            dv = serializer.save(nombre=0)
+
+            if quantity_to_allocate > 0:
+                # Créer un mouvement d'allocation pour l'historique et la mise à jour
+                MouvementStock.objects.create(
+                    produit=product,
+                    produit_dv=dv,
+                    movement_type='ALLOCATION',
+                    quantity=quantity_to_allocate,
+                    utilisateur=request.user,
+                    notes=f"Allocation initiale de {quantity_to_allocate} {product.unite_mesure} pour '{dv.designation}'"
+                )
+
+        return StandardResponse.render(
+            data=ProduitDvSerializer(dv).data,
+            message=f"Sous-produit '{dv.designation}' créé avec une allocation de {quantity_to_allocate} unités.",
+            status_code=201
+        )
+
     def _generer_pdf_mouvement(self, mouvements, type_mouvement, request):
         titre_type = "sorties" if type_mouvement == "OUT" else "entrees"
         data = [["Produit", "Quantité", "Date", "Référence", "Utilisateur"]] + [
@@ -488,8 +535,8 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                     if item.get('is_direct'):
                         # ── Produit sans dérivée : on incrémente directement le stock parent ──
                         nombre = item['nombre']
-                        produit.current_stock += nombre
-                        produit.save()
+                        # Suppression de la mise à jour manuelle (produit.current_stock += nombre)
+                        # car le signal 'update_stock_on_mouvement' s'en charge à la création du MouvementStock.
                         Notification.creer(
                             utilisateur=request.user,
                             data={
@@ -512,10 +559,7 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                     else:
                         # ── Produit avec dérivée ──────────────────────────────────────────────
                         dv = ProduitDv.objects.get(pk=item['id'])
-                        dv.nombre += item['nombre']
-                        dv.save()
-                        produit.current_stock += dv.quantite * item['nombre']
-                        produit.save()
+                        # Suppression de la mise à jour manuelle car gérée par signal
                         Notification.creer(
                             utilisateur=request.user,
                             data={

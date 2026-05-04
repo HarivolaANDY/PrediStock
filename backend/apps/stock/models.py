@@ -107,6 +107,7 @@ class MouvementStock(models.Model):
         ADJUSTMENT = 'ADJUSTMENT', 'Ajustement'
         RETURN     = 'RETURN',     'Retour Client'
         SCRAP      = 'SCRAP',      'Rebut'
+        ALLOCATION = 'ALLOCATION', 'Allocation'
 
     # Deux FK dans l'original (id_product + produit_dv) → unifiées :
     # produit     = Product (la fiche produit principale)
@@ -187,13 +188,29 @@ def update_stock_on_mouvement(sender, instance, created, **kwargs):
         return
     
     produit = instance.produit
-    qty = instance.quantity
+    dv = instance.produit_dv
+    qty = float(instance.quantity)
 
+    # 1. Mise à jour du stock parent (Poids total)
     if instance.movement_type in ["IN", "RETURN"]:
-        produit.current_stock += qty
+        produit.current_stock = float(produit.current_stock) + qty
     elif instance.movement_type in ["OUT", "SCRAP"]:
-        produit.current_stock = max(0, produit.current_stock - qty)
+        produit.current_stock = max(0.0, float(produit.current_stock) - qty)
     elif instance.movement_type == "ADJUSTMENT":
-        produit.current_stock = max(0, produit.current_stock + qty)  # qty peut être négatif
+        produit.current_stock = max(0.0, float(produit.current_stock) + qty)
+    
+    produit.save(update_fields=["current_stock"])
+
+    # 2. Mise à jour du produit dérivé (Nombre d'unités)
+    if dv:
+        capacity = float(dv.quantite) or 1.0
+        multiplier = 1.0
+        if instance.movement_type in ["OUT", "SCRAP"]:
+            multiplier = -1.0
+        
+        unit_change = qty * capacity * multiplier
+        dv.nombre = max(0, int(dv.nombre + unit_change))
+        dv.save(update_fields=["nombre"])
+    # On ignore ALLOCATION car c'est un mouvement interne qui ne change pas le total de la mère
     
     produit.save(update_fields=["current_stock"])

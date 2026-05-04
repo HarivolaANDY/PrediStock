@@ -61,14 +61,16 @@ class Product(models.Model):
     sku = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
-    stock_threshold = models.IntegerField(default=10)
-    current_stock = models.IntegerField(default=0)
+    stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     est_perissable = models.BooleanField(default=False)
     unite_mesure = models.CharField(max_length=50, default='Kg', blank=True)
     product_img = models.ImageField(upload_to='products/', blank=True, null=True)
+    theorical_capacity = models.DecimalField(max_digits=10, decimal_places=2, default=1, blank=True, null=True)
+    theorical_unit = models.CharField(max_length=50, blank=True, null=True, default="pièces")
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -97,6 +99,21 @@ class Product(models.Model):
         elif ratio <= 1: return "ok"
         return "good"
 
+    @property
+    def unassigned_stock(self):
+        """
+        Retourne le stock qui n'est alloué à aucune variante.
+        Allocated weight = SUM(dv.nombre / dv.quantite)
+        """
+        from django.db.models import F, Sum, FloatField, ExpressionWrapper
+        # On utilise FloatField pour la division pour éviter la troncature entière
+        allocated = self.produitdv_set.aggregate(
+            total=Sum(
+                ExpressionWrapper(F('nombre') * 1.0 / F('quantite'), output_field=FloatField())
+            )
+        )['total'] or 0
+        return float(self.current_stock) - float(allocated)
+
 
 class ProductImage(models.Model):
     product = models.ForeignKey(Product, related_name='images', on_delete=models.CASCADE)
@@ -124,8 +141,8 @@ class ProductBatch(models.Model):
 class ProduitDv(models.Model):
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     designation = models.CharField(max_length=100, default="Aucune description")
-    quantite = models.IntegerField(default=0, blank=True)
-    nombre = models.IntegerField(default=0, blank=True)
+    quantite = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name="Capacité (Unités/Kg)")
+    nombre = models.IntegerField(default=0, blank=True, verbose_name="Nombre d'unités")
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:

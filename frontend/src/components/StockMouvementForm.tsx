@@ -201,6 +201,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
                 <Input
                   id="quantity"
                   type="number"
+                  step="any"
                   value={formData.quantity}
                   onChange={(e) => handleInputChange("quantity", e.target.value)}
                   min={0}
