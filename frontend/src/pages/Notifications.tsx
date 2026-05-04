@@ -1,9 +1,8 @@
-import { useState, useEffect } from "react"
-import { Bell, Settings, Check, X, Mail, Smartphone, AlertTriangle } from "lucide-react"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { Bell, Check, X, Mail, Smartphone, AlertTriangle, RefreshCcw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Switch } from "@/components/ui/switch"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { 
   Table, 
@@ -15,92 +14,149 @@ import {
 } from "@/components/ui/table"
 import { MetricCard } from "@/components/MetricCard"
 import { Notification } from "@/types/notification"
-
+import { Skeleton } from "@/components/ui/skeleton"
+import { toast } from "sonner"
 
 // const notifications: Notification[] = fetchNotification()
-
-const notificationSettings = [
-  {
-    category: "Stock Alerts",
-    description: "Notifications pour les changements de niveaux de stock",
-    email: true,
-    sms: true,
-    push: false
-  },
-  {
-    category: "AI & Forecasting",
-    description: "Mises à jour des modèles IA et des prédictions",
-    email: true,
-    sms: false,
-    push: true
-  },
-  {
-    category: "Reports",
-    description: "Génération et livraison de rapports",
-    email: true,
-    sms: false,
-    push: false
-  },
-  {
-    category: "System Updates",
-    description: "Maintenance et mises à jour du système",
-    email: false,
-    sms: false,
-    push: true
-  }
-]
 
 export default function Notifications() {
   const [selectedTab, setSelectedTab] = useState("all")
   const [notifications, setNotifications] = useState<Notification[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isError, setIsError] = useState(false)
+  const isMounted = useRef(true)
+  const isFirstLoad = useRef(true)
+  const prevCriticalIds = useRef<Set<string>>(new Set())
 
-  interface ApiResponse {
-  data: Notification[]
-}
-
-useEffect(() => {
-  fetch("http://localhost:8000/api/notifications/", {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "Authorization": `Token ${localStorage.getItem('token')}`
+  useEffect(() => {
+    return () => {
+      isMounted.current = false
     }
-  })
-    .then((res) => res.json() as Promise<ApiResponse>)
-    .then((data) => {
-      const list = Array.isArray(data.data) ? data.data : []
-      setNotifications([...list].reverse())
-      console.log(data);
-    })
-    .catch((err: String) => console.error("Erreur lors de la récupération des notifications:", err))
-}, [])
+  }, [])
 
-  const getTypeBadge = (type: string) => {
-    switch (type) {
-      case "stockout":
-        return <Badge variant="destructive">Alerte Stock</Badge>
-      case "low_stock":
-        return <Badge className="bg-warning text-warning-foreground">Stock Faible</Badge>
-      case "report":
-        return <Badge className="bg-notification-secondary" variant="default">Report</Badge>
-      case "system":
-        return <Badge variant="secondary">System</Badge>
-      default:
-        return <Badge variant="outline">Other</Badge>
+  const fetchNotifications = useCallback(async () => {
+    try {
+      const response = await fetch("http://localhost:8000/api/notifications/", {
+        method: "GET",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Token ${localStorage.getItem('token')}`
+        }
+      })
+      
+      if (!response.ok) throw new Error("Failed to fetch notifications")
+      
+      const data = await response.json()
+      const list = Array.isArray(data) ? data : (data.results || data.data || [])
+      
+      if (isMounted.current) {
+        const newCriticalIds = new Set<string>()
+        const newlyArrivedCriticals: Notification[] = []
+
+        list.forEach((n: Notification) => {
+          const p = typeof n.priorite === 'string' ? n.priorite.toLowerCase() : n.priorite
+          if (p === 2 || p === 'high' || p === 'critique') {
+            newCriticalIds.add(n.id)
+            if (!prevCriticalIds.current.has(n.id)) {
+              newlyArrivedCriticals.push(n)
+            }
+          }
+        })
+
+        if (!isFirstLoad.current && newlyArrivedCriticals.length > 0) {
+          newlyArrivedCriticals.forEach(n => toast.error(`Alerte Critique: ${n.titre}`))
+        }
+
+        isFirstLoad.current = false
+        prevCriticalIds.current = newCriticalIds
+
+        // Defer state updates to avoid cascading render warning
+        setTimeout(() => {
+          if (isMounted.current) {
+            setNotifications(list)
+            setIsLoading(false)
+          }
+        }, 0)
+      }
+    } catch (err) {
+      console.error("Erreur lors de la récupération des notifications:", err)
+      if (isMounted.current) {
+        setTimeout(() => {
+          if (isMounted.current) {
+            setIsError(true)
+            setIsLoading(false)
+          }
+        }, 0)
+      }
+    }
+  }, [])
+
+  const handleMarkAsRead = async (id: string) => {
+    try {
+      const response = await fetch(`http://localhost:8000/api/notifications/${id}/`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Token ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({ status: "lu" })
+      })
+
+      if (response.ok) {
+        setNotifications(prev => prev.map(n => n.id === id ? { ...n, status: "lu" } : n))
+        toast.success("Notification marquée comme lue")
+      }
+    } catch (err) {
+      console.error("Error marking notification as read", err)
+      toast.error("Une erreur est survenue")
     }
   }
 
-  const getPriorityIcon = (priority: string) => {
-    switch (priority) {
-      case "high":
-        return <AlertTriangle className="h-4 w-4 text-destructive" />
-      case "medium":
-        return <Bell className="h-4 w-4 text-warning" />
-      case "low":
-        return <Bell className="h-4 w-4 text-muted-foreground" />
-      default:
-        return <Bell className="h-4 w-4" />
+  const handleDelete = async (id: string) => {
+    if (!confirm("Voulez-vous vraiment supprimer cette notification ?")) return
+
+    try {
+      const response = await fetch(`http://localhost:8000/api/notifications/${id}/`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Token ${localStorage.getItem('token')}`
+        }
+      })
+
+      if (response.ok) {
+        setNotifications(prev => prev.filter(n => n.id !== id))
+        toast.success("Notification supprimée")
+      }
+    } catch (err) {
+      console.error("Error deleting notification", err)
+      toast.error("Une erreur est survenue")
     }
+  }
+
+  useEffect(() => {
+    fetchNotifications()
+    const interval = setInterval(fetchNotifications, 30000) // Poll every 30 seconds
+    return () => clearInterval(interval)
+  }, [fetchNotifications])
+
+  const getPriorityBadge = (priority: number | string) => {
+    const p = typeof priority === 'string' ? priority.toLowerCase() : priority
+    
+    if (p === 2 || p === 'high' || p === 'critique') {
+      return <Badge variant="destructive">Critique</Badge>
+    }
+    if (p === 1 || p === 'medium' || p === 'haute') {
+      return <Badge className="bg-orange-500 hover:bg-orange-600 text-white border-none">Haute</Badge>
+    }
+    return <Badge variant="secondary">Basique</Badge>
+  }
+
+  const getTypeBadge = (type: string) => {
+    const t = type?.toLowerCase() || ""
+    if (t.includes("stock")) return <Badge className="bg-blue-500/10 text-blue-500 border-blue-500/20">Stock</Badge>
+    if (t.includes("alerte")) return <Badge className="bg-red-500/10 text-red-500 border-red-500/20">Alerte</Badge>
+    if (t.includes("commande")) return <Badge className="bg-green-500/10 text-green-500 border-green-500/20">Commande</Badge>
+    return <Badge variant="outline">{type || "Général"}</Badge>
   }
 
   const getChannelIcon = (channel: string) => {
@@ -119,8 +175,16 @@ useEffect(() => {
   const filteredNotifications = selectedTab === "all" 
     ? notifications 
     : selectedTab === "unread" 
-    ? notifications.filter(n => n.status !== "read")
-    : notifications.filter(n => n.status === "read")
+    ? notifications.filter(n => n.status === "non lu")
+    : notifications.filter(n => n.status === "lu")
+
+  const unreadCount = notifications.filter(n => n.status === "non lu").length
+  const criticalCount = notifications.filter(n => {
+    const p = typeof n.priorite === 'string' ? n.priorite.toLowerCase() : n.priorite
+    return p === 2 || p === 'high' || p === 'critique'
+  }).length
+  const emailCount = notifications.filter(n => n.channel?.toLowerCase() === "email").length
+  const smsCount = notifications.filter(n => n.channel?.toLowerCase() === "sms").length
 
   return (
     <div className="space-y-6">
@@ -132,49 +196,36 @@ useEffect(() => {
             Gérez vos préférences de notifications et consultez les alertes récentes
           </p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
-          onClick={() => setSelectedTab("settings")}
-          className="flex items-center gap-2"
-        >
-          <Settings className="h-4 w-4" />
-          Paramètres
-        </Button>
       </div>
 
       {/* Notification Statistics Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Unread Notifications"
-          value="8"
-          trend={{ value: -2, label: "vs yesterday" }}
+          value={unreadCount.toString()}
           icon={<Bell className="h-4 w-4" />}
           variant="warning"
         />
         <MetricCard
           title="Critical Alerts"
-          value="3"
-          trend={{ value: 1, label: "new today" }}
+          value={criticalCount.toString()}
           icon={<AlertTriangle className="h-4 w-4" />}
           variant="destructive"
         />
         <MetricCard
           title="Email Notifications"
-          value="45"
-          trend={{ value: 8, label: "this week" }}
+          value={emailCount.toString()}
           icon={<Mail className="h-4 w-4" />}
         />
         <MetricCard
           title="SMS Alerts"
-          value="12"
-          trend={{ value: 3, label: "this week" }}
+          value={smsCount.toString()}
           icon={<Smartphone className="h-4 w-4" />}
         />
       </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="all" className="flex items-center gap-2">
             <Bell className="h-4 w-4" />
             Toutes Notifications
@@ -183,205 +234,135 @@ useEffect(() => {
             <Mail className="h-4 w-4" />
             Non lues
           </TabsTrigger>
-          <TabsTrigger value="settings" className="flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Paramètres
-          </TabsTrigger>
         </TabsList>
 
         <TabsContent value={selectedTab}>
-          {selectedTab !== "settings" ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  {selectedTab === "all" ? "Toutes Notifications" : "Notifications non lues"}
-                </CardTitle>
-                <CardDescription>
-                  {selectedTab === "all" 
-                    ? "Liste complète des notifications et alertes système"
-                    : "Notifications nécessitant votre attention"}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="rounded-md border">
-                  <Table>
-                    <TableHeader>
+          <Card>
+            <CardHeader>
+              <CardTitle>
+                {selectedTab === "all" ? "Toutes Notifications" : "Notifications non lues"}
+              </CardTitle>
+              <CardDescription>
+                {selectedTab === "all" 
+                  ? "Liste complète des notifications et alertes système"
+                  : "Notifications nécessitant votre attention"}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Priorité</TableHead>
+                      <TableHead>Title</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Time</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {isLoading ? (
+                      Array.from({ length: 5 }).map((_, i) => (
+                        <TableRow key={i}>
+                          <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                          <TableCell><Skeleton className="h-10 w-full" /></TableCell>
+                          <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                          <TableCell><Skeleton className="h-6 w-32" /></TableCell>
+                          <TableCell><Skeleton className="h-6 w-16" /></TableCell>
+                          <TableCell><Skeleton className="h-8 w-20" /></TableCell>
+                        </TableRow>
+                      ))
+                    ) : isError ? (
                       <TableRow>
-                        <TableHead>Priorité</TableHead>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Type</TableHead>
-                        <TableHead>Time</TableHead>
-                        <TableHead>Status</TableHead>
-                        <TableHead>Actions</TableHead>
+                        <TableCell colSpan={6} className="h-32 text-center">
+                          <div className="flex flex-col items-center gap-2">
+                            <p className="text-destructive font-medium">Une erreur est survenue lors du chargement.</p>
+                            <Button variant="outline" size="sm" onClick={() => {
+                              setIsLoading(true);
+                              setIsError(false);
+                              fetchNotifications();
+                            }}>
+                              <RefreshCcw className="mr-2 h-4 w-4" /> Réessayer
+                            </Button>
+                          </div>
+                        </TableCell>
                       </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {filteredNotifications.map((notification) => (
+                    ) : filteredNotifications.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                          Aucune notification à afficher.
+                        </TableCell>
+                      </TableRow>
+                    ) : (
+                      filteredNotifications.map((notification) => (
                         <TableRow 
                           key={notification.id}
-                          className={!notification.message ? "bg-muted/50" : ""}
+                          className={notification.status === "non lu" ? "bg-muted/30" : ""}
                         >
                           <TableCell>
-                          <div className="flex items-center gap-2">
-                            {getPriorityIcon(notification.type)}
-                          </div>
+                            {getPriorityBadge(notification.priorite)}
                           </TableCell>
                           <TableCell>
-                          <div>
-                            <p className={`font-medium ${notification.status !== "read" ? "font-semibold" : ""}`}>
-                            {notification.titre}
-                            </p>
-                            <p className="text-sm text-muted-foreground">
-                            {notification.message}
-                            </p>
-                          </div>
+                            <div>
+                              <p className={`font-medium ${notification.status === "non lu" ? "font-semibold text-primary" : ""}`}>
+                                {notification.titre}
+                              </p>
+                              <p className="text-sm text-muted-foreground line-clamp-1">
+                                {notification.message}
+                              </p>
+                            </div>
                           </TableCell>
-                          <TableCell>{getTypeBadge(notification.type)}</TableCell>
+                          <TableCell>{getTypeBadge(notification.type_notification)}</TableCell>
                           <TableCell>
-                          <div className="flex items-center gap-2">
-                            {getChannelIcon(notification.channel)}
-                            <span className="capitalize">{notification.channel}</span>
-                          </div>
-                          </TableCell>
-                          <TableCell>
-                          {notification.creer_le
-                            ? new Date(notification.creer_le).toLocaleString("fr-FR", {
-                              year: "numeric",
-                              month: "2-digit",
-                              day: "2-digit",
-                              hour: "2-digit",
-                              minute: "2-digit"
-                            }).replace(",", " à")
-                            : "--"}
+                            <span className="text-sm text-muted-foreground">
+                              {notification.creer_le
+                                ? new Date(notification.creer_le).toLocaleString("fr-FR", {
+                                    day: "2-digit",
+                                    month: "2-digit",
+                                    year: "numeric",
+                                    hour: "2-digit",
+                                    minute: "2-digit"
+                                  })
+                                : "--"}
+                            </span>
                           </TableCell>
                           <TableCell>
-                            {notification.status === "lu" ? (
-
-                              <Badge variant="outline">Lu</Badge>
-                            ) : (
-                              <Badge className="bg-primary text-primary-foreground">Nouveau</Badge>
-                            )}
+                            <Badge variant={notification.status === "lu" ? "outline" : "default"} className={notification.status === "non lu" ? "bg-primary/10 text-primary border-primary/20" : ""}>
+                              {notification.status === "lu" ? "Lu" : "Non lu"}
+                            </Badge>
                           </TableCell>
                           <TableCell>
                             <div className="flex items-center gap-2">
-                              {notification.status !== "read" && (
-                                <Button size="sm" variant="outline">
+                              {notification.status === "non lu" && (
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  title="Marquer comme lu"
+                                  onClick={() => handleMarkAsRead(notification.id)}
+                                >
                                   <Check className="h-4 w-4" />
                                 </Button>
                               )}
-                              <Button size="sm" variant="outline">
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-destructive hover:text-destructive hover:bg-destructive/10" 
+                                title="Supprimer"
+                                onClick={() => handleDelete(notification.id)}
+                              >
                                 <X className="h-4 w-4" />
                               </Button>
                             </div>
                           </TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="grid gap-6 lg:grid-cols-2">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Préférences de notification</CardTitle>
-                  <CardDescription>
-                    Configurez comment vous souhaitez recevoir les différents types de notifications
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-6">
-                    {notificationSettings.map((setting, index) => (
-                      <div key={index} className="space-y-3">
-                        <div>
-                          <h4 className="font-medium">{setting.category}</h4>
-                          <p className="text-sm text-muted-foreground">{setting.description}</p>
-                        </div>
-                        <div className="flex items-center gap-6 pl-4">
-                          <div className="flex items-center gap-2">
-                            <Mail className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">Email</span>
-                            <Switch checked={setting.email} />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Smartphone className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">SMS</span>
-                            <Switch checked={setting.sms} />
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Bell className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm">Push</span>
-                            <Switch checked={setting.push} />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader>
-                  <CardTitle>Paramètres de livraison</CardTitle>
-                  <CardDescription>
-                    Configurez quand et comment les notifications sont envoyées
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-6">
-                  <div className="space-y-3">
-                    <h4 className="font-medium">Paramètres Email</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span>Envoi immédiat</span>
-                        <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Résumé quotidien</span>
-                        <Switch />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Résumé hebdomadaire</span>
-                        <Switch defaultChecked />
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h4 className="font-medium">Heures silencieuses</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span>Activer les heures silencieuses</span>
-                        <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>From: 10:00 PM</span>
-                        <Button size="sm" variant="outline">Modifier</Button>
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>To: 8:00 AM</span>
-                        <Button size="sm" variant="outline">Modifier</Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-3">
-                    <h4 className="font-medium">Alertes critiques</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between">
-                        <span>Ignorer les heures silencieuses</span>
-                        <Switch defaultChecked />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <span>Canaux multiples</span>
-                        <Switch defaultChecked />
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
-          )}
+                      ))
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
     </div>
