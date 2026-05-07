@@ -19,13 +19,13 @@ class ContenuDansFilter(FilterSet):
 
 
 class DonneeVenteFilter(FilterSet):
+    numero_vente = filters.CharFilter(lookup_expr='icontains')
+
     class Meta:
         model = DonneeVente
         fields = {
-            'quantite_vendu':    ['exact', 'gt', 'lt'],
-            'prix_unitaire':     ['exact', 'gt', 'lt'],
             'montant_total':     ['exact', 'gt', 'lt'],
-            'date_vente':        ['exact', 'gt', 'lt'],
+            'date_vente':        ['exact', 'gt', 'lt', 'year', 'month'],
             'canal_vente':       ['exact', 'icontains'],
             'segment_clientele': ['exact', 'icontains'],
             'utilisateur':       ['exact'],
