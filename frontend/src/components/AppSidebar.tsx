@@ -18,7 +18,13 @@ import {
   AlertTriangle,
   ChevronDown,
   ChevronUp,
-  Warehouse
+  Warehouse,
+  ShoppingCart,
+  DollarSign,
+  RotateCcw,
+  LineChart,
+  Sparkles,
+  ArrowLeftRight,
 } from "lucide-react"
 
 import {
@@ -44,6 +50,15 @@ const mainItems = [
   { title: "Alertes", url: "/alerts", icon: AlertTriangle },
 ]
 
+const achatVenteItems = [
+  { title: "Achats", url: "/buy-sell/achats", icon: ShoppingCart },
+  { title: "Ventes", url: "/buy-sell/ventes", icon: DollarSign },
+  { title: "Retours", url: "/buy-sell/retours", icon: RotateCcw },
+  { title: "Analyse", url: "/buy-sell/analyse", icon: LineChart },
+  { title: "Recommandations", url: "/buy-sell/recommandations", icon: Sparkles },
+  { title: "Mouvements", url: "/buy-sell/mouvements", icon: ArrowLeftRight },
+]
+
 const dataItems = [
   { title: "Gestion des données", url: "/data", icon: Database },
   { title: "Modèles IA", url: "/models", icon: Brain },
@@ -61,6 +76,7 @@ export function AppSidebar() {
   const currentPath = location.pathname
   const collapsed = state === "collapsed"
   const [openDashboard, setOpenDashboard] = useState(false)
+  const [openAchatVente, setOpenAchatVente] = useState(false)
 
   const isActive = (path: string) => currentPath === path
 
@@ -149,6 +165,49 @@ export function AppSidebar() {
                   )}
                 </SidebarMenuItem>
               ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        {/* Achats & Ventes */}
+        <SidebarGroup>
+          <SidebarGroupLabel>Achats & Ventes</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  onClick={() => setOpenAchatVente(!openAchatVente)}
+                  className="flex items-center justify-between w-full"
+                >
+                  <span className="flex items-center gap-2">
+                    <ShoppingCart className="h-4 w-4" />
+                    {!collapsed && <span>Achats & Ventes</span>}
+                  </span>
+                  {!collapsed &&
+                    (openAchatVente ? (
+                      <ChevronUp className="h-4 w-4" />
+                    ) : (
+                      <ChevronDown className="h-4 w-4" />
+                    ))}
+                </SidebarMenuButton>
+
+                {openAchatVente && !collapsed && (
+                  <ul className="ml-8 mt-1 space-y-1 text-sm">
+                    {achatVenteItems.map((item) => (
+                      <li key={item.title} className="gap-2 flex hover:bg-sidebar-accent text-sidebar-accent-foreground px-2 py-1 rounded-md items-center">
+                        <item.icon className="max-h-4 w-4" />
+                        <NavLink
+                          to={item.url}
+                          end
+                          className={isActive(item.url) ? "font-medium" : ""}
+                        >
+                          {item.title}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
