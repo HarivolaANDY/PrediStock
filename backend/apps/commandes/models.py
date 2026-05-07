@@ -36,65 +36,80 @@ class BonCommande(models.Model):
 
 
 class ContenuDans(models.Model):
-    """Ligne de commande : relie une recommandation IA à un produit commandé."""
-    recommandation = models.ForeignKey(
-        'forecasting.Recommandation', on_delete=models.SET_NULL, null=True
+    """Ligne de commande : détaille les produits d'un bon de commande."""
+    bon_commande = models.ForeignKey(
+        BonCommande, on_delete=models.CASCADE, related_name='lignes', null=True
     )
     produit = models.ForeignKey(
         'catalogue.Product', on_delete=models.SET_NULL, null=True
     )
+    recommandation = models.ForeignKey(
+        'forecasting.Recommandation', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    quantite = models.IntegerField(default=1)
+    prix_unitaire = models.FloatField(default=0)
     creer_le = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Ligne de commande"
         verbose_name_plural = "Lignes de commande"
 
+    @property
+    def montant_ligne(self):
+        return self.quantite * self.prix_unitaire
+
     def __str__(self):
-        return f"{self.recommandation} — {self.produit}"
+        return f"{self.bon_commande.numero_commande if self.bon_commande else 'Orphelin'} — {self.produit} ({self.quantite})"
 
 
 class DonneeVente(models.Model):
+    """Entête de vente : regroupe plusieurs produits vendus en une transaction."""
     utilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL, null=True, blank=True,
         related_name='donnee_ventes'
     )
-    quantite_vendu = models.IntegerField(default=0)
-    prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2)
-    montant_total = models.DecimalField(max_digits=10, decimal_places=2)
-    remise_applique = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    numero_vente = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    remise_globale = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     canal_vente = models.CharField(max_length=128, blank=True, default="")
     segment_clientele = models.CharField(max_length=128, blank=True, default="")
-    donne_supplementaire = models.FileField(upload_to='donnee_vente/', blank=True, null=True)
     date_vente = models.DateTimeField(auto_now_add=True)
     creer_le = models.DateTimeField(auto_now_add=True)
     update_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Donnée de vente"
-        verbose_name_plural = "Données de vente"
+        verbose_name = "Vente"
+        verbose_name_plural = "Ventes"
         ordering = ['-date_vente']
 
     def __str__(self):
-        return f"Vente {self.id} — {self.date_vente:%Y-%m-%d}"
+        return f"Vente {self.numero_vente or self.id} — {self.date_vente:%Y-%m-%d}"
 
 
 class ProduitDonneeVente(models.Model):
-    """Liaison Product ↔ DonneeVente — remplace apps/produit_donneevente."""
-    produit = models.ForeignKey(
-        'catalogue.Product', on_delete=models.CASCADE, null=True, blank=True
-    )
+    """Ligne de vente : détaille chaque produit d'une transaction."""
     donnee_vente = models.ForeignKey(
-        DonneeVente, on_delete=models.CASCADE, null=True, blank=True
+        DonneeVente, on_delete=models.CASCADE, related_name='lignes'
     )
+    produit = models.ForeignKey(
+        'catalogue.Product', on_delete=models.CASCADE
+    )
+    quantite = models.IntegerField(default=1)
+    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2)
+    remise_applique = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
     class Meta:
-        verbose_name = "Produit — donnée de vente"
-        verbose_name_plural = "Produits — données de vente"
+        verbose_name = "Ligne de vente"
+        verbose_name_plural = "Lignes de vente"
         unique_together = ('produit', 'donnee_vente')
 
+    @property
+    def montant_ligne(self):
+        return (self.quantite * self.prix_unitaire) - self.remise_applique
+
     def __str__(self):
-        return f"{self.produit} — {self.donnee_vente}"
+        return f"{self.donnee_vente} : {self.produit} (x{self.quantite})"
 
 
 class ProduitRenvoie(models.Model):
