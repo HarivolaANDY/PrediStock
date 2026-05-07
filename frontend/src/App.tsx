@@ -27,6 +27,13 @@ import DashboardAdmin from "@/pages/DashboardAdmin";
 import ProductManagerPage from "@/pages/ProductManagerPage";
 import { useSettings } from "@/hooks/useSettings";
 
+import AchatPage from "@/pages/achat-vente/AchatPage";
+import VentePage from "@/pages/achat-vente/VentePage";
+import RetoursPage from "@/pages/achat-vente/RetoursPage";
+import AnalysePage from "@/pages/achat-vente/AnalysePage";
+import RecommandationsPage from "@/pages/achat-vente/RecommandationsPage";
+import MouvementsPage from "@/pages/achat-vente/MouvementsPage";
+
 const queryClient = new QueryClient();
 
 const AppRoutes = () => {
@@ -58,6 +65,14 @@ const AppRoutes = () => {
         <Route path="/product/:id" element={<Layout><ProductDetails /></Layout>} />
         <Route path="/product" element={<Layout><Products /></Layout>} />
         <Route path="/product-manager" element={<Layout><ProductManagerPage /></Layout>} />
+
+        <Route path="/buy-sell/achats" element={<Layout><AchatPage /></Layout>} />
+        <Route path="/buy-sell/ventes" element={<Layout><VentePage /></Layout>} />
+        <Route path="/buy-sell/retours" element={<Layout><RetoursPage /></Layout>} />
+        <Route path="/buy-sell/analyse" element={<Layout><AnalysePage /></Layout>} />
+        <Route path="/buy-sell/recommandations" element={<Layout><RecommandationsPage /></Layout>} />
+        <Route path="/buy-sell/mouvements" element={<Layout><MouvementsPage /></Layout>} />
+
         <Route path="*" element={<NotFound />} />
       </Routes>
       {showChatbot && <Chatbot />}
