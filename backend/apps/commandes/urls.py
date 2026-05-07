@@ -3,6 +3,7 @@ from rest_framework.routers import DefaultRouter
 from .views import (
     BCViewSet, ContenuDansViewSet, DonneeVenteViewSet,
     ProduitDonneeVenteViewSet, ProduitRenvoieViewSet,
+    PurchaseSalesAnalyticsView,
 )
 
 router = DefaultRouter()
@@ -14,4 +15,5 @@ router.register(r'retours',            ProduitRenvoieViewSet,     basename='reto
 
 urlpatterns = [
     path('', include(router.urls)),
+    path('analytics/', PurchaseSalesAnalyticsView.as_view(), name='purchase-sales-analytics'),
 ]
