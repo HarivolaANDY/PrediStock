@@ -1,6 +1,9 @@
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from django.db.models import Sum, Count
 from django_filters.rest_framework import DjangoFilterBackend
 
 from apps.core.views import GenericCRUDViewSet
@@ -31,36 +34,11 @@ class ContenuDansViewSet(GenericCRUDViewSet):
 
 
 class DonneeVenteViewSet(viewsets.ModelViewSet):
-    queryset = DonneeVente.objects.all()
+    queryset = DonneeVente.objects.all().order_by('-date_vente')
     serializer_class = DonneeVenteSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = DonneeVenteFilter
-
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        if serializer.is_valid():
-            dv = serializer.save()
-            produit_id = request.data.get('id_produit')
-            if produit_id:
-                try:
-                    from apps.catalogue.models import Product
-                    ProduitDonneeVente.objects.create(
-                        donnee_vente=dv,
-                        produit=Product.objects.get(id=produit_id)
-                    )
-                except Exception as e:
-                    print(f"Erreur liaison ProduitDonneeVente : {e}")
-            return StandardResponse.render(
-                data=serializer.data,
-                message="Donnée de vente créée.",
-                status_code=201
-            )
-        return StandardResponse.render(
-            data=serializer.errors,
-            message="Données invalides.",
-            status_code=400
-        )
 
     @action(detail=False, methods=['delete'])
     def bulk_delete(self, request):
@@ -116,3 +94,30 @@ class ProduitRenvoieViewSet(viewsets.ModelViewSet):
             )
         except Exception as e:
             return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
+
+
+class PurchaseSalesAnalyticsView(APIView):
+    """Aggregated analytics: purchases vs sales with estimated margin."""
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        purchase_agg = BonCommande.objects.aggregate(
+            total=Sum('montant_total'),
+            count=Count('id')
+        )
+        sales_agg = DonneeVente.objects.aggregate(
+            total=Sum('montant_total'),
+            count=Count('id')
+        )
+
+        total_purchases = float(purchase_agg['total'] or 0)
+        total_sales = float(sales_agg['total'] or 0)
+
+        data = {
+            'total_purchases': round(total_purchases, 2),
+            'total_sales': round(total_sales, 2),
+            'margin': round(total_sales - total_purchases, 2),
+            'purchase_count': purchase_agg['count'] or 0,
+            'sale_count': sales_agg['count'] or 0,
+        }
+        return Response({'success': True, 'data': data})
