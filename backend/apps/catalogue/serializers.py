@@ -105,7 +105,7 @@ class ProduitDvSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProduitDv
-        fields = '__all__'
+        fields = ['id', 'product', 'designation', 'nombre', 'date_creation', 'infos']
         read_only_fields = ('id', 'date_creation')
         extra_kwargs = {
             'product': {'required': True}

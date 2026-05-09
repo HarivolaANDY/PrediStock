@@ -1,14 +1,26 @@
 from rest_framework import serializers
 from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from apps.catalogue.models import ProduitDv
 
 
 class ContenuDansSerializer(serializers.ModelSerializer):
-    product_name = serializers.ReadOnlyField(source='produit.name')
+    produit_name = serializers.SerializerMethodField()
+    produit_dv_name = serializers.SerializerMethodField()
+
+    def get_produit_name(self, obj):
+        return obj.produit.name if obj.produit else "N/A"
+    
+    def get_produit_dv_name(self, obj):
+        return obj.produit_dv.designation if obj.produit_dv else "N/A"
+
     montant_ligne = serializers.ReadOnlyField()
 
     class Meta:
         model = ContenuDans
-        fields = ['id', 'bon_commande', 'produit', 'product_name', 'recommandation', 'quantite', 'prix_unitaire', 'montant_ligne']
+        fields = [
+            'id', 'bon_commande', 'produit', 'produit_dv', 'produit_name', 
+            'produit_dv_name', 'recommandation', 'quantite', 'prix_unitaire', 'montant_ligne'
+        ]
 
     def validate_quantite(self, value):
         if value <= 0:
@@ -33,20 +45,31 @@ class BonCommandeSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         lignes_data = validated_data.pop('lignes_data', [])
-        # Auto-generate numero_commande if default
-        if validated_data.get('numero_commande') == 'BC-000000000':
+        
+        # Auto-generate numero_commande if default or empty
+        if not validated_data.get('numero_commande') or validated_data.get('numero_commande') == 'BC-000000000':
             import uuid
             validated_data['numero_commande'] = f"BC-{str(uuid.uuid4())[:8].upper()}"
-        
+
         bon = BonCommande.objects.create(**validated_data)
-        
+
         total = 0
         for ligne in lignes_data:
             quantite = ligne.get('quantite', 1)
             prix = ligne.get('prix_unitaire', 0)
+            p_id = ligne.get('produit')
+            dv_id = ligne.get('produit_dv')
+            
+            # Auto-fill parent if missing
+            if not p_id and dv_id:
+                dv_obj = ProduitDv.objects.filter(id=dv_id).first()
+                if dv_obj and dv_obj.product:
+                    p_id = dv_obj.product.id
+
             ContenuDans.objects.create(
                 bon_commande=bon,
-                produit_id=ligne.get('produit'),
+                produit_id=p_id,
+                produit_dv_id=dv_id,
                 quantite=quantite,
                 prix_unitaire=prix
             )
@@ -60,12 +83,23 @@ class BonCommandeSerializer(serializers.ModelSerializer):
 
 
 class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
-    produit_name = serializers.ReadOnlyField(source='produit.name')
+    produit_name = serializers.SerializerMethodField()
+    produit_dv_name = serializers.SerializerMethodField()
+
+    def get_produit_name(self, obj):
+        return obj.produit.name if obj.produit else "N/A"
+    
+    def get_produit_dv_name(self, obj):
+        return obj.produit_dv.designation if obj.produit_dv else "N/A"
+
     montant_ligne = serializers.ReadOnlyField()
 
     class Meta:
         model = ProduitDonneeVente
-        fields = ['id', 'donnee_vente', 'produit', 'produit_name', 'quantite', 'prix_unitaire', 'remise_applique', 'montant_ligne']
+        fields = [
+            'id', 'donnee_vente', 'produit', 'produit_dv', 'produit_name', 
+            'produit_dv_name', 'quantite', 'prix_unitaire', 'remise_applique', 'montant_ligne'
+        ]
 
 
 class DonneeVenteSerializer(serializers.ModelSerializer):
@@ -97,9 +131,20 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
             quantite = ligne.get('quantite', 1)
             prix = ligne.get('prix_unitaire', 0)
             remise = ligne.get('remise_applique', 0)
+            p_id = ligne.get('produit')
+            dv_id = ligne.get('produit_dv')
+            
+            # Auto-fill parent if missing
+            if not p_id and dv_id:
+                from apps.catalogue.models import ProduitDv
+                dv_obj = ProduitDv.objects.filter(id=dv_id).first()
+                if dv_obj and dv_obj.product:
+                    p_id = dv_obj.product.id
+
             ProduitDonneeVente.objects.create(
                 donnee_vente=vente,
-                produit_id=ligne.get('produit'),
+                produit_id=p_id,
+                produit_dv_id=dv_id,
                 quantite=quantite,
                 prix_unitaire=prix,
                 remise_applique=remise
@@ -114,8 +159,14 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
 
 
 class ProduitRenvoieSerializer(serializers.ModelSerializer):
-    produit_name = serializers.ReadOnlyField(source='produit.name')
+    produit_name = serializers.SerializerMethodField()
+
+    def get_produit_name(self, obj):
+        return obj.produit.name if obj.produit else "N/A"
     
     class Meta:
         model = ProduitRenvoie
-        fields = '__all__'
+        fields = [
+            'id', 'produit', 'produit_name', 'quantite_retourner', 
+            'date_retour', 'raison_retour', 'est_reapprovisionnnable'
+        ]

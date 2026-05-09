@@ -25,7 +25,6 @@ const ProductManagerEntree = () => {
     designation: '',
     nombre: 1,
     quantite: 1,
-    count: undefined,
     ref: '',
     is_direct: false,
   });
@@ -35,7 +34,7 @@ const ProductManagerEntree = () => {
     setFormProductId('');
     setFormProductName('');
     setSearchTerm('');
-    setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, count: undefined, ref: '', is_direct: false });
+    setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, ref: '', is_direct: false });
     setFormPanier([]);
     setSelectProduit_dv([]);
     setShowModal(true);
@@ -51,7 +50,7 @@ const ProductManagerEntree = () => {
       return;
     }
     setFormPanier([...formPanier, formPanierItem]);
-    setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, count: undefined, ref: '', is_direct: false });
+    setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, ref: '', is_direct: false });
   };
 
   const removeFormPanierItem = (index: number) => {
@@ -155,7 +154,7 @@ const ProductManagerEntree = () => {
         }));
       } else {
         // Des dérivées existent → reset, l'utilisateur doit choisir
-        setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, count: undefined, ref: '', is_direct: false });
+        setFormPanierItem({ id: 0, designation: '', nombre: 1, quantite: 1, ref: '', is_direct: false });
       }
     } catch {
       setSelectProduit_dv([]);
@@ -215,12 +214,6 @@ const ProductManagerEntree = () => {
                         <span>{item.designation}</span>
                         <span className="text-gray-400">·</span>
                         <span>Quantité : <strong>{item.nombre}</strong></span>
-                        {item.count !== undefined && (
-                          <>
-                            <span className="text-gray-400">·</span>
-                            <span>Stock (théo) : <strong>{item.count}</strong></span>
-                          </>
-                        )}
                         {item.ref && (
                           <>
                             <span className="text-gray-400">·</span>
@@ -381,35 +374,13 @@ const ProductManagerEntree = () => {
                   min={0}
                   onChange={(e) => {
                     const val = Number(e.target.value);
-                    const sel = selectProduit_dv.find(d => d.id === formPanierItem.id);
-                    let newCount = formPanierItem.count;
-                    if (sel && sel.quantite > 0) {
-                      newCount = Math.round(val * sel.quantite);
-                    }
-                    setFormPanierItem({ ...formPanierItem, nombre: val, quantite: val, count: newCount });
+                    setFormPanierItem({ ...formPanierItem, nombre: val, quantite: val });
                   }}
                   className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-gray-50"
                 />
               </div>
 
-              {/* Champ modifiable si c'est un produit au poids */}
-              {(() => {
-                const sel = selectProduit_dv.find(d => d.id === formPanierItem.id);
-                if (sel && sel.quantite > 0) {
-                  return (
-                    <div>
-                      <label className="text-xs text-gray-600 mb-1 block">Stock théorique (modificable) :</label>
-                      <input
-                        type="number"
-                        value={formPanierItem.count || 0}
-                        onChange={(e) => setFormPanierItem({ ...formPanierItem, count: Number(e.target.value) })}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-blue-50/50 font-semibold"
-                      />
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+
 
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Référence :</label>
@@ -438,7 +409,6 @@ const ProductManagerEntree = () => {
                   <li key={index} className="flex items-center justify-between bg-blue-50/50 rounded-lg px-4 py-2 border border-blue-100">
                     <span className="text-gray-700 text-sm">
                       {item.designation} · Qté : <strong>{item.nombre}</strong>
-                      {item.count !== undefined && <span className="text-blue-600 font-medium"> · Théo : {item.count}</span>}
                       {item.ref && <span className="text-gray-500"> · {item.ref}</span>}
                     </span>
                     <button

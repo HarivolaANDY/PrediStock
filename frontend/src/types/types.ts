@@ -3,7 +3,6 @@ export interface PanierItem {
   designation: string;
   nombre: number;   // Poids (kg) ou quantité standard
   quantite: number; // Dupliqué de nombre pour compatibilité backend
-  count?: number;   // Optionnel : nombre d'unités (override manuel)
   ref?: string;
   is_direct?: boolean;
 };
@@ -16,7 +15,6 @@ export interface ProduitInserer {
 export interface PDV {
   id: number;
   designation: string;
-  quantite: number;
   nombre: number;
   date_creation: string;
   product?: number;
@@ -29,7 +27,6 @@ export interface PDV {
 }
 export interface PDVData {
   designation : string;
-  quantite : number;
   product : number;
 };
 

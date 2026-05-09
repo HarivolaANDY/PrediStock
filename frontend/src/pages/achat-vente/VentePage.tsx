@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getDonneeVentes, createDonneeVente, getProduits } from "@/services/achatVenteService"
+import { getDonneeVentes, createDonneeVente, searchProduits } from "@/services/achatVenteService"
 import { DollarSign, TrendingUp, ShoppingBag, RefreshCw, Filter, Plus, Search, Eye, Package, Trash2, X } from "lucide-react"
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
@@ -39,11 +39,14 @@ export default function VentePage() {
     queryFn: () => getDonneeVentes(canal ? { canal_vente: canal } : undefined),
   })
 
-  const { data: produits = [] } = useQuery({ queryKey: ["produits"], queryFn: getProduits })
+  const { data: productsAndSubProducts = [] } = useQuery({ 
+    queryKey: ["produits-search-combined"], 
+    queryFn: () => searchProduits("") 
+  })
 
   // Form state
   const [lines, setLines] = useState<CreateLigneVenteData[]>([
-    { produit: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }
+    { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }
   ])
   const [form, setForm] = useState({
     canal_vente: "Direct",
@@ -62,11 +65,11 @@ export default function VentePage() {
   })
 
   const resetForm = () => {
-    setLines([{ produit: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
+    setLines([{ produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
     setForm({ canal_vente: "Direct", segment_clientele: "Particulier" })
   }
 
-  const handleAddLine = () => setLines([...lines, { produit: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
+  const handleAddLine = () => setLines([...lines, { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
   const handleRemoveLine = (idx: number) => setLines(lines.filter((_, i) => i !== idx))
   const handleUpdateLine = (idx: number, data: Partial<CreateLigneVenteData>) => {
     const newLines = [...lines]
@@ -76,7 +79,7 @@ export default function VentePage() {
 
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
-    if (lines.some(l => !l.produit)) return toast.error("Veuillez choisir un produit")
+    if (lines.some(l => !l.produit && !l.produit_dv)) return toast.error("Veuillez choisir un produit ou sous-produit")
     const userStr = localStorage.getItem("user")
     const userId = userStr ? JSON.parse(userStr).id : null
     
@@ -260,19 +263,56 @@ export default function VentePage() {
               <div className="space-y-3">
                 {lines.map((line, idx) => (
                   <div key={idx} className="flex flex-col md:flex-row gap-3 bg-muted/20 p-3 rounded-xl border border-border relative">
-                    <div className="flex-1">
-                      <select className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-xs outline-none" value={line.produit || ""} onChange={e => handleUpdateLine(idx, { produit: Number(e.target.value) })}>
-                        <option value="">Choisir un produit</option>
-                        {Array.isArray(produits) && produits.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    <div className="flex-[2] space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Produit / Sous-produit</label>
+                      <select 
+                        className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-xs outline-none" 
+                        value={line.produit_dv ? `dv-${line.produit_dv}` : (line.produit ? `pr-${line.produit}` : "")}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (!val) {
+                            handleUpdateLine(idx, { produit: null, produit_dv: null, prix_unitaire: 0 });
+                            return;
+                          }
+                          const [type, idStr] = val.split('-');
+                          const id = Number(idStr);
+                          const selected = productsAndSubProducts.find(p => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
+                          
+                          const price = selected?.price || 0;
+
+                          if (type === 'dv') {
+                            handleUpdateLine(idx, { 
+                              produit_dv: id, 
+                              produit: selected?.parent_id || null, 
+                              prix_unitaire: Number(price)
+                            });
+                          } else {
+                            handleUpdateLine(idx, { 
+                              produit: id, 
+                              produit_dv: null, 
+                              prix_unitaire: Number(price)
+                            });
+                          }
+                        }}
+                      >
+                        <option value="" disabled hidden>Choisir un item</option>
+                        {Array.isArray(productsAndSubProducts) && productsAndSubProducts.map(p => (
+                          <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
+                            {p.is_deriv ? `[Sous-produit] ${p.name} (de ${p.parent_name})` : `[Produit] ${p.name}`}
+                          </option>
+                        ))}
                       </select>
                     </div>
-                    <div className="w-full md:w-20">
+                    <div className="w-full md:w-20 space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Quantité</label>
                       <Input type="number" placeholder="Qté" className="h-8 text-xs bg-background" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: Number(e.target.value) })} />
                     </div>
-                    <div className="w-full md:w-28">
+                    <div className="w-full md:w-28 space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Prix Vente</label>
                       <Input type="number" placeholder="Prix Vente" className="h-8 text-xs bg-background" value={line.prix_unitaire} onChange={e => handleUpdateLine(idx, { prix_unitaire: Number(e.target.value) })} />
                     </div>
-                    <div className="w-full md:w-20">
+                    <div className="w-full md:w-20 space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Remise</label>
                       <Input type="number" placeholder="Remise" className="h-8 text-xs bg-background" value={line.remise_applique} onChange={e => handleUpdateLine(idx, { remise_applique: Number(e.target.value) })} />
                     </div>
                     <div className="w-full md:w-32 flex items-center justify-end font-bold text-xs text-emerald-600">

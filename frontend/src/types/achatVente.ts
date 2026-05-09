@@ -44,6 +44,7 @@ export interface BonCommande {
 
 export interface CreateLigneData {
   produit: number | null;
+  produit_dv?: number | null;
   quantite: number;
   prix_unitaire: number;
 }
@@ -85,6 +86,7 @@ export interface DonneeVente {
 
 export interface CreateLigneVenteData {
   produit: number | null;
+  produit_dv?: number | null;
   quantite: number;
   prix_unitaire: number;
   remise_applique?: number;

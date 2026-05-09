@@ -27,7 +27,7 @@ class ProductAdmin(admin.ModelAdmin):
 
 @admin.register(ProduitDv)
 class ProduitDvAdmin(admin.ModelAdmin):
-    list_display = ['designation', 'product', 'quantite', 'nombre', 'date_creation']
+    list_display = ['designation', 'product', 'nombre', 'date_creation']
     search_fields = ['designation', 'product__name']
 
 

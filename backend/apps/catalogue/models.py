@@ -69,8 +69,7 @@ class Product(models.Model):
     est_perissable = models.BooleanField(default=False)
     unite_mesure = models.CharField(max_length=50, default='Kg', blank=True)
     product_img = models.ImageField(upload_to='products/', blank=True, null=True)
-    theorical_capacity = models.DecimalField(max_digits=10, decimal_places=2, default=1, blank=True, null=True)
-    theorical_unit = models.CharField(max_length=50, blank=True, null=True, default="pièces")
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -110,20 +109,11 @@ class Product(models.Model):
     @property
     def unassigned_stock(self):
         """
-        Retourne le stock qui n'est alloué à aucune variante.
-        Allocated weight = SUM(dv.nombre / dv.quantite)
+        Retourne le stock non alloué à aucune variante.
+        Allocated stock = SUM(dv.nombre) sur tous les sous-produits.
         """
-        from django.db.models import F, Sum, FloatField, ExpressionWrapper, Case, When, Value
-        # On utilise Case/When pour éviter la division par zéro
-        allocated = self.produitdv_set.aggregate(
-            total=Sum(
-                Case(
-                    When(quantite=0, then=Value(0.0)),
-                    default=ExpressionWrapper(F('nombre') * 1.0 / F('quantite'), output_field=FloatField()),
-                    output_field=FloatField()
-                )
-            )
-        )['total'] or 0
+        from django.db.models import Sum
+        allocated = self.produitdv_set.aggregate(total=Sum('nombre'))['total'] or 0
         return float(self.current_stock) - float(allocated)
 
 
@@ -153,8 +143,7 @@ class ProductBatch(models.Model):
 class ProduitDv(models.Model):
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     designation = models.CharField(max_length=100, default="Aucune description")
-    quantite = models.DecimalField(max_digits=10, decimal_places=2, default=1, verbose_name="Capacité (Unités/Kg)")
-    nombre = models.IntegerField(default=0, blank=True, verbose_name="Nombre d'unités")
+    nombre = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, verbose_name="Stock")
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:

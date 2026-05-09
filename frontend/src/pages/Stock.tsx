@@ -240,17 +240,16 @@ export default function Stock() {
       if (filteredPDVs.length === 0) {
         toast({ variant: "destructive", title: "Erreur", description: "Aucune donnée à exporter" }); return
       }
-      const headers = ["Produit", "Capacité", "Quantité", "Date", "Produit parent"]
+      const headers = ["Produit", "Quantité", "Date", "Produit parent"]
       const dataToExport = filteredPDVs.map(p => ({
         designation: p.designation || "",
-        capacite: `${p.quantite || ""} ${p.infos?.unite_mesure || ""}`.trim(),
         quantite: p.nombre ?? "0",
         date: formatCustomDate(p.date_creation),
         parent: p.infos?.name || "—"
       }))
       const now = new Date()
       const filename = `products_stock_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
-      exportToCSV(dataToExport, filename, headers, ["designation", "capacite", "quantite", "date", "parent"])
+      exportToCSV(dataToExport, filename, headers, ["designation", "quantite", "date", "parent"])
     } catch (error) {
       toast({ variant: "destructive", title: "Erreur d'exportation", description: "Erreur lors de l'exportation CSV." })
     }
@@ -497,7 +496,6 @@ export default function Stock() {
                         <TableRow>
                           <TableHead className="w-8" />
                           <TableHead>Produit</TableHead>
-                          <TableHead>Capacité</TableHead>
                           <TableHead>Nb Entrée</TableHead>
                           <TableHead>Nb Sortie</TableHead>
                           <TableHead>Dernier mvt</TableHead>
@@ -507,9 +505,9 @@ export default function Stock() {
                       </TableHeader>
                       <TableBody>
                         {isLoadingPDVs ? (
-                          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Chargement des produits...</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Chargement des produits...</TableCell></TableRow>
                         ) : filteredPDVs.length === 0 ? (
-                          <TableRow><TableCell colSpan={8} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell></TableRow>
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell></TableRow>
                         ) : (
                           filteredPDVs.map((produit: any) => {
                             const produitId: number | null = produit.product ?? produit.id ?? null
@@ -528,7 +526,6 @@ export default function Stock() {
                                       : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
                                   </TableCell>
                                   <TableCell><p className="font-medium">{produit.designation}</p></TableCell>
-                                  <TableCell>{produit.quantite} {produit.infos?.unite_mesure || ""}</TableCell>
                                   <TableCell>
                                     {mvtStats ? <span className="text-green-600 font-medium">+{mvtStats.nbEntree}</span> : <span className="text-muted-foreground">—</span>}
                                   </TableCell>

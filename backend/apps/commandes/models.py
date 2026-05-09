@@ -31,7 +31,31 @@ class BonCommande(models.Model):
         verbose_name_plural = "Bons de commande"
         ordering = ['-creer_le']
 
+    def save(self, *args, **kwargs):
+        if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
+            # Get the highest ID or count to determine the next number
+            last_bc = BonCommande.objects.exclude(numero_commande='BC-000000000').order_by('-id').first()
+            if last_bc and last_bc.numero_commande.startswith('BC-'):
+                try:
+                    # Extract the number part: BC-0001 -> 0001 -> 1
+                    parts = last_bc.numero_commande.split('-')
+                    if len(parts) > 1:
+                        last_number = int(parts[1])
+                        new_number = last_number + 1
+                    else:
+                        new_number = 1
+                except (ValueError, IndexError):
+                    new_number = 1
+            else:
+                # If no previous BC, check the count
+                new_number = BonCommande.objects.count() + 1
+            
+            self.numero_commande = f"BC-{new_number:05d}"
+            
+        super().save(*args, **kwargs)
+
     def __str__(self):
+
         return f"Commande {self.numero_commande} — {self.utilisateur}"
 
 
@@ -42,6 +66,9 @@ class ContenuDans(models.Model):
     )
     produit = models.ForeignKey(
         'catalogue.Product', on_delete=models.SET_NULL, null=True
+    )
+    produit_dv = models.ForeignKey(
+        'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
     )
     recommandation = models.ForeignKey(
         'forecasting.Recommandation', on_delete=models.SET_NULL, null=True, blank=True
@@ -95,6 +122,9 @@ class ProduitDonneeVente(models.Model):
     produit = models.ForeignKey(
         'catalogue.Product', on_delete=models.CASCADE
     )
+    produit_dv = models.ForeignKey(
+        'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
+    )
     quantite = models.IntegerField(default=1)
     prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2)
     remise_applique = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -102,7 +132,7 @@ class ProduitDonneeVente(models.Model):
     class Meta:
         verbose_name = "Ligne de vente"
         verbose_name_plural = "Lignes de vente"
-        unique_together = ('produit', 'donnee_vente')
+        unique_together = ('produit', 'produit_dv', 'donnee_vente')
 
     @property
     def montant_ligne(self):

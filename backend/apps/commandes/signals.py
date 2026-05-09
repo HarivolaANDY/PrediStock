@@ -7,9 +7,10 @@ from apps.stock.models import MouvementStock
 def sync_stock_on_sale_line(sender, instance, created, **kwargs):
     """Update stock when a sale line is created."""
     if created:
-        # Create movement
+        # Create movement - This will automatically update stock via MouvementStock's signal
         MouvementStock.objects.create(
             produit=instance.produit,
+            produit_dv=instance.produit_dv,
             utilisateur=instance.donnee_vente.utilisateur,
             quantity=instance.quantite,
             movement_type=MouvementStock.TypeMouvement.OUT,
@@ -17,10 +18,6 @@ def sync_stock_on_sale_line(sender, instance, created, **kwargs):
             reason=f"Vente {instance.donnee_vente.numero_vente}",
             referrence=f"SALE-{instance.donnee_vente.id}-{instance.id}"
         )
-        # Update product stock
-        if instance.produit:
-            instance.produit.current_stock -= instance.quantite
-            instance.produit.save()
 
 
 @receiver(post_save, sender=BonCommande)
@@ -31,8 +28,10 @@ def sync_stock_on_purchase(sender, instance, created, **kwargs):
         for ligne in instance.lignes.all():
             ref = f"BC-LINE-{ligne.id}"
             if not MouvementStock.objects.filter(referrence=ref).exists():
+                # This will automatically update stock via MouvementStock's signal
                 MouvementStock.objects.create(
                     produit=ligne.produit,
+                    produit_dv=ligne.produit_dv,
                     utilisateur=instance.utilisateur,
                     quantity=ligne.quantite,
                     movement_type=MouvementStock.TypeMouvement.IN,
@@ -40,9 +39,6 @@ def sync_stock_on_purchase(sender, instance, created, **kwargs):
                     reason=f"Livraison BC {instance.numero_commande}",
                     referrence=ref
                 )
-                if ligne.produit:
-                    ligne.produit.current_stock += ligne.quantite
-                    ligne.produit.save()
 
 @receiver(post_save, sender=ProduitRenvoie)
 def sync_stock_on_return(sender, instance, created, **kwargs):
@@ -55,6 +51,3 @@ def sync_stock_on_return(sender, instance, created, **kwargs):
             reason=f"Retour Produit: {instance.raison_retour}",
             referrence=f"RET-{instance.id}"
         )
-        if instance.produit:
-            instance.produit.current_stock += instance.quantite_retourner
-            instance.produit.save()

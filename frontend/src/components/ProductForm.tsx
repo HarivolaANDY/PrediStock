@@ -42,7 +42,6 @@ export interface ProductFormData {
   product_img: File | string | null;
   tags?: string[];
   threshold?: number | string;
-  theorical_capacity: number | string;
 }
 
 interface ProductFormProps {
@@ -73,7 +72,6 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
     est_perissable: initialData?.est_perissable || false,
     unite_mesure : initialData?.unite_mesure || "pc",
     product_img: initialData?.product_img || null,
-    theorical_capacity: initialData?.theorical_capacity || 1,
   })
 
   // Fetch categories and suppliers when component mounts
@@ -224,7 +222,6 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
         supplier:       formData.supplier ? parseInt(formData.supplier.toString(), 10) : null,
         est_perissable: Boolean(formData.est_perissable),
         unite_mesure:   formData.unite_mesure,
-        theorical_capacity: parseFloat(formData.theorical_capacity.toString() || "1"),
       };
   
       if (initialData?.id) {
@@ -509,22 +506,7 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6 pt-4 border-t border-dashed">
-                  <div className="space-y-2">
-                    <Label htmlFor="theorical_capacity">Capacité (Unités par {formData.unite_mesure || 'unité'})</Label>
-                    <Input
-                      id="theorical_capacity"
-                      type="number"
-                      value={formData.theorical_capacity}
-                      onChange={(e) => handleInputChange("theorical_capacity", e.target.value)}
-                      placeholder="Ex: 7"
-                      min={0}
-                    />
-                    <p className="text-xs text-muted-foreground italic">
-                      Définit combien d'unités de produit final contient 1 {formData.unite_mesure || 'unité'}.
-                    </p>
-                  </div>
-                </div>
+
               </div>
               <div className="space-y-2">
                 <Label>Étiquettes</Label>

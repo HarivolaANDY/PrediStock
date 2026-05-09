@@ -1,12 +1,14 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getBonCommandes, createBonCommande, updateBonCommande, getFournisseurs, getProduits } from "@/services/achatVenteService"
-import type { BonCommande, BonCommandeStatus, CreateBonCommandeData, CreateLigneData } from "@/types/achatVente"
+import { getBonCommandes, createBonCommande, updateBonCommande, deleteBonCommande, getFournisseurs, searchProduits } from "@/services/achatVenteService"
+import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/achatVente"
+
 import { toast } from "sonner"
 import {
-  ShoppingCart, Plus, Filter, RefreshCw, X, CheckCircle2,
+  ShoppingCart, Plus, RefreshCw, CheckCircle2,
   Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search
 } from "lucide-react"
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -14,7 +16,8 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 
@@ -54,13 +57,17 @@ export default function AchatPage() {
 
   // Form state for lines
   const [lines, setLines] = useState<CreateLigneData[]>([
-    { produit: null, quantite: 1, prix_unitaire: 0 }
+    { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }
   ])
 
   const [form, setForm] = useState({
     fournisseur: null as number | null,
     livraison_prevue: "" as string,
   })
+
+  // State for deletion confirmation
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+
 
   // Queries
   const { data: commandes = [], isLoading, refetch } = useQuery({
@@ -69,7 +76,12 @@ export default function AchatPage() {
   })
 
   const { data: fournisseurs = [] } = useQuery({ queryKey: ["fournisseurs"], queryFn: getFournisseurs })
-  const { data: produits = [] } = useQuery({ queryKey: ["produits"], queryFn: getProduits })
+  
+  // Combined products and sub-products for the selection list
+  const { data: productsAndSubProducts = [] } = useQuery({ 
+    queryKey: ["produits-search-combined"], 
+    queryFn: () => searchProduits("") // Fetch all by default if possible, or we could merge manually
+  })
 
   const createMut = useMutation({
     mutationFn: createBonCommande,
@@ -92,12 +104,23 @@ export default function AchatPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
+  const deleteMut = useMutation({
+    mutationFn: deleteBonCommande,
+    onSuccess: () => {
+      toast.success("Bon de commande supprimé")
+      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+      setDeleteConfirmId(null)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+
   const resetForm = () => {
     setForm({ fournisseur: null, livraison_prevue: "" })
-    setLines([{ produit: null, quantite: 1, prix_unitaire: 0 }])
+    setLines([{ produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }])
   }
 
-  const handleAddLine = () => setLines([...lines, { produit: null, quantite: 1, prix_unitaire: 0 }])
+  const handleAddLine = () => setLines([...lines, { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }])
   const handleRemoveLine = (idx: number) => setLines(lines.filter((_, i) => i !== idx))
   const handleUpdateLine = (idx: number, data: Partial<CreateLigneData>) => {
     const newLines = [...lines]
@@ -108,7 +131,7 @@ export default function AchatPage() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.fournisseur) return toast.error("Veuillez choisir un fournisseur")
-    if (lines.some(l => !l.produit)) return toast.error("Veuillez choisir un produit pour chaque ligne")
+    if (lines.some(l => !l.produit && !l.produit_dv)) return toast.error("Veuillez choisir un produit ou sous-produit pour chaque ligne")
 
     const userStr = localStorage.getItem("user")
     const userId = userStr ? JSON.parse(userStr).id : null
@@ -243,7 +266,14 @@ export default function AchatPage() {
                             {STATUS_CONFIG[s].icon} {s}
                           </DropdownMenuItem>
                         ))}
+                        <DropdownMenuItem 
+                          onClick={() => setDeleteConfirmId(c.id)} 
+                          className="gap-2 text-xs font-semibold py-2 text-red-600 hover:text-red-700 hover:bg-red-50"
+                        >
+                          <Trash2 className="h-3 w-3" /> Supprimer
+                        </DropdownMenuItem>
                       </DropdownMenuContent>
+
                     </DropdownMenu>
                   </td>
                 </tr>
@@ -261,7 +291,11 @@ export default function AchatPage() {
               <ShoppingCart className="h-5 w-5 text-blue-600" />
               Créer un nouveau bon de commande
             </DialogTitle>
+            <DialogDescription>
+              Remplissez les informations ci-dessous pour créer un nouveau bon de commande fournisseur.
+            </DialogDescription>
           </DialogHeader>
+
 
           <form onSubmit={handleCreate} className="space-y-6 pt-4">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -299,17 +333,48 @@ export default function AchatPage() {
               <div className="space-y-3">
                 {lines.map((line, idx) => (
                   <div key={idx} className="flex flex-col md:flex-row gap-3 bg-muted/20 p-3 rounded-xl border border-border group relative">
-                    <div className="flex-1 space-y-1">
+                    <div className="flex-[2] space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Produit / Sous-produit</label>
                       <select 
                         className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={line.produit || ""}
-                        onChange={e => handleUpdateLine(idx, { produit: Number(e.target.value) })}
+                        value={line.produit_dv ? `dv-${line.produit_dv}` : (line.produit ? `pr-${line.produit}` : "")}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (!val) {
+                            handleUpdateLine(idx, { produit: null, produit_dv: null, prix_unitaire: 0 });
+                            return;
+                          }
+                          const [type, idStr] = val.split('-');
+                          const id = Number(idStr);
+                          const selected = productsAndSubProducts.find(p => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
+                          
+                          const price = selected?.price || 0;
+                          
+                          if (type === 'dv') {
+                            handleUpdateLine(idx, { 
+                              produit_dv: id, 
+                              produit: selected?.parent_id || null, 
+                              prix_unitaire: Number(price)
+                            });
+                          } else {
+                            handleUpdateLine(idx, { 
+                              produit: id, 
+                              produit_dv: null, 
+                              prix_unitaire: Number(price)
+                            });
+                          }
+                        }}
                       >
-                        <option value="">Choisir un produit</option>
-                        {Array.isArray(produits) && produits.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        <option value="" disabled hidden>Choisir un item</option>
+                        {Array.isArray(productsAndSubProducts) && productsAndSubProducts.map(p => (
+                          <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
+                            {p.is_deriv ? `[Sous-produit] ${p.name} (de ${p.parent_name})` : `[Produit] ${p.name}`}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div className="w-full md:w-24 space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Quantité</label>
                       <Input 
                         type="number" 
                         placeholder="Qté" 
@@ -319,6 +384,7 @@ export default function AchatPage() {
                       />
                     </div>
                     <div className="w-full md:w-32 space-y-1">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Prix Unit.</label>
                       <Input 
                         type="number" 
                         placeholder="Prix Unit." 
@@ -372,7 +438,11 @@ export default function AchatPage() {
               <Badge variant="outline" className="font-mono text-blue-600 border-blue-200 bg-blue-50">{selectedOrder?.numero_commande}</Badge>
               Détails de la commande
             </DialogTitle>
+            <DialogDescription>
+              Consultation des détails et des lignes de produits pour cette commande.
+            </DialogDescription>
           </DialogHeader>
+
           
           <div className="space-y-6 py-4">
             <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm bg-muted/30 p-4 rounded-2xl border border-border">
@@ -431,6 +501,40 @@ export default function AchatPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+      {/* Deletion Confirmation */}
+      <Dialog open={deleteConfirmId !== null} onOpenChange={(s) => { if(!s) setDeleteConfirmId(null); }}>
+
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <XCircle className="h-5 w-5" />
+              Confirmer la suppression
+            </DialogTitle>
+            <DialogDescription>
+              Cette action est irréversible. Toutes les données liées à ce bon de commande seront supprimées.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm text-muted-foreground font-medium">
+              Êtes-vous sûr de vouloir supprimer ce bon de commande ?
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => setDeleteConfirmId(null)} className="rounded-xl">Annuler</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => deleteConfirmId && deleteMut.mutate(deleteConfirmId)}
+              disabled={deleteMut.isPending}
+              className="rounded-xl bg-red-600 hover:bg-red-700"
+            >
+              {deleteMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+              Supprimer définitivement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
+

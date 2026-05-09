@@ -266,12 +266,6 @@ const ProductManagerSortie = () => {
                 </div>
                 <div className="ml-4 mt-2 flex items-center gap-2 text-gray-700 text-sm flex-wrap">
                   <span>Quantité : <strong>{item.quantite}</strong></span>
-                  {item.count !== undefined && (
-                    <>
-                      <span className="text-gray-400">·</span>
-                      <span>Unités (théo) : <strong>{item.count}</strong></span>
-                    </>
-                  )}
                   {item.ref && (
                     <>
                       <span className="text-gray-400">·</span>
@@ -433,35 +427,13 @@ const ProductManagerSortie = () => {
                   min={0}
                   onChange={(e) => {
                     const val = Number(e.target.value);
-                    const sel = liste_deriv.find(d => d.id === Number(selectedDerivId));
-                    let newCount = formExitItem.count;
-                    if (sel && sel.quantite > 0) {
-                      newCount = Math.round(val * sel.quantite);
-                    }
-                    setFormExitItem({ ...formExitItem, quantite: val, count: newCount });
+                    setFormExitItem({ ...formExitItem, quantite: val });
                   }}
                   className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-gray-50"
                 />
               </div>
 
-              {/* Champ modifiable si c'est un produit au poids */}
-              {(() => {
-                const sel = liste_deriv.find(d => d.id === Number(selectedDerivId));
-                if (sel && sel.quantite > 0) {
-                  return (
-                    <div>
-                      <label className="text-xs text-gray-600 mb-1 block">Unités théoriques (modifiable) :</label>
-                      <input
-                        type="number"
-                        value={formExitItem.count || 0}
-                        onChange={(e) => setFormExitItem({ ...formExitItem, count: Number(e.target.value) })}
-                        className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-300 bg-red-50/50 font-semibold"
-                      />
-                    </div>
-                  );
-                }
-                return null;
-              })()}
+
 
               <div>
                 <label className="text-xs text-gray-600 mb-1 block">Référence :</label>
@@ -494,7 +466,6 @@ const ProductManagerSortie = () => {
                     <li key={index} className="flex items-center justify-between text-sm text-gray-700 bg-gray-50 px-3 py-1.5 rounded-lg">
                       <span>
                         {item.nom_produit} · {item.designation} · Qté: <strong>{item.quantite}</strong>
-                        {item.count !== undefined && <span className="text-red-600 font-medium"> · Théo: {item.count}</span>}
                       </span>
                       <button
                         onClick={() => removeExitItem(index)}

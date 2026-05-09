@@ -8,8 +8,8 @@ import type {
   Recommandation,
   MouvementStock,
   AnalyticsData,
-  Fournisseur,
 } from "@/types/achatVente";
+
 
 const authHeaders = () => ({
   "Content-Type": "application/json",
@@ -19,19 +19,30 @@ const authHeaders = () => ({
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const res = await fetch(url, { headers: authHeaders(), ...options });
   const text = await res.text();
+  
   if (!res.ok) {
     let msg = `Erreur ${res.status}`;
     try {
-      const parsed = JSON.parse(text);
-      msg = parsed.message || parsed.detail || msg;
+      if (text) {
+        const parsed = JSON.parse(text);
+        msg = parsed.message || parsed.detail || msg;
+      }
     } catch { /* use default */ }
     throw new Error(msg);
   }
-  const parsed = JSON.parse(text);
-  // Unwrap StandardResponse envelope if present
-  if (parsed && typeof parsed === "object" && "data" in parsed) return parsed.data as T;
-  return parsed as T;
+
+  if (!text) return null as unknown as T;
+
+  try {
+    const parsed = JSON.parse(text);
+    // Unwrap StandardResponse envelope if present
+    if (parsed && typeof parsed === "object" && "data" in parsed) return parsed.data as T;
+    return parsed as T;
+  } catch {
+    return text as unknown as T;
+  }
 }
+
 
 // ─── Bon Commande ─────────────────────────────────────────────────────────────
 
@@ -52,7 +63,13 @@ export const updateBonCommande = (id: number, data: Partial<CreateBonCommandeDat
     body: JSON.stringify(data),
   });
 
+export const deleteBonCommande = (id: number) =>
+  fetchJson<void>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/`, {
+    method: "DELETE",
+  });
+
 // ─── Donnée Vente ─────────────────────────────────────────────────────────────
+
 
 export const getDonneeVentes = (params?: Record<string, string>) => {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
@@ -114,4 +131,10 @@ export const getProduits = () =>
     if (res && res.results && Array.isArray(res.results)) return res.results;
     // Otherwise return the response as is (if it's already an array)
     return Array.isArray(res) ? res : [];
+  });
+
+export const searchProduits = (terme: string) =>
+  fetchJson<any[]>(`${API_BASE_URL}/api/catalogue/products/`, {
+    method: "POST",
+    body: JSON.stringify({ chercher: terme }),
   });

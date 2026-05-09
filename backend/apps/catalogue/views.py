@@ -237,7 +237,7 @@ class ProductViewSet(GenericCRUDViewSet):
 
     def create(self, request, *args, **kwargs):
         # ─── Recherche combinée produits parents + dérivées ───────────────
-        if request.data.get('chercher'):
+        if 'chercher' in request.data:
             terme = request.data['chercher']
 
             # Produits parents qui matchent
@@ -249,6 +249,11 @@ class ProductViewSet(GenericCRUDViewSet):
                 p['is_deriv'] = False
                 p['parent_id'] = None
                 p['parent_name'] = None
+                # Assurer que le prix est un nombre pour le frontend
+                try:
+                    p['price'] = float(p.get('price') or 0)
+                except:
+                    p['price'] = 0
 
             # Dérivées qui matchent
             derivees_qs = ProduitDv.objects.select_related('product').filter(
@@ -258,11 +263,10 @@ class ProductViewSet(GenericCRUDViewSet):
                 {
                     'id': dv.id,
                     'name': dv.designation,
+                    'price': float(dv.product.price or 0) if dv.product else 0,
                     'is_deriv': True,
-                    'parent_id': dv.product.id,
-                    'parent_name': dv.product.name,
-                    'current_stock': dv.nombre,
-                    'description': None,
+                    'parent_name': dv.product.name if dv.product else "N/A",
+                    'parent_id': dv.product.id if dv.product else None,
                 }
                 for dv in derivees_qs
             ]
@@ -440,9 +444,12 @@ class ProduitDvViewSet(GenericCRUDViewSet):
 
     def create(self, request, *args, **kwargs):
         product_id = request.data.get('product')
-        quantity_to_allocate = int(request.data.get('stock_initial', 0))
         designation = request.data.get('designation')
-        quantite_per_unit = float(request.data.get('quantite', 1))
+
+        try:
+            quantity_to_allocate = float(request.data.get('stock_initial', 0) or 0)
+        except (ValueError, TypeError):
+            quantity_to_allocate = 0
 
         if not product_id:
             return StandardResponse.render(message="Produit parent requis.", status_code=400)
@@ -453,35 +460,42 @@ class ProduitDvViewSet(GenericCRUDViewSet):
             return StandardResponse.render(message="Produit parent introuvable.", status_code=404)
 
         if quantity_to_allocate > 0:
-            # quantity_to_allocate est en poids (ex: 3kg)
-            # unassigned_stock est aussi en poids
             if product.unassigned_stock < quantity_to_allocate:
                 return StandardResponse.render(
                     message=f"Stock insuffisant pour cette allocation. Disponible (non-alloué) : {product.unassigned_stock} {product.unite_mesure}.",
                     status_code=400
                 )
 
-        with transaction.atomic():
-            # Créer le ProduitDv avec un nombre initial de 0
-            # Le signal de MouvementStock se chargera d'incrémenter dv.nombre
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            dv = serializer.save(nombre=0)
+        try:
+            with transaction.atomic():
+                # Créer le ProduitDv avec nombre initial = 0
+                serializer = self.get_serializer(data={
+                    'product': product_id,
+                    'designation': designation or 'Sans désignation',
+                })
+                serializer.is_valid(raise_exception=True)
+                dv = serializer.save(nombre=0)
 
-            if quantity_to_allocate > 0:
-                # Créer un mouvement d'allocation pour l'historique et la mise à jour
-                MouvementStock.objects.create(
-                    produit=product,
-                    produit_dv=dv,
-                    movement_type='ALLOCATION',
-                    quantity=quantity_to_allocate,
-                    utilisateur=request.user,
-                    notes=f"Allocation initiale de {quantity_to_allocate} {product.unite_mesure} pour '{dv.designation}'"
-                )
+                if quantity_to_allocate > 0:
+                    MouvementStock.objects.create(
+                        produit=product,
+                        produit_dv=dv,
+                        movement_type='ALLOCATION',
+                        quantity=int(quantity_to_allocate),
+                        utilisateur=request.user,
+                        notes=f"Allocation initiale de {quantity_to_allocate} {product.unite_mesure} pour '{dv.designation}'"
+                    )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return StandardResponse.render(
+                message=f"Erreur lors de la création du sous-produit : {str(e)}",
+                status_code=500
+            )
 
         return StandardResponse.render(
             data=ProduitDvSerializer(dv).data,
-            message=f"Sous-produit '{dv.designation}' créé avec une allocation de {quantity_to_allocate} unités.",
+            message=f"Sous-produit '{dv.designation}' créé avec une allocation de {quantity_to_allocate} {product.unite_mesure}.",
             status_code=201
         )
 
@@ -561,9 +575,7 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                         dv = ProduitDv.objects.get(pk=item['id'])
                         
                         # Note: 'nombre' in item is the WEIGHT (kg) or parent base unit
-                        # 'count' in item is the optional manual UNIT count override
                         weight = item.get('nombre', 0)
-                        count_override = item.get('count')
                         
                         # Suppression de la mise à jour manuelle car gérée par signal
                         Notification.creer(
@@ -580,7 +592,6 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                             produit_dv=dv,
                             movement_type="IN",
                             quantity=weight,
-                            count_override=count_override,
                             unit_price=produit.price,
                             utilisateur=request.user,
                             notes=f"Entrée de {weight} {produit.unite_mesure} de {item['designation']}",
@@ -642,7 +653,6 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                         dv = ProduitDv.objects.get(pk=item['id'])
                         
                         weight = item.get('quantite', 0)
-                        count_override = item.get('count')
 
                         # Suppression des calculs manuels
                         Notification.creer(
@@ -659,7 +669,6 @@ class ProduitDvViewSet(GenericCRUDViewSet):
                             produit_dv=dv,
                             movement_type="OUT",
                             quantity=weight,
-                            count_override=count_override,
                             unit_price=produit_mere.price,
                             utilisateur=request.user,
                             notes=f"Sortie de {weight} {produit_mere.unite_mesure} de {item['designation']}",
