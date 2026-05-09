@@ -5,7 +5,7 @@ import { RotateCcw, RefreshCw, CheckCircle2, XCircle } from "lucide-react"
 export default function RetoursPage() {
   const { data: retours = [], isLoading, refetch } = useQuery({
     queryKey: ["retours"],
-    queryFn: getRetours,
+    queryFn: () => getRetours(),
   })
 
   const total       = retours.length
