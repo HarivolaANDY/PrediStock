@@ -1,7 +1,7 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { getMouvements } from "@/services/achatVenteService"
-import { ArrowLeftRight, RefreshCw, Filter, Package, User, Search, Calendar, ChevronRight } from "lucide-react"
+import { ArrowLeftRight, RefreshCw, Package, Search, Calendar } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
