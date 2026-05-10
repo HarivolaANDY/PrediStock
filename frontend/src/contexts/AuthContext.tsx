@@ -11,6 +11,7 @@ interface LoginData {
 interface AuthContextType {
     createUser: (userData: CreateUserData) => Promise<boolean>;
     updateUser: (userId: string, userData: CreateUserData) => Promise<boolean>;
+    updateProfile: (userData: Partial<User> & { avatar?: File | string | null }) => Promise<boolean>;
     isLoading: boolean;
     verifyItem : (parameter:string, value:string) => Promise<boolean>;
     verifyItems : (nom:string, prenom:string) => Promise<boolean>;
@@ -113,6 +114,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             return false;
         }
     }
+
+    const updateProfile = async (userData: Partial<User> & { avatar?: File | string | null }): Promise<boolean> => {
+        setIsLoading(true);
+        try {
+            const response = await UserService.updateProfile(userData);
+            if (response) {
+                localStorage.setItem('user', JSON.stringify(response));
+                setUser(response);
+                setIsLoading(false);
+                return true;
+            } else {
+                setIsLoading(false);
+                return false;
+            }
+        } catch (error) {
+            console.error("Erreur lors de la mise à jour du profil:", error);
+            setIsLoading(false);
+            return false;
+        }
+    }
     const verifyItem = async (parameter:string, value: string) : Promise<boolean> => {
         // isLoading not set to true here to avoid global loading state on every keystroke
         try {
@@ -135,7 +156,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             const response = await UserService.getUsers();
             setIsLoading(false);
-            return response;
+            return response as unknown as User[];
         } catch (error) {
             console.error("Erreur lors de la récupération des utilisateurs:", error);
             setIsLoading(false);
@@ -146,6 +167,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         <AuthContext.Provider value={{
             createUser,
             updateUser,
+            updateProfile,
             isLoading,
             verifyItem,
             verifyItems,

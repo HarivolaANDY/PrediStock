@@ -111,6 +111,35 @@ export const UserService = {
       throw error;
     }
   },
+
+  updateProfile: async (
+    userData: Partial<User> & { avatar?: File | string | null },
+  ): Promise<User> => {
+    try {
+      const formData = new FormData();
+      Object.entries(userData).forEach(([key, value]) => {
+        if (value !== undefined && value !== null) {
+          if (value instanceof File) {
+            formData.append(key, value);
+          } else if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+            formData.append(key, String(value));
+          }
+        }
+      });
+
+      const response = await fetch(`${API_BASE_URL}/api/accounts/profile/`, {
+        method: "PUT",
+        headers: {
+          Authorization: `Token ${localStorage.getItem("token")}`,
+        },
+        body: formData,
+      });
+      return handleHttpErrors(response);
+    } catch (error) {
+      console.error("Mise à jour du profil échouée:", error);
+      throw error;
+    }
+  },
   Login: async (userData: LoginData): Promise<UserResponse> => {
     try {
       const response = await fetch(`${API_BASE_URL}/api/accounts/login/`, {
