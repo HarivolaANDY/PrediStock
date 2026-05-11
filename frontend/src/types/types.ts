@@ -58,6 +58,7 @@ export interface UpdateUserData {
     status?: string;
     permissions?: string[];
     password?: string;
+    avatar?: File | string | null;
 }
 
 export interface DisableUser {
@@ -80,6 +81,7 @@ export interface User {
     date_joined?: string;
     updated_at?: string;
     name?: string;
+    avatar?: string;
 }
 
 export interface UserResponse {

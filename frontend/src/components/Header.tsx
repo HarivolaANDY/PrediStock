@@ -1,4 +1,4 @@
-import { Bell, User } from "lucide-react"
+import { Bell } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { SidebarTrigger } from "@/components/ui/sidebar"
 import {
@@ -11,36 +11,33 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { toast } from "sonner"
 import { useState, useEffect } from "react"
+import { useAuth } from "@/contexts/AuthContext"
 
-interface UserData {
-  last_name?: string;
-  first_name?: string;
-  username?: string;
-}
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+
+
 
 export function Header() {
-  const [pseudo] = useState(() => {
-    const user = localStorage.getItem("user");
-    if (user) {
-      try {
-        const userData: UserData = JSON.parse(user);
-        return (userData.last_name && userData.first_name) 
-          ? `${userData.last_name} ${userData.first_name}` 
-          : (userData.username || "Utilisateur");
-      } catch (e) {
-        console.error("Error parsing user data in Header", e);
-      }
+  const { user } = useAuth()
+  const [avatarUrl, setAvatarUrl] = useState("");
+  const baseUrl = "http://localhost:8000";
+
+  useEffect(() => {
+    if (user?.avatar) {
+      const url = user.avatar.startsWith('http') ? user.avatar : `${baseUrl}${user.avatar}`;
+      setAvatarUrl(url);
+    } else {
+      setAvatarUrl("");
     }
-    return "";
-  });
+  }, [user]);
 
   const [unreadCount, setUnreadCount] = useState(0)
   
   useEffect(() => {
-    if (pseudo) {
-      document.title = "Predistock - " + pseudo;
+    if (user) {
+      document.title = "Predistock - " + user.first_name + " " + user.last_name;
     }
-  }, [pseudo]);
+  }, [user]);
 
   useEffect(() => {
     const fetchUnreadCount = async () => {
@@ -84,15 +81,20 @@ export function Header() {
 
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full border bg-muted/50">
-                <User className="h-5 w-5 text-muted-foreground" />
+              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full border bg-muted/50 p-0">
+                <Avatar className="h-9 w-9">
+                  <AvatarImage src={avatarUrl} alt={user?.last_name} />
+                  <AvatarFallback className="bg-transparent">
+                    {user?.first_name?.[0]}{user?.last_name?.[0]}
+                  </AvatarFallback>
+                </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56 mt-2">
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
-                  <p className="text-sm font-medium leading-none">{pseudo}</p>
-                  <p className="text-xs leading-none text-muted-foreground">Administrateur</p>
+                  <p className="text-sm font-medium leading-none">{user?.first_name} {user?.last_name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">{typeof user?.role === 'string' ? user.role : (user?.role as any)?.name}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />
