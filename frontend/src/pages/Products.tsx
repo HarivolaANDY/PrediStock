@@ -899,7 +899,7 @@ export default function Products() {
       {showDeleteModal && productToDelete && (
         <DeleteConfirmationModal isOpen={showDeleteModal} onClose={() => { setShowDeleteModal(false); setProductToDelete(null) }} onConfirm={handleConfirmDelete} productName={productToDelete.name} />
       )}
-      {showCategoryForm && <CategoryForm onClose={handleCloseCategoryForm} onSubmit={handleSubmitCategory} initialData={editingCategory} />}
+      {showCategoryForm && <CategoryForm key={editingCategory?.id || "new"} onClose={handleCloseCategoryForm} onSubmit={handleSubmitCategory} initialData={editingCategory} />}
       {showImportModal && <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={() => setShowImportModal(false)} onSuccess={() => refetch()} />}
 
       <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
