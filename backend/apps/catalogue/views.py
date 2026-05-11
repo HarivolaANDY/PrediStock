@@ -82,23 +82,21 @@ class CategoryViewSet(GenericCRUDViewSet):
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            category = serializer.save()
+        if serializer.is_valid():
+            with transaction.atomic():
+                category = serializer.save()
+            return StandardResponse.render(
+                data=CategorySerializer(category).data,
+                message=f'Catégorie "{category.name}" créée avec succès',
+                status_code=status.HTTP_201_CREATED
+            )
         return StandardResponse.render(
-            data=CategorySerializer(category).data,
-            message=f'Catégorie "{category.name}" créée avec succès',
-            status_code=status.HTTP_201_CREATED
+            data=serializer.errors,
+            message="Données invalides",
+            status_code=status.HTTP_400_BAD_REQUEST
         )
 
     def update(self, request, *args, **kwargs):
-        instance = self.get_object()
-        if request.FILES.getlist('product_img'):
-            instance.images.all().delete()
-            if instance.product_img:
-                instance.product_img.delete(save=False)
-                instance.product_img = None
-                instance.save()
         return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
