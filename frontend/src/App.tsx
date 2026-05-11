@@ -31,7 +31,6 @@ import AchatPage from "@/pages/achat-vente/AchatPage";
 import VentePage from "@/pages/achat-vente/VentePage";
 import RetoursPage from "@/pages/achat-vente/RetoursPage";
 import AnalysePage from "@/pages/achat-vente/AnalysePage";
-import RecommandationsPage from "@/pages/achat-vente/RecommandationsPage";
 import MouvementsPage from "@/pages/achat-vente/MouvementsPage";
 
 const queryClient = new QueryClient();
@@ -70,7 +69,6 @@ const AppRoutes = () => {
         <Route path="/buy-sell/ventes" element={<Layout><VentePage /></Layout>} />
         <Route path="/buy-sell/retours" element={<Layout><RetoursPage /></Layout>} />
         <Route path="/buy-sell/analyse" element={<Layout><AnalysePage /></Layout>} />
-        <Route path="/buy-sell/recommandations" element={<Layout><RecommandationsPage /></Layout>} />
         <Route path="/buy-sell/mouvements" element={<Layout><MouvementsPage /></Layout>} />
 
         <Route path="*" element={<NotFound />} />
