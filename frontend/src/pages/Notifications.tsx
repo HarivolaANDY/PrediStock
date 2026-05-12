@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react"
-import { Bell, Check, X, Mail, Smartphone, AlertTriangle, RefreshCcw } from "lucide-react"
+import { Bell, Check, X, Mail, RefreshCcw } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -12,7 +12,6 @@ import {
   TableHeader, 
   TableRow 
 } from "@/components/ui/table"
-import { MetricCard } from "@/components/MetricCard"
 import { Notification } from "@/types/notification"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
@@ -159,18 +158,6 @@ export default function Notifications() {
     return <Badge variant="outline">{type || "Général"}</Badge>
   }
 
-  const getChannelIcon = (channel: string) => {
-    switch (channel) {
-      case "email":
-        return <Mail className="h-4 w-4" />
-      case "sms":
-        return <Smartphone className="h-4 w-4" />
-      case "dashboard":
-        return <Bell className="h-4 w-4" />
-      default:
-        return <Bell className="h-4 w-4" />
-    }
-  }
 
   const filteredNotifications = selectedTab === "all" 
     ? notifications 
@@ -178,13 +165,6 @@ export default function Notifications() {
     ? notifications.filter(n => n.status === "non lu")
     : notifications.filter(n => n.status === "lu")
 
-  const unreadCount = notifications.filter(n => n.status === "non lu").length
-  const criticalCount = notifications.filter(n => {
-    const p = typeof n.priorite === 'string' ? n.priorite.toLowerCase() : n.priorite
-    return p === 2 || p === 'high' || p === 'critique'
-  }).length
-  const emailCount = notifications.filter(n => n.channel?.toLowerCase() === "email").length
-  const smsCount = notifications.filter(n => n.channel?.toLowerCase() === "sms").length
 
   return (
     <div className="space-y-6">
@@ -198,31 +178,6 @@ export default function Notifications() {
         </div>
       </div>
 
-      {/* Notification Statistics Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Unread Notifications"
-          value={unreadCount.toString()}
-          icon={<Bell className="h-4 w-4" />}
-          variant="warning"
-        />
-        <MetricCard
-          title="Critical Alerts"
-          value={criticalCount.toString()}
-          icon={<AlertTriangle className="h-4 w-4" />}
-          variant="destructive"
-        />
-        <MetricCard
-          title="Email Notifications"
-          value={emailCount.toString()}
-          icon={<Mail className="h-4 w-4" />}
-        />
-        <MetricCard
-          title="SMS Alerts"
-          value={smsCount.toString()}
-          icon={<Smartphone className="h-4 w-4" />}
-        />
-      </div>
 
       <Tabs value={selectedTab} onValueChange={setSelectedTab} className="space-y-6">
         <TabsList className="grid w-full grid-cols-2">

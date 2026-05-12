@@ -1,5 +1,6 @@
-import { useState } from "react"
-import { FileText, Download, Calendar, BarChart3, TrendingUp } from "lucide-react"
+import { useState, useEffect } from "react"
+import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"
+import { FileText, Download, BarChart3, TrendingUp, Trash2 } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
@@ -21,11 +22,16 @@ import {
 } from "@/components/ui/table"
 import { MetricCard } from "@/components/MetricCard"
 import { GenerateReportModal } from "@/components/GenerateReportModal"
-import { PlaningReportModal } from "@/components/PlaningReportModal"
 import { ReportsDetails } from "@/components/ReportsDetails"
 import  API  from "@/services/axios"
-import { downloadPdf } from "@/utils/blobUtils"
 import { parseAxiosBlobResponse, downloadAll, type AxiosResponseWithBlob } from "@/utils/blobUtils";
+import { 
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ChevronDown } from "lucide-react"
 
 
 // Type Report
@@ -41,6 +47,7 @@ type Report = {
   format?: string
   size?: string
   details?: Record<string, unknown>
+  file?: string
 }
 
 const reportTemplates = [
@@ -48,7 +55,7 @@ const reportTemplates = [
     id: "inventory-summary",
     name: "Rapport de synthèse des stocks",
     description: "Vue d'ensemble complète des niveaux et valeurs actuels du stock",
-    category: "Stock",
+    category: "Stocks",
     frequency: "à chaque Entré/Sortie",
     lastGenerated: "2024-01-15 14:30", 
     details:{
@@ -64,7 +71,7 @@ const reportTemplates = [
     id: "detailed-entries-summary",
     name: "Rapport des entrés des stocks",
     description: "Vue d'ensemble complète des entrés dans le stock",
-    category: "Stock",
+    category: "Stocks",
     frequency: "à chaque Entré",
     lastGenerated: "2024-01-15 14:30", 
     details:{
@@ -142,71 +149,91 @@ const reportTemplates = [
   },
 ]
 
-const generatedReports = [
-  {
-    id: "1",
-    name: "Rapport hebdomadaire des stocks",
-    type: "Synthèse des stocks",
-    generatedDate: "2024-01-15",
-    size: "2.1 MB",
-    format: "PDF",
-    status: "terminé"
-  },
-  {
-    id: "2", 
-    name: "Rapport mensuel des prévisions",
-    type: "Analyse des prévisions",
-    generatedDate: "2024-01-14",
-    size: "1.8 MB", 
-    format: "Excel",
-    status: "terminé"
-  },
-  {
-    id: "3",
-    name: "Rapport quotidien du stock",
-    type: "Mouvements de stock",
-    generatedDate: "2024-01-15",
-    size: "950 KB",
-    format: "PDF",
-    status: "en cours"
-  }
-]
+const INITIAL_GENERATED_REPORTS: Report[] = []
 
 export default function Reports() {
   const [selectedCategory, setSelectedCategory] = useState("all")
   const [showGenerateModal, setShowGenerateModal] = useState(false)
   const [selectedTemplate, _setSelectedTemplate] = useState<typeof reportTemplates[0] | null>(null)
-  const [showAddPlaning, setShowAddPlaning] = useState(false)
   const [selectedReport, setSelectedReport] = useState<Report | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [reportsList, setReportsList] = useState<Report[]>(INITIAL_GENERATED_REPORTS)
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
+  const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
+  const [stats, setStats] = useState<any>(null)
 
-  const lancerRapport = async (url = "/pdf/download_pdf/", method: 'get' | 'post' = 'get', payload?: Record<string, unknown>) => {
+  useEffect(() => {
+    fetchReports()
+    fetchStats()
+  }, [])
+
+  const fetchStats = async () => {
     try {
-      await downloadPdf(url, method, payload);
+      const res = await API.get("catalogue/products/stats/")
+      const data = res.data?.data || res.data
+      setStats(data)
     } catch (err) {
-      console.error("Erreur téléchargement rapport :", err);
+      console.error("Erreur lors du chargement des stats:", err)
     }
   }
 
-  const Telecharger_pdf = async(details: { titre: string; [key: string]: unknown }) =>{
+  const reportsTotalSize = reportsList.reduce((acc: number, report: Report) => {
+    if (!report.size) return acc
+    const numericPart = parseFloat(report.size)
+    if (isNaN(numericPart)) return acc
+    const isMB = report.size.toLowerCase().includes("mb")
+    const isGB = report.size.toLowerCase().includes("gb")
+    // Convert everything to KB for summing
+    let sizeInKB = numericPart
+    if (isMB) sizeInKB = numericPart * 1024
+    if (isGB) sizeInKB = numericPart * 1024 * 1024
+    return acc + sizeInKB
+  }, 0)
+
+  const formatSize = (kb: number) => {
+    if (kb >= 1024 * 1024) return `${(kb / (1024 * 1024)).toFixed(2)} GB`
+    if (kb >= 1024) return `${(kb / 1024).toFixed(2)} MB`
+    return `${kb.toFixed(2)} KB`
+  }
+
+  const fetchReports = async () => {
     try {
-      const res = (await API.post("pdf/Dynamic_PDF/", details, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob;
-      const parsed = await parseAxiosBlobResponse(res, details.titre);
+      const res = await API.get("core/generated-reports/")
+      // Prise en charge du format StandardResponse { data: [...] } ou raw DRF [...]
+      const data = res.data?.data || res.data
+      if (Array.isArray(data)) {
+        setReportsList(data)
+      }
+    } catch (err) {
+      console.error("Erreur lors du chargement des rapports:", err)
+    }
+  }
+
+
+  const Telecharger_pdf = async(details: { titre: string; table?: string; [key: string]: unknown }, format: 'pdf' | 'csv' | 'excel' = 'pdf') =>{
+    try {
+      const res = (await API.post("core/pdf/dynamic/", { ...details, format }, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob;
+      const filename = format === 'csv' ? details.titre.replace('.pdf', '.csv') : details.titre;
+      const parsed = await parseAxiosBlobResponse(res, filename);
 
       if (parsed.files && parsed.files.length) {
         downloadAll(parsed.files)
       }
+      
+      // Rafraîchir la liste depuis le serveur car le rapport a été enregistré
+      fetchReports()
+
       if (parsed.json) console.log(parsed.json);
     } catch (err) {
       console.log(err);
     }
   }
 
-  const getStatusBadge = (status: string) => {
+  const getStatusBadge = (status: string | undefined) => {
     switch (status) {
-      case "terminé":
+      case "Terminé":
         return <Badge className="bg-success text-success-foreground">Terminé</Badge>
-      case "en cours":
+      case "En cours":
         return <Badge className="bg-warning text-warning-foreground">En cours</Badge>
       case "échec":
         return <Badge variant="destructive">Échec</Badge>
@@ -215,33 +242,86 @@ export default function Reports() {
     }
   }
 
-  const getFormatBadge = (format: string) => {
+  const getFormatBadge = (format: string | undefined) => {
     const colors = {
       PDF: "bg-red-100 text-red-800",
       Excel: "bg-green-100 text-green-800", 
       CSV: "bg-blue-100 text-blue-800"
     }
-    return <Badge variant="outline" className={colors[format as keyof typeof colors]}>
+    return <Badge variant="outline" className={colors[format as keyof typeof colors] || "bg-gray-100"}>
       {format}
     </Badge>
   }
 
-  const handleAddPlaning = () => {
-    setShowAddPlaning(true)
-  }
 
   const handleViewDetails = (report: Report) =>{
     setSelectedReport(report)
     setIsDetailsOpen(true)
   }
 
+  const handleDeleteReport = (report: Report) => {
+    setReportToDelete(report)
+    setIsDeleteModalOpen(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!reportToDelete) return
+    try {
+      await API.delete(`core/generated-reports/${reportToDelete.id}/`)
+      setReportsList(prev => prev.filter(r => r.id !== reportToDelete.id))
+      setIsDeleteModalOpen(false)
+      setReportToDelete(null)
+    } catch (err) {
+      console.error("Erreur lors de la suppression:", err)
+    }
+  }
+
+  const handleDownloadHistoryReport = (report: Report) => {
+    if (report.file) {
+      // Si le lien est relatif, on ajoute le domaine de base
+      const url = report.file.startsWith('http') 
+        ? report.file 
+        : `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}${report.file}`;
+      window.open(url, '_blank');
+    } else {
+      console.warn("Fichier non disponible pour ce rapport.");
+    }
+  }
+
   const filteredTemplates = selectedCategory === "all" 
     ? reportTemplates
     : reportTemplates.filter(template => template.category.toLowerCase() === selectedCategory)
 
-  const handleGenerateSubmit = async (data: Record<string, unknown>) => {
+  const handleGenerateSubmit = async (data: any) => {
     try {
       console.log('Génération du rapport:', data)
+      let table = "Produits";
+      let specific = "";
+      
+      switch(data.type) {
+        case 'inventory':
+          table = 'MouvementStock';
+          break;
+        case 'movements':
+          table = 'MouvementStock';
+          break;
+        case 'forecast':
+          table = 'Produits'; // Fallback
+          break;
+        case 'alerts':
+          table = 'MouvementStock';
+          specific = 'OUT';
+          break;
+        default:
+          table = 'Produits';
+      }
+
+      await Telecharger_pdf({
+        table,
+        specific,
+        titre: `Rapport_${data.type}_${Date.now()}.pdf`,
+      }, data.format);
+
       setShowGenerateModal(false)
     } catch (error) {
       console.error('Erreur lors de la génération:', error)
@@ -259,10 +339,6 @@ export default function Reports() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Button variant="outline" onClick={handleAddPlaning}>
-            <Calendar className="h-4 w-4 mr-2" />
-            Planifier un rapport
-          </Button>
           <Button 
             className="text-white bg-bouton hover:bg-bouton-hover" 
             variant="outline"
@@ -278,37 +354,36 @@ export default function Reports() {
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <MetricCard
           title="Rapports générés"
-          value="127"
-          trend={{ value: 8.5, label: "ce mois" }}
+          value={reportsList.length.toString()}
+          description="Total des rapports dans l'historique"
           icon={<FileText className="h-4 w-4" />}
         />
         <MetricCard
-          title="Rapports planifiés"
-          value="12"
-          trend={{ value: 2, label: "plannings actifs" }}
-          icon={<Calendar className="h-4 w-4" />}
+          title="Taille des exports"
+          value={formatSize(reportsTotalSize)}
+          description="Espace occupé par les rapports"
+          icon={<BarChart3 className="h-4 w-4" />}
           variant="success"
         />
         <MetricCard
-          title="Informations issues des données"
-          value="45"
-          trend={{ value: 12, label: "nouvelles analyses" }}
+          title="Produits Actifs"
+          value={stats?.total_produits?.toString() || "--"}
+          description="Total des articles suivis"
           icon={<BarChart3 className="h-4 w-4" />}
           variant="prediction"
         />
         <MetricCard
-          title="Taille des exports"
-          value="24.8 GB"
-          trend={{ value: 5.2, label: "ce trimestre" }}
+          title="Valeur Stock"
+          value={stats?.total_stock_value ? `${stats.total_stock_value.toLocaleString()} Ar` : "--"}
+          description="Valeur monétaire actuelle"
           icon={<TrendingUp className="h-4 w-4" />}
         />
       </div>
 
       <Tabs defaultValue="templates" className="space-y-6">
-        <TabsList className="grid w-full grid-cols-3">
+        <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="templates">Modèles de rapports</TabsTrigger>
           <TabsTrigger value="generated">Rapports générés</TabsTrigger>
-          <TabsTrigger value="scheduled">Rapports planifiés</TabsTrigger>
         </TabsList>
 
         <TabsContent value="templates">
@@ -362,20 +437,29 @@ export default function Reports() {
                           </div>
                         </div>
                         <div className="flex gap-2">
-                          {/* <Button size="sm" variant="outline">
-                            <Calendar className="h-4 w-4" />
-                          </Button> */}
-                          <Button 
-                            className="text-white bg-bouton hover:bg-bouton-hover" 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => {
-                              Telecharger_pdf(template.details)
-                            }}
-                          >
-                            <FileText className="h-4 w-4 mr-2" />
-                            Générer
-                          </Button>
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button 
+                                className="text-white bg-bouton hover:bg-bouton-hover" 
+                                variant="outline" 
+                                size="sm"
+                              >
+                                <FileText className="h-4 w-4 mr-2" />
+                                Générer
+                                <ChevronDown className="h-4 w-4 ml-2" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onClick={() => Telecharger_pdf(template.details, 'pdf')}>
+                                <FileText className="h-4 w-4 mr-2" />
+                                Format PDF
+                              </DropdownMenuItem>
+                              <DropdownMenuItem onClick={() => Telecharger_pdf(template.details, 'csv')}>
+                                <FileText className="h-4 w-4 mr-2" />
+                                Format CSV
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
                     </CardContent>
@@ -410,137 +494,63 @@ export default function Reports() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {generatedReports.map((report) => (
-                      <TableRow key={report.id}>
-                        <TableCell className="font-medium">{report.id}</TableCell>
-                        <TableCell>{report.name}</TableCell>
-                        <TableCell>{report.type}</TableCell>
-                        <TableCell>{report.generatedDate}</TableCell>
-                        <TableCell>{report.size}</TableCell>
-                        <TableCell>{getFormatBadge(report.format)}</TableCell>
-                        <TableCell>{getStatusBadge(report.status)}</TableCell>
-                        <TableCell>
-                          <div className="flex gap-2">
-                            {report.status === "terminé" && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => lancerRapport("/pdf/download_pdf/", "get", { report_id: report.id })}
-                              >
-                                <Download className="h-4 w-4" />
-                              </Button>
-                            )}
-                            <Button size="sm" variant="outline" onClick={() => handleViewDetails(report)}>
-                              Voir
-                            </Button>
-                          </div>
+                    {reportsList.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={8} className="text-center py-10 text-muted-foreground">
+                          Aucun rapport généré pour le moment
                         </TableCell>
                       </TableRow>
-                    ))}
+                    ) : (
+                      reportsList.map((report, index) => (
+                        <TableRow key={report.id}>
+                          <TableCell className="font-medium">{reportsList.length - index}</TableCell>
+                          <TableCell>{report.name}</TableCell>
+                          <TableCell>{report.type}</TableCell>
+                          <TableCell>{report.created_at}</TableCell>
+                          <TableCell>{report.size}</TableCell>
+                          <TableCell>{getFormatBadge(report.format)}</TableCell>
+                          <TableCell>{getStatusBadge(report.status)}</TableCell>
+                          <TableCell>
+                            <div className="flex gap-2">
+                                <Button 
+                                  size="sm" 
+                                  variant="ghost" 
+                                  className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+                                  onClick={() => handleDownloadHistoryReport(report)}
+                                  disabled={!report.file || report.status === "En cours"}
+                                >
+                                  <Download className="h-4 w-4" />
+                                </Button>
+                              <Button size="sm" variant="ghost" onClick={() => handleViewDetails(report)}>
+                                Voir
+                              </Button>
+                              <Button 
+                                size="sm" 
+                                variant="ghost" 
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                onClick={() => handleDeleteReport(report)}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    )}
                   </TableBody>
                 </Table>
               </div>
             </CardContent>
           </Card>
         </TabsContent>
-
-        <TabsContent value="scheduled">
-          <div className="grid gap-6 lg:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Plannings actifs</CardTitle>
-                <CardDescription>
-                  Générations automatiques de rapports actuellement planifiées
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h4 className="font-medium">Synthèse quotidienne des stocks</h4>
-                    <p className="text-sm text-muted-foreground">Tous les jours à 6:00</p>
-                  </div>
-                  <Badge className="bg-success text-success-foreground">Actif</Badge>
-                </div>
-                
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h4 className="font-medium">Rapport hebdomadaire de prévisions</h4>
-                    <p className="text-sm text-muted-foreground">Tous les lundis à 8:00</p>
-                  </div>
-                  <Badge className="bg-success text-success-foreground">Actif</Badge>
-                </div>
-                
-                <div className="flex items-center justify-between p-4 border rounded-lg">
-                  <div>
-                    <h4 className="font-medium">Analyses mensuelles</h4>
-                    <p className="text-sm text-muted-foreground">1er de chaque mois à 9:00</p>
-                  </div>
-                  <Badge variant="secondary">En pause</Badge>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Créer un planning</CardTitle>
-                <CardDescription>
-                  Configurez une génération automatique de rapport
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Modèle de rapport</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sélectionner un modèle" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="inventory">Synthèse des stocks</SelectItem>
-                      <SelectItem value="forecast">Analyse des prévisions</SelectItem>
-                      <SelectItem value="stock">Mouvements de stock</SelectItem>
-                      <SelectItem value="alerts">Synthèse des alertes</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Fréquence</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sélectionner la fréquence" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="daily">Quotidien</SelectItem>
-                      <SelectItem value="weekly">Hebdomadaire</SelectItem>
-                      <SelectItem value="monthly">Mensuel</SelectItem>
-                      <SelectItem value="quarterly">Trimestriel</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <div className="space-y-2">
-                  <label className="text-sm font-medium">Format</label>
-                  <Select>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Sélectionner le format" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="pdf">PDF</SelectItem>
-                      <SelectItem value="excel">Excel</SelectItem>
-                      <SelectItem value="csv">CSV</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-
-                <Button className="w-full">
-                  <Calendar className="h-4 w-4 mr-2" />
-                  Créer le planning
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-        </TabsContent>
       </Tabs>
+
+      <DeleteConfirmationModal 
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={confirmDelete}
+        productName={reportToDelete?.name || "ce rapport"}
+      />
 
       {showGenerateModal && (
         <GenerateReportModal
@@ -554,11 +564,6 @@ export default function Reports() {
         />
       )}
 
-      {showAddPlaning && (
-        <PlaningReportModal
-          onClose={() => setShowAddPlaning(false)}
-        />
-      )}
 
       {/* Supplier Details Form Modal */}
       {ReportsDetails && isDetailsOpen && selectedReport && (

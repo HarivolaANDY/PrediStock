@@ -5,8 +5,9 @@ from io import BytesIO
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
+from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.http import FileResponse
+from django.http import FileResponse, HttpResponse
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
@@ -19,8 +20,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 
-from .models import PDFHistorique
-from .serializers import DynamicModelSerializer, PDFHistoriqueSerializer
+from .models import PDFHistorique, GeneratedReport
+from .serializers import DynamicModelSerializer, PDFHistoriqueSerializer, GeneratedReportSerializer
 from apps.core.utils import StandardResponse
 from .utils import process_pdf_async
 # from .tasks import process_pdf_async
@@ -154,6 +155,19 @@ class PDFHistoriqueViewSet(viewsets.ReadOnlyModelViewSet):
     permission_classes = [IsAuthenticated]
 
 
+class GeneratedReportViewSet(GenericCRUDViewSet):
+    model = GeneratedReport
+    serializer_class = GeneratedReportSerializer
+    queryset = GeneratedReport.objects.all()
+    permission_classes = [IsAuthenticated]
+
+    def get_queryset(self):
+        return self.queryset.filter(utilisateur=self.request.user)
+
+    def perform_create(self, serializer):
+        serializer.save(utilisateur=self.request.user)
+
+
 class PDFGeneratorViewSet(viewsets.ViewSet):
     permission_classes = [IsAuthenticated]
 
@@ -247,70 +261,157 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
 
     @action(detail=False, methods=['post'])
     def dynamic(self, request):
-        from apps.stock.models import MouvementStock, Inventaire
+        from apps.stock.models import MouvementStock, Inventaire, HistoriqueInventaire
+        from apps.catalogue.models import Product
+        
         table_type = request.data.get('table')
         spec = request.data.get('specific')
 
         if table_type == "MouvementStock":
-            qs = MouvementStock.objects.all()
+            qs = MouvementStock.objects.all().order_by('-date', '-timestamp')
             if spec in ("IN", "OUT"):
                 qs = qs.filter(movement_type=spec)
-            data = [["Produit", "Quantité", "Date", "Action", "Référence", "Utilisateur"]] + [
+            data = [["Produit", "Quantité", "Date", "Action", "Référence", "Utilisateur", "Notes"]] + [
                 [
-                    m.produit_dv.designation if m.produit_dv else '',
+                    m.produit.name if m.produit else (m.produit_dv.designation if m.produit_dv else ''),
                     m.quantity,
                     m.date.strftime("%Y-%m-%d") if m.date else '',
                     "entrée" if m.movement_type == 'IN' else "sortie",
                     m.referrence or '',
                     str(m.utilisateur) if m.utilisateur else '',
+                    m.notes or ''
                 ]
                 for m in qs
             ]
             infos = {
-                "titre": "Mouvements de stock",
-                "sous_titre": "Rapport des mouvements.",
+                "titre": "Mouvements de stock détaillé",
+                "sous_titre": f"Rapport des mouvements ({spec or 'Tous'}).",
                 "auteur": request.user.username.upper(),
                 "couleur": colors.lightgreen,
-                "colWidths": [1.8*inch, 0.8*inch, 0.9*inch, 0.5*inch, 1.5*inch, inch],
+                "colWidths": [1.5*inch, 0.7*inch, 0.8*inch, 0.5*inch, 1.2*inch, 0.8*inch, 1.5*inch],
             }
 
         elif table_type == "Inventaire":
-            qs = Inventaire.objects.filter(historique=spec).select_related('produit')
-            data = [["Produit mère", "Désignation", "Qté théorique", "Qté physique"]] + [
+            qs = None
+            if spec and str(spec).isdigit():
+                qs = Inventaire.objects.filter(historique_id=spec).select_related('produit', 'produit__product')
+            
+            if not qs or not qs.exists():
+                latest_histo = HistoriqueInventaire.objects.first()
+                if latest_histo:
+                    qs = Inventaire.objects.filter(historique=latest_histo).select_related('produit', 'produit__product')
+                else:
+                    qs = Inventaire.objects.none()
+
+            data = [["ID", "Produit", "Désignation", "Théorique", "Physique", "Écart"]] + [
                 [
-                    str(inv.produit.product) if inv.produit else '',
+                    inv.id,
+                    str(inv.produit.product.name) if inv.produit and inv.produit.product else '',
                     inv.produit.designation if inv.produit else '',
-                    inv.quantite_theo, '',
+                    inv.quantite_theo,
+                    inv.quantite_phy,
+                    (inv.quantite_phy or 0) - (inv.quantite_theo or 0), # Calcul sécurisé de l'écart
                 ]
                 for inv in qs
             ]
             infos = {
-                "titre": "Inventaire des produits",
-                "sous_titre": "Rapport d'inventaire.",
+                "titre": "Inventaire physique des stocks",
+                "sous_titre": "Rapport d'écarts d'inventaire.",
                 "auteur": request.user.username.upper(),
                 "couleur": colors.grey,
-                "colWidths": [2*inch, 2*inch, inch, inch],
+                "colWidths": [0.5*inch, 1.8*inch, 1.8*inch, 0.8*inch, 0.8*inch, 0.8*inch],
             }
 
-        else:
-            User = get_user_model()
-            data = [["Nom Prénoms", "Email", "Numéro", "Département", "ID"]] + [
+        elif table_type == "Produits":
+            qs = Product.objects.all().select_related('category').order_by('name')
+            
+            def get_stock_status_label(current, threshold):
+                if current == 0: return "Rupture"
+                if threshold <= 0: return "En stock"
+                ratio = current / threshold
+                if ratio <= 0.25: return "Critique"
+                if ratio <= 0.50: return "Stock faible"
+                return "En stock"
+
+            data = [["Produit", "Catégorie", "Prix", "Quantité", "Statut"]] + [
                 [
-                    f"{u.first_name} {u.last_name}", u.email,
-                    getattr(u, 'phone', ''),
-                    getattr(u, 'department', 'Madagascar'),
-                    u.id,
+                    p.name, 
+                    p.category.name if p.category else 'Non catégorisé',
+                    p.price or 0,
+                    p.current_stock,
+                    get_stock_status_label(p.current_stock, p.stock_threshold)
                 ]
-                for u in User.objects.all()
+                for p in qs
             ]
             infos = {
-                "titre": "Liste des Utilisateurs",
-                "sous_titre": "Rapport utilisateurs.",
+                "titre": "Catalogue des Produits",
+                "sous_titre": "Exportation complète du catalogue.",
                 "auteur": request.user.username.upper(),
-                "couleur": colors.orangered,
+                "couleur": colors.lightblue,
+                "colWidths": [2.5*inch, 1.5*inch, 1*inch, 1*inch, 1.2*inch],
             }
 
+        else: # Utilisateurs
+            User = get_user_model()
+            qs = User.objects.all().order_by('last_name', 'first_name')
+            data = [["ID", "Nom Prénoms", "Email", "Téléphone", "Département", "Statut"]] + [
+                [
+                    u.id,
+                    f"{u.last_name.upper()} {u.first_name}", 
+                    u.email,
+                    getattr(u, 'phone', '-'),
+                    getattr(u, 'department', 'Predistock'),
+                    "Actif" if u.is_active else "Inactif"
+                ]
+                for u in qs
+            ]
+            infos = {
+                "titre": "Répertoire des Utilisateurs",
+                "sous_titre": "Liste administrative du personnel.",
+                "auteur": request.user.username.upper(),
+                "couleur": colors.orangered,
+                "colWidths": [0.5*inch, 1.8*inch, 1.8*inch, 1.2*inch, 1.2*inch, 0.7*inch],
+            }
+
+        export_format = request.data.get('format', 'pdf').lower()
+
+        report_instance = None
+        try:
+            report_instance = GeneratedReport.objects.create(
+                name=str(infos.get('titre', 'Rapport sans titre')).split('.')[0].replace('_', ' '),
+                report_type=table_type or "Rapport personnalisé",
+                format=export_format.upper(),
+                size=f"{((len(data) if data else 0) * 0.5):.1f} KB",
+                utilisateur=request.user if request.user.is_authenticated else None,
+                status='Terminé'
+            )
+        except Exception as e:
+            print(f"Erreur enregistrement historique: {e}")
+
+        if export_format == 'csv':
+            import csv
+            import codecs
+            from io import StringIO
+            
+            csv_buffer = StringIO()
+            csv_buffer.write(codecs.BOM_UTF8.decode('utf-8'))
+            writer = csv.writer(csv_buffer, delimiter=';', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+            for row in data:
+                clean_row = [str(cell).replace('\n', ' ').strip() if cell is not None else '' for cell in row]
+                writer.writerow(clean_row)
+            
+            content = csv_buffer.getvalue().encode('utf-8-sig')
+            if report_instance:
+                report_instance.file.save(f"{table_type or 'rapport'}_{date.today()}.csv", ContentFile(content), save=True)
+            
+            response = HttpResponse(content, content_type='text/csv; charset=utf-8-sig')
+            response['Content-Disposition'] = f'attachment; filename="{table_type or "rapport"}.csv"'
+            return response
+
         buffer = self._advanced_pdf(data, infos, style_index=1)
+        if report_instance:
+            report_instance.file.save(f"rapport_{date.today()}.pdf", ContentFile(buffer.getvalue()), save=True)
+            
         return FileResponse(buffer, as_attachment=True, filename="rapport.pdf")
 
     @action(detail=False, methods=['post'], url_path='upload-pdf')

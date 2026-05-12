@@ -12,16 +12,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { MetricCard } from "@/components/MetricCard"
 
 
 export default function Settings() {
-  const [metrics, setMetrics] = useState({
-    uptime: "...",
-    dbSize: "...",
-    activeSessions: "...",
-    apiRequests: "..."
-  })
   const { settings, updateSettings } = useSettings()
 
   const [systemName, setSystemName] = useState("")
@@ -37,11 +30,11 @@ export default function Settings() {
 
 
 
-  // ✅ Chargement des données réelles — tous les fetches dans un seul useEffect
+  // ✅ Chargement des données réelles
   useEffect(() => {
     const headers = { "Authorization": `Token ${localStorage.getItem('token')}` }
 
-    // Profil utilisateur → remplace /api/settings/ inexistant
+    // Profil utilisateur
     fetch("http://localhost:8000/api/accounts/profile/", { headers })
       .then(res => {
         if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -52,26 +45,6 @@ export default function Settings() {
         setSystemName(data.system_name || "Predistock Analytics")
       })
       .catch(err => console.error("Erreur profil:", err))
-
-    // Métriques → remplace /api/metrics/ inexistant
-    Promise.all([
-      fetch("http://localhost:8000/api/stock/inventaire/", { headers })
-        .then(r => r.ok ? r.json() : null),
-      fetch("http://localhost:8000/api/notifications/alertes/", { headers })
-        .then(r => r.ok ? r.json() : null),
-      fetch("http://localhost:8000/api/stock/mouvements/", { headers })
-        .then(r => r.ok ? r.json() : null),
-    ])
-      .then(([inventaire, alertes, mouvements]) => {
-        setMetrics({
-          uptime: "99.9%",
-          dbSize: `${inventaire?.count ?? inventaire?.length ?? 0} produits`,
-          activeSessions: `${alertes?.count ?? alertes?.length ?? 0} alertes`,
-          apiRequests: `${mouvements?.count ?? mouvements?.length ?? 0} mouvements`,
-        })
-      })
-      .catch(err => console.error("Erreur métriques:", err))
-
   }, [])
 
   // ✅ Sauvegarde paramètres généraux
@@ -105,34 +78,6 @@ export default function Settings() {
             Configurer les préférences système et les paramètres globaux
           </p>
         </div>
-      </div>
-
-      {/* System Overview Cards — données réelles */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Temps de disponibilité"
-          value={metrics.uptime}
-          icon={<SettingsIcon className="h-4 w-4" />}
-          variant="success"
-        />
-        <MetricCard
-          title="Taille de la base de données"
-          value={metrics.dbSize}
-          trend={{ value: 52.2, label: "croissance ce mois-ci" }}
-          icon={<Database className="h-4 w-4" />}
-        />
-        <MetricCard
-          title="Sessions actives"
-          value={metrics.activeSessions}
-          trend={{ value: 3, label: "utilisateurs en ligne" }}
-          icon={<Shield className="h-4 w-4" />}
-        />
-        <MetricCard
-          title="Requêtes API"
-          value={metrics.apiRequests}
-          trend={{ value: 8.5, label: "ce mois-ci" }}
-          icon={<Globe className="h-4 w-4" />}
-        />
       </div>
 
       {/* ===== CONTENU GÉNÉRAL ===== */}
