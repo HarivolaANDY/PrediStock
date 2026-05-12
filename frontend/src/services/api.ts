@@ -220,22 +220,30 @@ export const UserService = {
 
 export const ProductService = {
   createProduct: async (
-    productData: CreateProductData,
+    productData: CreateProductData | FormData,
   ): Promise<ProductResponse> => {
     try {
-      const formData = new FormData();
-      Object.entries(productData).forEach(([key, value]) => {
-        if (value !== undefined) {
-          if (value instanceof File) {
-            formData.append(key, value);
-          } else {
-            formData.append(key, String(value));
+      let formData: FormData;
+      if (productData instanceof FormData) {
+        formData = productData;
+      } else {
+        formData = new FormData();
+        Object.entries(productData).forEach(([key, value]) => {
+          if (value !== undefined) {
+            if (value instanceof File) {
+              formData.append(key, value);
+            } else {
+              formData.append(key, String(value));
+            }
           }
-        }
-      });
+        });
+      }
 
       const response = await fetch(`${API_BASE_URL}/api/catalogue/products/`, {
         method: "POST",
+        headers: {
+          Authorization: `Token ${localStorage.getItem("token")}`,
+        },
         body: formData,
       });
       return handleHttpErrors(response);
@@ -421,9 +429,11 @@ class CategoryAPI {
     options: RequestInit = {},
   ): Promise<ApiResponse<T>> {
     try {
+      const token = localStorage.getItem("token");
       const response = await fetch(`${API_URL}${endpoint}`, {
         headers: {
           "Content-Type": "application/json",
+          ...(token ? { Authorization: `Token ${token}` } : {}),
           ...options.headers,
         },
         ...options,

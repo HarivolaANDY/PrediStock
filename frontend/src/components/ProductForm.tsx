@@ -7,9 +7,9 @@ import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { API_URL } from "./productApi"
 import { Switch } from "@/components/ui/switch";
 import { unites_mesures } from "@/types/unites_mesures"
+import { categoryAPI, SupplierService } from "@/services/api"
 
 interface Category {
   id: number;
@@ -48,9 +48,10 @@ interface ProductFormProps {
   onClose: () => void
   onSubmit: (data: FormData) => void
   initialData?: Partial<ProductFormData> & { tags?: string[]; threshold?: number | string }
+  isDialog?: boolean
 }
 
-export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps) {
+export function ProductForm({ onClose, onSubmit, initialData, isDialog = false }: ProductFormProps) {
   const [categories, setCategories] = useState<Category[]>([])
   const [suppliers, setSuppliers] = useState<Supplier[]>([])
   const [images, setImages] = useState<ProductImage[]>([])
@@ -77,38 +78,21 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
   // Fetch categories and suppliers when component mounts
   useEffect(() => {
     const fetchData = async () => {
-        const token = localStorage.getItem('token');
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Token ${token}`
-        };
-
         try {
             // Fetch categories
             console.log('Fetching categories...')
-            const catResponse = await fetch(
-                'http://localhost:8000/api/catalogue/categories/',
-                { headers }
-            )
-            if (catResponse.ok) {
-                const catData = await catResponse.json()
-                const categoryData = catData.success ? catData.data : [];
-                setCategories(categoryData);
-            } else {
-                console.error('Category response not OK:', await catResponse.text())
+            const catResponse = await categoryAPI.getCategories()
+            if (catResponse && catResponse.data) {
+                setCategories(catResponse.data);
             }
 
             // Fetch suppliers
             console.log('Fetching suppliers...')
-            const supResponse = await fetch(
-                'http://localhost:8000/api/catalogue/suppliers/',
-                { headers }  // ← token ajouté ici
-            )
-            if (supResponse.ok) {
-                const supData = await supResponse.json()
-                setSuppliers(supData.data || [])
-            } else {
-                console.error('Supplier response not OK:', await supResponse.text())
+            const supData = await SupplierService.getAllSuppliers()
+            if (supData) {
+                // Si supData est un tableau direct ou dans une propriété results/data
+                const suppliersList = Array.isArray(supData) ? supData : (supData.data || supData.results || []);
+                setSuppliers(suppliersList);
             }
         } catch (error) {
             console.error('Error fetching data:', error)
@@ -252,319 +236,327 @@ export function ProductForm({ onClose, onSubmit, initialData }: ProductFormProps
   };
 
 
-  return (
-    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <Card className="w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="text-2xl">
-                {initialData ? "Modifier le produit" : "Ajouter un nouveau produit"}
-              </CardTitle>
-              <CardDescription>
-                Ces informations nous permettront d'en savoir plus sur votre produit.
-              </CardDescription>
-            </div>
+  const cardContent = (
+    <Card className={isDialog ? "w-full border-none shadow-none" : "w-full max-w-4xl max-h-[90vh] overflow-y-auto"}>
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle className="text-2xl">
+              {initialData ? "Modifier le produit" : "Ajouter un nouveau produit"}
+            </CardTitle>
+            <CardDescription>
+              Ces informations nous permettront d'en savoir plus sur votre produit.
+            </CardDescription>
+          </div>
+          {!isDialog && (
             <Button variant="ghost" size="icon" onClick={onClose}>
               <X className="h-4 w-4" />
             </Button>
-          </div>
-        </CardHeader>
+          )}
+        </div>
+      </CardHeader>
 
-        <CardContent className="space-y-6">
-          {/* Étapes */}
-          <div className="bg-card-foreground rounded-lg p-4">
-            <div className="flex items-center justify-between">
-              {steps.map((step, index) => (
-                <div key={step.number} className="flex items-center">
-                  <div className={`flex items-center ${index < steps.length - 1 ? 'flex-1' : ''}`}>
-                    <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
-                      currentStep >= step.number 
-                        ? `${step.color} text-gray-300` 
-                        : 'bg-sidebar-accent/50 text-sidebar-foreground'
-                    }`}>
-                      {step.number}
-                    </div>
-                    <span className={`ml-2 text-sm font-medium ${
-                      currentStep >= step.number ? `${step.color2}` : 'text-sidebar-foreground'
-                    }`}>
-                      {step.title}
-                    </span>
+      <CardContent className="space-y-6">
+        {/* Étapes */}
+        <div className="bg-card-foreground rounded-lg p-4">
+          <div className="flex items-center justify-between">
+            {steps.map((step, index) => (
+              <div key={step.number} className="flex items-center">
+                <div className={`flex items-center ${index < steps.length - 1 ? 'flex-1' : ''}`}>
+                  <div className={`w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium ${
+                    currentStep >= step.number 
+                      ? `${step.color} text-gray-300` 
+                      : 'bg-sidebar-accent/50 text-sidebar-foreground'
+                  }`}>
+                    {step.number}
                   </div>
+                  <span className={`ml-2 text-sm font-medium ${
+                    currentStep >= step.number ? `${step.color2}` : 'text-sidebar-foreground'
+                  }`}>
+                    {step.title}
+                  </span>
                 </div>
-              ))}
-            </div>
+              </div>
+            ))}
           </div>
+        </div>
 
-          {/* Étape 1 - Infos produit */}
-          {currentStep === 1 && (
-            <div className="space-y-6">
-              <h3 className="text-xl font-semibold">Informations sur le produit</h3>
+        {/* Étape 1 - Infos produit */}
+        {currentStep === 1 && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-semibold">Informations sur le produit</h3>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="name">Nom</Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => handleInputChange("name", e.target.value)}
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="name">Nom</Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => handleInputChange("name", e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="stock_threshold">Seuil</Label>
+                <Input
+                  id="stock_threshold"
+                  type="number"
+                  value={formData.stock_threshold}
+                  onChange={(e) => handleInputChange("stock_threshold", e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-4">
+                <Label htmlFor="description">Description (facultatif)</Label>
+                <Textarea
+                  id="description"
+                  rows={4}
+                  value={formData.description}
+                  onChange={(e) => handleInputChange("description", e.target.value)}
+                  placeholder="Ex : très léger et durable"
+                />
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="est_perissable"
+                    checked={formData.est_perissable}
+                    onCheckedChange={(checked) => handleInputChange("est_perissable", checked)}
                   />
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="stock_threshold">Seuil</Label>
-                  <Input
-                    id="stock_threshold"
-                    type="number"
-                    value={formData.stock_threshold}
-                    onChange={(e) => handleInputChange("stock_threshold", e.target.value)}
-                  />
+                  <Label htmlFor="est_perissable">Produit périssable</Label>
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-4">
-                  <Label htmlFor="description">Description (facultatif)</Label>
-                  <Textarea
-                    id="description"
-                    rows={4}
-                    value={formData.description}
-                    onChange={(e) => handleInputChange("description", e.target.value)}
-                    placeholder="Ex : très léger et durable"
-                  />
-                  <div className="flex items-center space-x-2">
-                    <Switch
-                      id="est_perissable"
-                      checked={formData.est_perissable}
-                      onCheckedChange={(checked) => handleInputChange("est_perissable", checked)}
-                    />
-                    <Label htmlFor="est_perissable">Produit périssable</Label>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="category">Catégorie</Label>
+              <div className="space-y-2">
+                <Label htmlFor="category">Catégorie</Label>
+                <Select
+                  value={formData.category?.toString() || ""}
+                  onValueChange={(value) => handleInputChange("category", value)}
+                >
+                  <SelectTrigger id="category">
+                    <SelectValue placeholder="Sélectionner une catégorie" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {Array.isArray(categories) && categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id.toString()}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                
+                <div className="space-y-2 mt-4">
+                  <Label htmlFor="supplier">Fournisseur</Label>
                   <Select
-                    value={formData.category?.toString() || ""}
-                    onValueChange={(value) => handleInputChange("category", value)}
+                    value={formData.supplier?.toString() || ""}
+                    onValueChange={(value) => handleInputChange("supplier", value)}
                   >
-                    <SelectTrigger id="category">
-                      <SelectValue placeholder="Sélectionner une catégorie" />
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sélectionner un fournisseur" />
                     </SelectTrigger>
                     <SelectContent>
-                      {Array.isArray(categories) && categories.map((category) => (
-                        <SelectItem key={category.id} value={category.id.toString()}>
-                          {category.name}
+                      {suppliers.map((supplier) => (
+                        <SelectItem key={supplier.id} value={supplier.id.toString()}>
+                          {supplier.name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
-                  
-                  <div className="space-y-2 mt-4">
-                    <Label htmlFor="supplier">Fournisseur</Label>
-                    <Select
-                      value={formData.supplier?.toString() || ""}
-                      onValueChange={(value) => handleInputChange("supplier", value)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Sélectionner un fournisseur" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {suppliers.map((supplier) => (
-                          <SelectItem key={supplier.id} value={supplier.id.toString()}>
-                            {supplier.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Étape 2 - Médias */}
-          {currentStep === 2 && (
-            <div className="space-y-6">
-              <h3 className="text-xl font-semibold">Médias</h3>
-              <div className="space-y-4">
-                <Label>Images du produit (Maximum 4)</Label>
-                <div 
-                  className="border-2 border-dashed border-muted rounded-lg p-12 text-center cursor-pointer"
-                  onClick={() => document.getElementById('image-upload')?.click()}
-                >
-                  <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
-                    Cliquez ou déposez les fichiers ici pour les téléverser
-                  </p>
-                  <input
-                    id="image-upload"
-                    type="file"
-                    name="product_img"
-                    multiple
-                    accept="image/*"
-                    className="hidden"
-                    onChange={handleImageUpload}
-                  />
-                </div>
-                {uploadError && (
-                  <p className="text-red-500 text-sm">{uploadError}</p>
-                )}
-                
-                {/* Aperçu des images */}
-                {images.length > 0 && (
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
-                    {images.map((image, index) => (
-                      <div key={index} className="relative group">
-                        <img
-                          src={image.preview}
-                          alt={`Preview ${index + 1}`}
-                          className="w-full h-32 object-cover rounded-lg"
-                        />
-                        <button
-                          onClick={() => removeImage(index)}
-                          className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                        >
-                          <X className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
+        {/* Étape 2 - Médias */}
+        {currentStep === 2 && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-semibold">Médias</h3>
+            <div className="space-y-4">
+              <Label>Images du produit (Maximum 4)</Label>
+              <div 
+                className="border-2 border-dashed border-muted rounded-lg p-12 text-center cursor-pointer"
+                onClick={() => document.getElementById('image-upload')?.click()}
+              >
+                <Upload className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p className="text-muted-foreground">
+                  Cliquez ou déposez les fichiers ici pour les téléverser
+                </p>
+                <input
+                  id="image-upload"
+                  type="file"
+                  name="product_img"
+                  multiple
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleImageUpload}
+                />
               </div>
-            </div>
-          )}
-
-          {/* Étape 3 - Tarification */}
-          {currentStep === 3 && (
-            <div className="space-y-6">
-              <h3 className="text-xl font-semibold">Tarification</h3>
-
-              <div className="grid grid-cols-2 gap-6">
-                <div className="space-y-2">
-                  <Label htmlFor="unite">Unité de mesures</Label>
-                  <div className="flex gap-2">
-                    <select
-                      name="unite_mesure"
-                      id="unite_mesure"
-                      className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                      value={formData.unite_mesure}
-                      onChange={(e) => handleInputChange("unite_mesure", e.target.value)}
-                    >
-                      {unites_mesures.map((unite) => (
-                        <option key={unite.symbol} value={unite.symbol}>
-                          {unite.name} - {unite.symbol} 
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="sku">Réference</Label>
-                  <Input
-                    id="sku"
-                    value={formData.sku}
-                    onChange={(e) => handleInputChange("sku", e.target.value)}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-6">
-                  <div className="space-y-2">
-                      <Label htmlFor="price">Prix</Label>
-                      <div className="flex gap-2">
-                          <Input
-                              id="price"
-                              type="number"
-                              value={formData.price}
-                              onChange={(e) => handleInputChange("price", e.target.value)}
-                              placeholder="Ex: 15000"
-                          />
-                          <Select
-                              value={formData.currency}
-                              onValueChange={(value) => handleInputChange("currency", value)}
-                          >
-                              <SelectTrigger className="w-32">
-                                  <SelectValue placeholder="Devise" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                  <SelectItem value="Ariary">Ariary</SelectItem>
-                                  <SelectItem value="EUR">EUR</SelectItem>
-                                  <SelectItem value="USD">USD</SelectItem>
-                              </SelectContent>
-                          </Select>
-                      </div>
-                  </div>
-
-                  <div className="space-y-2">
-                      <Label htmlFor="current_stock">Stock initial</Label>
-                      <Input
-                          id="current_stock"
-                          type="number"
-                          value={formData.current_stock}
-                          onChange={(e) => handleInputChange("current_stock", e.target.value)}
-                          placeholder="Ex: 100"
+              {uploadError && (
+                <p className="text-red-500 text-sm">{uploadError}</p>
+              )}
+              
+              {/* Aperçu des images */}
+              {images.length > 0 && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+                  {images.map((image, index) => (
+                    <div key={index} className="relative group">
+                      <img
+                        src={image.preview}
+                        alt={`Preview ${index + 1}`}
+                        className="w-full h-32 object-cover rounded-lg"
                       />
-                  </div>
-                </div>
-
-
-              </div>
-              <div className="space-y-2">
-                <Label>Étiquettes</Label>
-                <div className="flex gap-2 flex-wrap mb-2">
-                  {tags.map((tag, index) => (
-                    <Badge
-                      key={index}
-                      variant={tag === "En stock" ? "default" : "secondary"}
-                      className="flex items-center gap-1"
-                    >
-                      {tag}
-                      <button onClick={() => removeTag(tag)}>
-                        <X className="h-3 w-3" />
+                      <button
+                        onClick={() => removeImage(index)}
+                        className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
+                      >
+                        <X className="h-4 w-4" />
                       </button>
-                    </Badge>
+                    </div>
                   ))}
                 </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Étape 3 - Tarification */}
+        {currentStep === 3 && (
+          <div className="space-y-6">
+            <h3 className="text-xl font-semibold">Tarification</h3>
+
+            <div className="grid grid-cols-2 gap-6">
+              <div className="space-y-2">
+                <Label htmlFor="unite">Unité de mesures</Label>
                 <div className="flex gap-2">
-                  <Input
-                    placeholder="Ajouter une étiquette"
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    onKeyPress={(e) => e.key === "Enter" && addTag()}
-                  />
-                  <Button type="button" onClick={addTag}>
-                    Ajouter
-                  </Button>
+                  <select
+                    name="unite_mesure"
+                    id="unite_mesure"
+                    className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                    value={formData.unite_mesure}
+                    onChange={(e) => handleInputChange("unite_mesure", e.target.value)}
+                  >
+                    {unites_mesures.map((unite) => (
+                      <option key={unite.symbol} value={unite.symbol}>
+                        {unite.name} - {unite.symbol} 
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="sku">Réference</Label>
+                <Input
+                  id="sku"
+                  value={formData.sku}
+                  onChange={(e) => handleInputChange("sku", e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-6">
+                <div className="space-y-2">
+                    <Label htmlFor="price">Prix</Label>
+                    <div className="flex gap-2">
+                        <Input
+                            id="price"
+                            type="number"
+                            value={formData.price}
+                            onChange={(e) => handleInputChange("price", e.target.value)}
+                            placeholder="Ex: 15000"
+                        />
+                        <Select
+                            value={formData.currency}
+                            onValueChange={(value) => handleInputChange("currency", value)}
+                        >
+                            <SelectTrigger className="w-32">
+                                <SelectValue placeholder="Devise" />
+                            </SelectTrigger>
+                            <SelectContent>
+                                <SelectItem value="Ariary">Ariary</SelectItem>
+                                <SelectItem value="EUR">EUR</SelectItem>
+                                <SelectItem value="USD">USD</SelectItem>
+                            </SelectContent>
+                        </Select>
+                    </div>
+                </div>
+
+                <div className="space-y-2">
+                    <Label htmlFor="current_stock">Stock initial</Label>
+                    <Input
+                        id="current_stock"
+                        type="number"
+                        value={formData.current_stock}
+                        onChange={(e) => handleInputChange("current_stock", e.target.value)}
+                        placeholder="Ex: 100"
+                    />
+                </div>
+              </div>
+
+
             </div>
-          )}
-
-          {/* Navigation */}
-          <div className="flex justify-between pt-6">
-            <Button
-              variant="outline"
-              onClick={currentStep === 1 ? onClose : handlePrev}
-            >
-              {currentStep === 1 ? (
-                <>
-                  <X className="h-4 w-4 mr-2" />
-                  Annuler
-                </>
-              ) : (
-                <>
-                  <ArrowLeft className="h-4 w-4 mr-2" />
-                  Précédent
-                </>
-              )}
-            </Button>
-
-            <Button className="text-white bg-bouton hover:bg-bouton-hover" onClick={currentStep === steps.length ? handleSubmit : handleNext}>
-              {currentStep === steps.length ? "Envoyer" : "Suivant"}
-              {currentStep < steps.length && <ArrowRight className="h-4 w-4 ml-2" />}
-            </Button>
+            <div className="space-y-2">
+              <Label>Étiquettes</Label>
+              <div className="flex gap-2 flex-wrap mb-2">
+                {tags.map((tag, index) => (
+                  <Badge
+                    key={index}
+                    variant={tag === "En stock" ? "default" : "secondary"}
+                    className="flex items-center gap-1"
+                  >
+                    {tag}
+                    <button onClick={() => removeTag(tag)}>
+                      <X className="h-3 w-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="Ajouter une étiquette"
+                  value={newTag}
+                  onChange={(e) => setNewTag(e.target.value)}
+                  onKeyPress={(e) => e.key === "Enter" && addTag()}
+                />
+                <Button type="button" onClick={addTag}>
+                  Ajouter
+                </Button>
+              </div>
+            </div>
           </div>
-        </CardContent>
-      </Card>
+        )}
+
+        {/* Navigation */}
+        <div className="flex justify-between pt-6">
+          <Button
+            variant="outline"
+            onClick={currentStep === 1 ? onClose : handlePrev}
+          >
+            {currentStep === 1 ? (
+              <>
+                <X className="h-4 w-4 mr-2" />
+                Annuler
+              </>
+            ) : (
+              <>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Précédent
+              </>
+            )}
+          </Button>
+
+          <Button className="text-white bg-bouton hover:bg-bouton-hover" onClick={currentStep === steps.length ? handleSubmit : handleNext}>
+            {currentStep === steps.length ? "Envoyer" : "Suivant"}
+            {currentStep < steps.length && <ArrowRight className="h-4 w-4 ml-2" />}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+
+  if (isDialog) return cardContent
+
+  return (
+    <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {cardContent}
     </div>
   )
 }

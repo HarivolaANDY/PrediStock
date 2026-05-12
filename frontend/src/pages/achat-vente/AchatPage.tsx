@@ -20,6 +20,9 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogD
 
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { ProductForm } from "@/components/ProductForm"
+import { SupplierForm } from "@/components/SupplierForm"
+import { ProductService, SupplierService } from "@/services/api"
 
 const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: React.ReactNode }> = {
   "En attente": { label: "En attente", color: "bg-amber-100 text-amber-700 border-amber-200", icon: <Clock className="h-3 w-3" /> },
@@ -68,6 +71,10 @@ export default function AchatPage() {
   // State for deletion confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
 
+  // State for adding product/supplier
+  const [showProductForm, setShowProductForm] = useState(false)
+  const [showSupplierForm, setShowSupplierForm] = useState(false)
+
 
   // Queries
   const { data: commandes = [], isLoading, refetch } = useQuery({
@@ -110,6 +117,26 @@ export default function AchatPage() {
       toast.success("Bon de commande supprimé")
       qc.invalidateQueries({ queryKey: ["bon-commandes"] })
       setDeleteConfirmId(null)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const createProductMut = useMutation({
+    mutationFn: ProductService.createProduct,
+    onSuccess: () => {
+      toast.success("Produit ajouté avec succès")
+      qc.invalidateQueries({ queryKey: ["produits-search-combined"] })
+      setShowProductForm(false)
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const createSupplierMut = useMutation({
+    mutationFn: SupplierService.createSupplier,
+    onSuccess: () => {
+      toast.success("Fournisseur ajouté avec succès")
+      qc.invalidateQueries({ queryKey: ["fournisseurs"] })
+      setShowSupplierForm(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -301,15 +328,26 @@ export default function AchatPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground uppercase">Fournisseur</label>
-                <select 
-                  className="w-full bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
-                  value={form.fournisseur || ""}
-                  onChange={e => setForm({...form, fournisseur: Number(e.target.value)})}
-                  required
-                >
-                  <option value="">Sélectionner un fournisseur</option>
-                  {Array.isArray(fournisseurs) && fournisseurs.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
-                </select>
+                <div className="flex gap-2">
+                  <select 
+                    className="flex-1 bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                    value={form.fournisseur || ""}
+                    onChange={e => setForm({...form, fournisseur: Number(e.target.value)})}
+                    required
+                  >
+                    <option value="">Sélectionner un fournisseur</option>
+                    {Array.isArray(fournisseurs) && fournisseurs.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
+                  </select>
+                  <Button 
+                    type="button" 
+                    variant="outline" 
+                    size="icon" 
+                    onClick={() => setShowSupplierForm(true)}
+                    className="shrink-0 rounded-xl border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 h-10 w-10"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="space-y-1.5">
                 <label className="text-xs font-bold text-muted-foreground uppercase">Livraison Prévue</label>
@@ -335,43 +373,54 @@ export default function AchatPage() {
                   <div key={idx} className="flex flex-col md:flex-row gap-3 bg-muted/20 p-3 rounded-xl border border-border group relative">
                     <div className="flex-[2] space-y-1">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Produit / Sous-produit</label>
-                      <select 
-                        className="w-full bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
-                        value={line.produit_dv ? `dv-${line.produit_dv}` : (line.produit ? `pr-${line.produit}` : "")}
-                        onChange={e => {
-                          const val = e.target.value;
-                          if (!val) {
-                            handleUpdateLine(idx, { produit: null, produit_dv: null, prix_unitaire: 0 });
-                            return;
-                          }
-                          const [type, idStr] = val.split('-');
-                          const id = Number(idStr);
-                          const selected = productsAndSubProducts.find(p => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
-                          
-                          const price = selected?.price || 0;
-                          
-                          if (type === 'dv') {
-                            handleUpdateLine(idx, { 
-                              produit_dv: id, 
-                              produit: selected?.parent_id || null, 
-                              prix_unitaire: Number(price)
-                            });
-                          } else {
-                            handleUpdateLine(idx, { 
-                              produit: id, 
-                              produit_dv: null, 
-                              prix_unitaire: Number(price)
-                            });
-                          }
-                        }}
-                      >
-                        <option value="" disabled hidden>Choisir un item</option>
-                        {Array.isArray(productsAndSubProducts) && productsAndSubProducts.map(p => (
-                          <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
-                            {p.is_deriv ? `[Sous-produit] ${p.name} (de ${p.parent_name})` : `[Produit] ${p.name}`}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex gap-2">
+                        <select 
+                          className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                          value={line.produit_dv ? `dv-${line.produit_dv}` : (line.produit ? `pr-${line.produit}` : "")}
+                          onChange={e => {
+                            const val = e.target.value;
+                            if (!val) {
+                              handleUpdateLine(idx, { produit: null, produit_dv: null, prix_unitaire: 0 });
+                              return;
+                            }
+                            const [type, idStr] = val.split('-');
+                            const id = Number(idStr);
+                            const selected = productsAndSubProducts.find(p => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
+                            
+                            const price = selected?.price || 0;
+                            
+                            if (type === 'dv') {
+                              handleUpdateLine(idx, { 
+                                produit_dv: id, 
+                                produit: selected?.parent_id || null, 
+                                prix_unitaire: Number(price)
+                              });
+                            } else {
+                              handleUpdateLine(idx, { 
+                                produit: id, 
+                                produit_dv: null, 
+                                prix_unitaire: Number(price)
+                              });
+                            }
+                          }}
+                        >
+                          <option value="" disabled hidden>Choisir un item</option>
+                          {Array.isArray(productsAndSubProducts) && productsAndSubProducts.map(p => (
+                            <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
+                              {p.is_deriv ? `[Sous-produit] ${p.name} (de ${p.parent_name})` : `[Produit] ${p.name}`}
+                            </option>
+                          ))}
+                        </select>
+                        <Button 
+                          type="button" 
+                          variant="outline" 
+                          size="icon" 
+                          onClick={() => setShowProductForm(true)}
+                          className="h-[34px] w-[34px] shrink-0 rounded-lg border-dashed border-blue-300 text-blue-600 hover:bg-blue-50"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                     </div>
                     <div className="w-full md:w-24 space-y-1">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Quantité</label>
@@ -532,6 +581,38 @@ export default function AchatPage() {
               Supprimer définitivement
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Product Modal */}
+      <Dialog open={showProductForm} onOpenChange={setShowProductForm}>
+        <DialogContent className="max-w-4xl p-0 overflow-hidden border-none shadow-2xl">
+          <ProductForm 
+            isDialog={true}
+            onClose={() => setShowProductForm(false)} 
+            onSubmit={(data) => createProductMut.mutate(data as any)} 
+          />
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Supplier Modal */}
+      <Dialog open={showSupplierForm} onOpenChange={setShowSupplierForm}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-blue-600" />
+              Ajouter un nouveau fournisseur
+            </DialogTitle>
+            <DialogDescription>
+              Remplissez les informations ci-dessous pour créer un nouveau fournisseur.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <SupplierForm 
+              onCancel={() => setShowSupplierForm(false)} 
+              onSubmit={(data) => createSupplierMut.mutate(data)} 
+            />
+          </div>
         </DialogContent>
       </Dialog>
     </div>
