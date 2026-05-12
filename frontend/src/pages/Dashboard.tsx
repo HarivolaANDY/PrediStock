@@ -274,15 +274,32 @@ export default function Dashboard() {
     try {
       const response = await axios.patch(
         `${API_BASE_URL}/api/catalogue/products/${product.id}/`,
-        { current_stock: product.current_stock + quantity },
+        { current_stock: Number(product.current_stock) + quantity },
         authHeaders()
       )
       if (response.data) {
         await fetchCriticalProducts()
         toast({ title: "Succès", description: `Réapprovisionnement réussi. Nouveau stock : ${product.current_stock + quantity}` })
       }
-    } catch {
-      toast({ title: "Erreur", description: "Impossible de mettre à jour le stock", variant: "destructive" })
+    } catch (error: any) {
+      console.error("Erreur réapprovisionnement:", error);
+      let msg = "Impossible de mettre à jour le stock";
+      if (error.response?.data) {
+        const data = error.response.data;
+        if (data.message) msg = data.message;
+        else if (data.detail) msg = data.detail;
+        else if (data.data && typeof data.data === 'object') {
+          // Si c'est un dictionnaire d'erreurs DRF (ex: { current_stock: ["..."] })
+          msg = Object.entries(data.data)
+            .map(([field, errors]) => `${field}: ${Array.isArray(errors) ? errors.join(", ") : errors}`)
+            .join(" | ");
+        }
+      }
+      toast({ 
+        title: "Erreur", 
+        description: msg, 
+        variant: "destructive" 
+      })
     }
   }
 

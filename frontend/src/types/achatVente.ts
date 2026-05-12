@@ -19,7 +19,6 @@ export interface LigneCommande {
   bon_commande: number | null;
   produit: number | null;
   product_name?: string;
-  recommandation?: number | null;
   quantite: number;
   prix_unitaire: number;
   montant_ligne: number;
@@ -114,22 +113,6 @@ export interface ProduitRenvoie {
   creer_le: string;
 }
 
-export type RecommandationPriority = 'HAUTE' | 'MOYENNE' | 'BASSE';
-
-export interface Recommandation {
-  id: number;
-  product: number | null;
-  product_details: { name: string; current_stock: number } | null;
-  date_prediction: string | null;
-  type_recommandation: string;
-  quantite_suggeree: number;
-  prix_estime: number;
-  priority: RecommandationPriority;
-  raisonnement: string;
-  est_applique: boolean;
-  creer_le: string;
-  appliquee_le: string | null;
-}
 
 export type MouvementType = 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'SCRAP' | 'ALLOCATION';
 

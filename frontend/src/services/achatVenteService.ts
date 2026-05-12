@@ -5,10 +5,12 @@ import type {
   DonneeVente,
   CreateDonneeVenteData,
   ProduitRenvoie,
-  Recommandation,
   MouvementStock,
   AnalyticsData,
+  Fournisseur,
+  PaginatedResponse,
 } from "@/types/achatVente";
+import type { Product } from "@/types/types";
 
 
 const authHeaders = () => ({
@@ -94,20 +96,6 @@ export const getRetours = (params?: Record<string, string>) => {
 export const getAnalytics = () =>
   fetchJson<AnalyticsData>(`${API_BASE_URL}/api/commandes/analytics/`);
 
-// ─── Recommandations ──────────────────────────────────────────────────────────
-
-export const getRecommandations = (params?: Record<string, string>) => {
-  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-  return fetchJson<Recommandation[]>(
-    `${API_BASE_URL}/api/forecasting/recommandations/${qs}`
-  );
-};
-
-export const applyRecommandation = (id: number) =>
-  fetchJson<Recommandation>(
-    `${API_BASE_URL}/api/forecasting/recommandations/${id}/apply/`,
-    { method: "PATCH" }
-  );
 
 // ─── Mouvements de stock ──────────────────────────────────────────────────────
 
@@ -119,22 +107,22 @@ export const getMouvements = (params?: Record<string, string>) => {
 // ─── Fournisseurs (for the purchase create form) ──────────────────────────────
 
 export const getFournisseurs = () =>
-  fetchJson<any>(`${API_BASE_URL}/api/catalogue/suppliers/`).then(res => {
-    if (res && res.results && Array.isArray(res.results)) return res.results;
+  fetchJson<PaginatedResponse<Fournisseur> | Fournisseur[]>(`${API_BASE_URL}/api/catalogue/suppliers/`).then(res => {
+    if (res && typeof res === "object" && "results" in res && Array.isArray(res.results)) return res.results;
     return Array.isArray(res) ? res : [];
   });
 // ─── Produits (for order lines) ───────────────────────────────────────────────
 
 export const getProduits = () =>
-  fetchJson<any>(`${API_BASE_URL}/api/catalogue/products/`).then(res => {
+  fetchJson<PaginatedResponse<Product> | Product[]>(`${API_BASE_URL}/api/catalogue/products/`).then(res => {
     // If paginated, return the results array
-    if (res && res.results && Array.isArray(res.results)) return res.results;
+    if (res && typeof res === "object" && "results" in res && Array.isArray(res.results)) return res.results;
     // Otherwise return the response as is (if it's already an array)
     return Array.isArray(res) ? res : [];
   });
 
 export const searchProduits = (terme: string) =>
-  fetchJson<any[]>(`${API_BASE_URL}/api/catalogue/products/`, {
+  fetchJson<Product[]>(`${API_BASE_URL}/api/catalogue/products/`, {
     method: "POST",
     body: JSON.stringify({ chercher: terme }),
   });

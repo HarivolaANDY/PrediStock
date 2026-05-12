@@ -141,6 +141,7 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
             return StandardResponse.render(
                 data=serializer.data, message="Objet modifié avec succès", status_code=200
             )
+        print(f"DEBUG: {self._get_model_name()} update errors: {serializer.errors}")
         return StandardResponse.render(
             data=serializer.errors,
             message="Données invalides",

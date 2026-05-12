@@ -19,7 +19,7 @@ class ContenuDansSerializer(serializers.ModelSerializer):
         model = ContenuDans
         fields = [
             'id', 'bon_commande', 'produit', 'produit_dv', 'produit_name', 
-            'produit_dv_name', 'recommandation', 'quantite', 'prix_unitaire', 'montant_ligne'
+            'produit_dv_name', 'quantite', 'prix_unitaire', 'montant_ligne'
         ]
 
     def validate_quantite(self, value):

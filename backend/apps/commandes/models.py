@@ -70,9 +70,6 @@ class ContenuDans(models.Model):
     produit_dv = models.ForeignKey(
         'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
     )
-    recommandation = models.ForeignKey(
-        'forecasting.Recommandation', on_delete=models.SET_NULL, null=True, blank=True
-    )
     quantite = models.IntegerField(default=1)
     prix_unitaire = models.FloatField(default=0)
     creer_le = models.DateTimeField(auto_now_add=True)
