@@ -156,6 +156,11 @@ export interface Product {
   supplier: number | null;
   unite_mesure: string;
   suppliers?: { id: string; name: string }[];
+  // ✅ Champs pour recherche combinée
+  is_deriv?: boolean;
+  parent_id?: number;
+  parent_name?: string;
+  stock_actuel?: number; // Alias pour compatibilité
 }
 
 export interface CriticalProduct {

@@ -38,8 +38,8 @@ class BonCommandeSerializer(serializers.ModelSerializer):
         model = BonCommande
         fields = [
             'id', 'fournisseur', 'fournisseur_name', 'utilisateur', 'utilisateur_name',
-            'numero_commande', 'status', 'montant_total', 'date_commande', 
-            'livraison_prevue', 'livraison_actuelle', 'lignes', 'lignes_data',
+            'numero_commande', 'status', 'statut_paiement', 'montant_total', 'montant_paye',
+            'date_commande', 'livraison_prevue', 'livraison_actuelle', 'lignes', 'lignes_data',
             'creer_le', 'update_at'
         ]
 
@@ -111,9 +111,9 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
         model = DonneeVente
         fields = [
             'id', 'utilisateur', 'utilisateur_name', 'numero_vente', 
-            'montant_total', 'remise_globale', 'canal_vente', 
-            'segment_clientele', 'date_vente', 'lignes', 'lignes_data',
-            'creer_le', 'update_at'
+            'montant_total', 'montant_paye', 'remise_globale', 'statut_paiement', 
+            'mode_paiement', 'canal_vente', 'segment_clientele', 'date_vente', 
+            'lignes', 'lignes_data', 'creer_le', 'update_at'
         ]
 
     def create(self, validated_data):
