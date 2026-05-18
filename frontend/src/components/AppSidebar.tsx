@@ -55,7 +55,7 @@ const achatVenteItems = [
   { title: "Ventes", url: "/buy-sell/ventes", icon: DollarSign },
   { title: "Retours", url: "/buy-sell/retours", icon: RotateCcw },
   { title: "Analyse", url: "/buy-sell/analyse", icon: LineChart },
-  { title: "Mouvements", url: "/buy-sell/mouvements", icon: ArrowLeftRight },
+  { title: "Transactions", url: "/buy-sell/mouvements", icon: ArrowLeftRight },
 ]
 
 const dataItems = [

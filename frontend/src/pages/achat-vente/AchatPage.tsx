@@ -6,8 +6,9 @@ import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/ac
 import { toast } from "sonner"
 import {
   ShoppingCart, Plus, RefreshCw, CheckCircle2,
-  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search
+  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, AlertTriangle, ExternalLink
 } from "lucide-react"
+import { Link } from "react-router-dom"
 
 import {
   DropdownMenu,
@@ -31,6 +32,12 @@ const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; i
   "Annulé":     { label: "Annulé",     color: "bg-red-100 text-red-700 border-red-200",       icon: <XCircle className="h-3 w-3" /> },
 }
 
+const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> = {
+  "Non payé": { label: "Non payé", color: "bg-red-100 text-red-700 border-red-200" },
+  "Partiel":  { label: "Partiel",  color: "bg-amber-100 text-amber-700 border-amber-200" },
+  "Payé":     { label: "Payé",     color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+}
+
 const ALL_STATUSES: BonCommandeStatus[] = ["En attente", "Confirmé", "Livré", "Annulé"]
 
 function StatusBadge({ status }: { status: BonCommandeStatus }) {
@@ -38,6 +45,15 @@ function StatusBadge({ status }: { status: BonCommandeStatus }) {
   return (
     <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-semibold border ${cfg.color}`}>
       {cfg.icon} {cfg.label}
+    </span>
+  )
+}
+
+function PaymentStatusBadge({ status }: { status: string }) {
+  const cfg = STATUS_PAIEMENT_CONFIG[status] ?? STATUS_PAIEMENT_CONFIG["Non payé"]
+  return (
+    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${cfg.color}`}>
+      {cfg.label}
     </span>
   )
 }
@@ -57,6 +73,11 @@ export default function AchatPage() {
   const [showModal, setShowModal] = useState(false)
   const [selectedOrder, setSelectedOrder] = useState<BonCommande | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [selectedIds, setSelectedIds] = useState<number[]>([])
+  
+  // Pagination
+  const [currentPage, setCurrentPage] = useState(1)
+  const itemsPerPage = 10
 
   // Form state for lines
   const [lines, setLines] = useState<CreateLigneData[]>([
@@ -70,6 +91,7 @@ export default function AchatPage() {
 
   // State for deletion confirmation
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
 
   // State for adding product/supplier
   const [showProductForm, setShowProductForm] = useState(false)
@@ -114,9 +136,35 @@ export default function AchatPage() {
   const deleteMut = useMutation({
     mutationFn: deleteBonCommande,
     onSuccess: () => {
-      toast.success("Bon de commande supprimé")
+      toast.success("Opération réussie")
       qc.invalidateQueries({ queryKey: ["bon-commandes"] })
       setDeleteConfirmId(null)
+      setSelectedIds([])
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  // Bulk mutations
+  const bulkUpdateStatusMut = useMutation({
+    mutationFn: async ({ ids, status }: { ids: number[]; status: BonCommandeStatus }) => {
+      await Promise.all(ids.map(id => updateBonCommande(id, { status })))
+    },
+    onSuccess: () => {
+      toast.success(`${selectedIds.length} commandes mises à jour`)
+      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+      setSelectedIds([])
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+
+  const bulkDeleteMut = useMutation({
+    mutationFn: async (ids: number[]) => {
+      await Promise.all(ids.map(id => deleteBonCommande(id)))
+    },
+    onSuccess: () => {
+      toast.success(`${selectedIds.length} commandes supprimées`)
+      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+      setSelectedIds([])
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -178,6 +226,18 @@ export default function AchatPage() {
     c.fournisseur_name?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
+  const totalPages = Math.ceil(filteredCommandes.length / itemsPerPage)
+  const paginatedCommandes = filteredCommandes.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
+
+  const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.checked) setSelectedIds(paginatedCommandes.map(c => c.id))
+    else setSelectedIds([])
+  }
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
+  }
+
   const totalFormAmount = lines.reduce((acc, l) => acc + (l.quantite * l.prix_unitaire), 0)
 
   return (
@@ -209,7 +269,7 @@ export default function AchatPage() {
           { label: "Total Commandes", value: commandes.length, sub: "Toutes périodes", color: "text-blue-600", bg: "bg-blue-50" },
           { label: "En Attente", value: commandes.filter(c => c.status === "En attente").length, sub: "Nécessite action", color: "text-amber-600", bg: "bg-amber-50" },
           { label: "Livrées", value: commandes.filter(c => c.status === "Livré").length, sub: "Stock mis à jour", color: "text-emerald-600", bg: "bg-emerald-50" },
-          { label: "Montant Total", value: formatAmount(commandes.reduce((s, c) => s + c.montant_total, 0)), sub: "Valeur stock entrant", color: "text-violet-600", bg: "bg-violet-50" },
+          { label: "Payé / Total", value: `${formatAmount(commandes.reduce((s, c) => s + (c.montant_paye || 0), 0))} / ${formatAmount(commandes.reduce((s, c) => s + c.montant_total, 0))}`, sub: "Suivi financier", color: "text-violet-600", bg: "bg-violet-50" },
         ].map((k, i) => (
           <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm group hover:border-blue-200 transition-all">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">{k.label}</p>
@@ -251,15 +311,57 @@ export default function AchatPage() {
         </div>
       </div>
 
+      {/* Bulk Actions Toolbar */}
+      {selectedIds.length > 0 && (
+        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 p-3 rounded-xl animate-in fade-in slide-in-from-top-2">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-blue-700">{selectedIds.length} sélectionné(s)</span>
+            <div className="h-4 w-px bg-blue-200" />
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-8 gap-2 border-blue-200 text-blue-700 hover:bg-blue-100">
+                  Changer le statut <ChevronDown className="h-3 w-3" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {ALL_STATUSES.map(s => (
+                  <DropdownMenuItem key={s} onClick={() => bulkUpdateStatusMut.mutate({ ids: selectedIds, status: s })} className="gap-2">
+                    {STATUS_CONFIG[s].icon} {s}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuContent>
+            </DropdownMenu>
+            <Button 
+              size="sm" 
+              variant="ghost" 
+              className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 gap-2 font-bold"
+              onClick={() => setShowBulkDeleteConfirm(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> Supprimer
+            </Button>
+          </div>
+          <Button size="sm" variant="ghost" className="h-8 text-blue-700 font-bold" onClick={() => setSelectedIds([])}>Annuler</Button>
+        </div>
+      )}
+
       {/* Table Section */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-muted/30 border-b border-border">
               <tr>
+                <th className="px-6 py-4 w-10">
+                  <input 
+                    type="checkbox" 
+                    className="rounded border-border" 
+                    checked={selectedIds.length === paginatedCommandes.length && paginatedCommandes.length > 0}
+                    onChange={handleSelectAll}
+                  />
+                </th>
                 <th className="px-6 py-4 font-bold text-muted-foreground">NUMÉRO</th>
                 <th className="px-6 py-4 font-bold text-muted-foreground">FOURNISSEUR</th>
                 <th className="px-6 py-4 font-bold text-muted-foreground">STATUT</th>
+                <th className="px-6 py-4 font-bold text-muted-foreground">PAIEMENT</th>
                 <th className="px-6 py-4 font-bold text-muted-foreground text-right">MONTANT</th>
                 <th className="px-6 py-4 font-bold text-muted-foreground">DATE</th>
                 <th className="px-6 py-4 font-bold text-muted-foreground">ACTIONS</th>
@@ -267,16 +369,42 @@ export default function AchatPage() {
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading ? (
-                <tr><td colSpan={6} className="py-20 text-center text-muted-foreground"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Chargement...</td></tr>
-              ) : filteredCommandes.length === 0 ? (
-                <tr><td colSpan={6} className="py-20 text-center text-muted-foreground font-medium">Aucun bon de commande trouvé</td></tr>
-              ) : filteredCommandes.map(c => (
-                <tr key={c.id} className="hover:bg-muted/20 transition-colors group">
+                <tr><td colSpan={9} className="py-20 text-center text-muted-foreground"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Chargement...</td></tr>
+              ) : paginatedCommandes.length === 0 ? (
+                <tr><td colSpan={9} className="py-20 text-center text-muted-foreground font-medium">Aucun bon de commande trouvé</td></tr>
+              ) : paginatedCommandes.map(c => (
+                <tr key={c.id} className={`hover:bg-muted/20 transition-colors group ${selectedIds.includes(c.id) ? 'bg-blue-50/50' : ''}`}>
+                  <td className="px-6 py-4">
+                    <input 
+                      type="checkbox" 
+                      className="rounded border-border" 
+                      checked={selectedIds.includes(c.id)}
+                      onChange={() => toggleSelect(c.id)}
+                    />
+                  </td>
                   <td className="px-6 py-4 font-mono font-bold text-blue-600">{c.numero_commande}</td>
-                  <td className="px-6 py-4 font-semibold text-foreground">{c.fournisseur_name || "—"}</td>
+                  <td className="px-6 py-4">
+                    <Link 
+                      to="/suppliers" 
+                      className="group/link flex items-center gap-1 font-semibold text-foreground hover:text-blue-600 transition-colors"
+                    >
+                      {c.fournisseur_name || "—"}
+                      <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
+                    </Link>
+                  </td>
                   <td className="px-6 py-4"><StatusBadge status={c.status} /></td>
+                  <td className="px-6 py-4"><PaymentStatusBadge status={c.statut_paiement} /></td>
                   <td className="px-6 py-4 font-bold text-right tabular-nums text-foreground">{formatAmount(c.montant_total)}</td>
-                  <td className="px-6 py-4 text-muted-foreground font-medium">{formatDate(c.date_commande)}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-col">
+                      <span className="text-muted-foreground font-medium">{formatDate(c.date_commande)}</span>
+                      {c.status === "En attente" && c.livraison_prevue && new Date(c.livraison_prevue) < new Date() && (
+                        <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 mt-1 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 w-fit">
+                          <AlertTriangle className="h-3 w-3" /> RETARD
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-6 py-4 flex items-center gap-2">
                     <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(c)} className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
                       <Eye className="h-4 w-4" />
@@ -308,6 +436,27 @@ export default function AchatPage() {
             </tbody>
           </table>
         </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-6 py-4 bg-muted/10 border-t border-border">
+            <p className="text-xs text-muted-foreground font-medium">Page {currentPage} sur {totalPages}</p>
+            <div className="flex items-center gap-2">
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={currentPage === 1} 
+                onClick={() => setCurrentPage(p => p - 1)}
+                className="h-8 w-8 p-0"
+              ><ChevronDown className="h-4 w-4 rotate-90" /></Button>
+              <Button 
+                variant="outline" 
+                size="sm" 
+                disabled={currentPage === totalPages} 
+                onClick={() => setCurrentPage(p => p + 1)}
+                className="h-8 w-8 p-0"
+              ><ChevronDown className="h-4 w-4 -rotate-90" /></Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Creation Modal */}
@@ -511,6 +660,14 @@ export default function AchatPage() {
                 <p className="text-[10px] font-bold text-muted-foreground uppercase">Responsable</p>
                 <p className="font-semibold">{selectedOrder?.utilisateur_name}</p>
               </div>
+              <div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">Paiement</p>
+                <div className="mt-1"><PaymentStatusBadge status={selectedOrder?.statut_paiement || 'Non payé'} /></div>
+              </div>
+              <div>
+                <p className="text-[10px] font-bold text-muted-foreground uppercase">Montant Payé</p>
+                <p className="font-bold text-emerald-600">{formatAmount(selectedOrder?.montant_paye || 0)}</p>
+              </div>
             </div>
 
             <div className="space-y-3">
@@ -579,6 +736,33 @@ export default function AchatPage() {
             >
               {deleteMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
               Supprimer définitivement
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Bulk Deletion Confirmation */}
+      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-red-600">
+              <AlertTriangle className="h-5 w-5" />
+              Confirmer la suppression groupée
+            </DialogTitle>
+            <DialogDescription>
+              Cette action supprimera {selectedIds.length} commandes sélectionnées. Cette action est irréversible.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter className="gap-2 pt-4">
+            <Button variant="outline" onClick={() => setShowBulkDeleteConfirm(false)} className="rounded-xl">Annuler</Button>
+            <Button 
+              variant="destructive" 
+              onClick={() => { bulkDeleteMut.mutate(selectedIds); setShowBulkDeleteConfirm(false); }}
+              disabled={bulkDeleteMut.isPending}
+              className="rounded-xl bg-red-600 hover:bg-red-700 font-bold"
+            >
+              {bulkDeleteMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
+              Supprimer {selectedIds.length} commandes
             </Button>
           </DialogFooter>
         </DialogContent>

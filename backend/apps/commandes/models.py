@@ -9,6 +9,11 @@ class BonCommande(models.Model):
         LIVRE      = 'Livré',       'Livré'
         ANNULE     = 'Annulé',      'Annulé'
 
+    class PaymentStatus(models.TextChoices):
+        NON_PAYE = 'Non payé', 'Non payé'
+        PARTIEL  = 'Partiel', 'Partiel'
+        PAYE     = 'Payé', 'Payé'
+
     fournisseur = models.ForeignKey(
         'catalogue.Supplier', on_delete=models.SET_NULL, null=True, blank=True
     )
@@ -19,7 +24,13 @@ class BonCommande(models.Model):
     )
     numero_commande = models.CharField(max_length=128, default='BC-000000000')
     status = models.CharField(max_length=32, default=Status.EN_ATTENTE)
+    statut_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentStatus.choices, 
+        default=PaymentStatus.NON_PAYE
+    )
     montant_total = models.FloatField(default=0)
+    montant_paye = models.FloatField(default=0)
     date_commande = models.DateTimeField(auto_now_add=True)
     livraison_prevue = models.DateTimeField(null=True, blank=True)
     livraison_actuelle = models.DateTimeField(null=True, blank=True)
@@ -32,6 +43,12 @@ class BonCommande(models.Model):
         ordering = ['-creer_le']
 
     def save(self, *args, **kwargs):
+        # Automate payment status if confirmed or delivered
+        if self.status in [self.Status.CONFIRME, self.Status.LIVRE]:
+            self.statut_paiement = self.PaymentStatus.PAYE
+            if self.montant_total > 0:
+                self.montant_paye = self.montant_total
+
         if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
             # Get the highest ID or count to determine the next number
             last_bc = BonCommande.objects.exclude(numero_commande='BC-000000000').order_by('-id').first()
@@ -88,6 +105,21 @@ class ContenuDans(models.Model):
 
 class DonneeVente(models.Model):
     """Entête de vente : regroupe plusieurs produits vendus en une transaction."""
+    class PaymentStatus(models.TextChoices):
+        NON_PAYE = 'Non payé', 'Non payé'
+        PARTIEL  = 'Partiel', 'Partiel'
+        PAYE     = 'Payé', 'Payé'
+        ANNULE   = 'Annulé', 'Annulé'
+
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
     utilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL, null=True, blank=True,
@@ -95,7 +127,18 @@ class DonneeVente(models.Model):
     )
     numero_vente = models.CharField(max_length=64, unique=True, null=True, blank=True)
     montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     remise_globale = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    statut_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentStatus.choices, 
+        default=PaymentStatus.NON_PAYE
+    )
+    mode_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentMethod.choices, 
+        default=PaymentMethod.ESPECES
+    )
     canal_vente = models.CharField(max_length=128, blank=True, default="")
     segment_clientele = models.CharField(max_length=128, blank=True, default="")
     date_vente = models.DateTimeField(auto_now_add=True)
@@ -159,3 +202,31 @@ class ProduitRenvoie(models.Model):
 
     def __str__(self):
         return self.produit.name if self.produit else "Produit renvoyé"
+class TransactionPaiement(models.Model):
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
+    bon_commande = models.ForeignKey(
+        'BonCommande', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    donnee_vente = models.ForeignKey(
+        'DonneeVente', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mode_paiement = models.CharField(max_length=32, choices=PaymentMethod.choices)
+    date_paiement = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Transaction de paiement"
+        verbose_name_plural = "Transactions de paiement"
+        ordering = ['-date_paiement']
+
+    def __str__(self):
+        return f"Paiement de {self.montant} Ar ({self.mode_paiement})"

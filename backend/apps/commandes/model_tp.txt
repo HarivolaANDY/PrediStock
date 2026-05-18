@@ -1,0 +1,29 @@
+
+class TransactionPaiement(models.Model):
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
+    bon_commande = models.ForeignKey(
+        'BonCommande', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    donnee_vente = models.ForeignKey(
+        'DonneeVente', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mode_paiement = models.CharField(max_length=32, choices=PaymentMethod.choices)
+    date_paiement = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, default="")
+
+    class Meta:
+        verbose_name = "Transaction de paiement"
+        verbose_name_plural = "Transactions de paiement"
+        ordering = ['-date_paiement']
+
+    def __str__(self):
+        return f"Paiement de {self.montant} Ar ({self.mode_paiement})"
