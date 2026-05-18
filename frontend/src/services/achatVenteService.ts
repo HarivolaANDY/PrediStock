@@ -84,6 +84,17 @@ export const createDonneeVente = (data: CreateDonneeVenteData) =>
     body: JSON.stringify(data),
   });
 
+export const updateDonneeVente = (id: number, data: Partial<CreateDonneeVenteData>) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteDonneeVente = (id: number) =>
+  fetchJson<void>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`, {
+    method: "DELETE",
+  });
+
 // ─── Retours ──────────────────────────────────────────────────────────────────
 
 export const getRetours = (params?: Record<string, string>) => {

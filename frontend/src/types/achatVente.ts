@@ -32,7 +32,9 @@ export interface BonCommande {
   utilisateur_name?: string;
   numero_commande: string;
   status: BonCommandeStatus;
+  statut_paiement: string;
   montant_total: number;
+  montant_paye: number;
   date_commande: string;
   livraison_prevue: string | null;
   livraison_actuelle: string | null;
@@ -74,7 +76,10 @@ export interface DonneeVente {
   utilisateur_name?: string;
   numero_vente: string | null;
   montant_total: string;
+  montant_paye: string;
   remise_globale: string;
+  statut_paiement: string;
+  mode_paiement: string;
   canal_vente: string;
   segment_clientele: string;
   date_vente: string;
@@ -96,6 +101,8 @@ export interface CreateDonneeVenteData {
   numero_vente?: string;
   canal_vente?: string;
   segment_clientele?: string;
+  mode_paiement?: string;
+  statut_paiement?: string;
   lignes_data?: CreateLigneVenteData[];
 }
 
