@@ -5,7 +5,6 @@ from django.conf import settings
 class BonCommande(models.Model):
     class Status(models.TextChoices):
         EN_ATTENTE = 'En attente',  'En attente'
-        CONFIRME   = 'Confirmé',    'Confirmé'
         LIVRE      = 'Livré',       'Livré'
         ANNULE     = 'Annulé',      'Annulé'
 
@@ -43,11 +42,7 @@ class BonCommande(models.Model):
         ordering = ['-creer_le']
 
     def save(self, *args, **kwargs):
-        # Automate payment status if confirmed or delivered
-        if self.status in [self.Status.CONFIRME, self.Status.LIVRE]:
-            self.statut_paiement = self.PaymentStatus.PAYE
-            if self.montant_total > 0:
-                self.montant_paye = self.montant_total
+        # Suppression de l'automatisation du paiement pour laisser le déclencheur sur 'Payé'
 
         if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
             # Get the highest ID or count to determine the next number

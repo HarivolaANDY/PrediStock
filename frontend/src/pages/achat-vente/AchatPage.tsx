@@ -5,8 +5,9 @@ import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/ac
 
 import { toast } from "sonner"
 import {
-  ShoppingCart, Plus, RefreshCw, CheckCircle2,
-  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, AlertTriangle, ExternalLink
+  ShoppingCart, Plus, RefreshCw,
+  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, AlertTriangle, ExternalLink,
+  CreditCard, Ban
 } from "lucide-react"
 import { Link } from "react-router-dom"
 
@@ -27,7 +28,6 @@ import { ProductService, SupplierService } from "@/services/api"
 
 const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: React.ReactNode }> = {
   "En attente": { label: "En attente", color: "bg-amber-100 text-amber-700 border-amber-200", icon: <Clock className="h-3 w-3" /> },
-  "Confirmé":   { label: "Confirmé",   color: "bg-blue-100 text-blue-700 border-blue-200",   icon: <CheckCircle2 className="h-3 w-3" /> },
   "Livré":      { label: "Livré",      color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: <Truck className="h-3 w-3" /> },
   "Annulé":     { label: "Annulé",     color: "bg-red-100 text-red-700 border-red-200",       icon: <XCircle className="h-3 w-3" /> },
 }
@@ -38,7 +38,7 @@ const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> =
   "Payé":     { label: "Payé",     color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
 }
 
-const ALL_STATUSES: BonCommandeStatus[] = ["En attente", "Confirmé", "Livré", "Annulé"]
+const ALL_STATUSES: BonCommandeStatus[] = ["En attente", "Livré", "Annulé"]
 
 function StatusBadge({ status }: { status: BonCommandeStatus }) {
   const cfg = STATUS_CONFIG[status] ?? STATUS_CONFIG["En attente"]
@@ -123,11 +123,11 @@ export default function AchatPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const updateStatusMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: BonCommandeStatus }) =>
-      updateBonCommande(id, { status }),
+  const updateOrderMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: Partial<BonCommande> }) =>
+      updateBonCommande(id, data),
     onSuccess: () => {
-      toast.success("Statut mis à jour")
+      toast.success("Mise à jour réussie")
       qc.invalidateQueries({ queryKey: ["bon-commandes"] })
     },
     onError: (e: Error) => toast.error(e.message),
@@ -415,12 +415,26 @@ export default function AchatPage() {
                           <ChevronDown className="h-4 w-4" />
                         </Button>
                       </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40 p-1">
+                      <DropdownMenuContent align="end" className="w-48 p-1">
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border mb-1">Status Commande</p>
                         {ALL_STATUSES.filter(s => s !== c.status).map(s => (
-                          <DropdownMenuItem key={s} onClick={() => updateStatusMut.mutate({ id: c.id, status: s })} className="gap-2 text-xs font-semibold py-2">
+                          <DropdownMenuItem key={s} onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: s } })} className="gap-2 text-xs font-semibold py-2">
                             {STATUS_CONFIG[s].icon} {s}
                           </DropdownMenuItem>
                         ))}
+                        
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border my-1">Paiement</p>
+                        {c.statut_paiement !== "Payé" ? (
+                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé" } })} className="gap-2 text-xs font-semibold py-2 text-emerald-600">
+                            <CreditCard className="h-3.5 w-3.5" /> Marquer comme payé
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Non payé" } })} className="gap-2 text-xs font-semibold py-2 text-amber-600">
+                            <Ban className="h-3.5 w-3.5" /> Marquer non payé
+                          </DropdownMenuItem>
+                        )}
+
+                        <div className="h-px bg-border my-1" />
                         <DropdownMenuItem 
                           onClick={() => setDeleteConfirmId(c.id)} 
                           className="gap-2 text-xs font-semibold py-2 text-red-600 hover:text-red-700 hover:bg-red-50"

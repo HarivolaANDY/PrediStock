@@ -1,9 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getDonneeVentes, createDonneeVente, searchProduits, updateDonneeVente, deleteDonneeVente } from "@/services/achatVenteService"
-import { DollarSign, TrendingUp, ShoppingBag, RefreshCw, Plus, Search, Eye, Package, Trash2, FileText, AlertCircle, ChevronDown, CreditCard, Ban, MoreVertical, AlertTriangle } from "lucide-react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
+import { DollarSign, ShoppingBag, RefreshCw, Plus, Search, Eye, Package, Trash2, FileText, AlertCircle, ChevronDown, CreditCard, Ban, MoreVertical, AlertTriangle, TrendingUp } from "lucide-react"
 import type { DonneeVente, CreateLigneVenteData } from "@/types/achatVente"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -49,17 +47,6 @@ function PaymentStatusBadge({ status }: { status: string }) {
   )
 }
 
-function buildChart(ventes: DonneeVente[]) {
-  const map: Record<string, number> = {}
-  ventes.forEach(v => {
-    if (!v.date_vente) return
-    try {
-      const k = new Date(v.date_vente).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })
-      map[k] = (map[k] || 0) + Number(v.montant_total || 0)
-    } catch (e) { console.error("Date error", e) }
-  })
-  return Object.entries(map).slice(-12).map(([mois, total]) => ({ mois, total }))
-}
 
 export default function VentePage() {
   const qc = useQueryClient()
@@ -170,7 +157,6 @@ export default function VentePage() {
   const totalQty = ventes.reduce((s, v) => s + (v.lignes?.reduce((sq, l) => sq + l.quantite, 0) || 0), 0)
   const avgTicket = ventes.length ? totalRevenu / ventes.length : 0
   const canaux = [...new Set(ventes.map(v => v.canal_vente).filter(Boolean))]
-  const chart = buildChart(ventes)
 
   const filteredVentes = ventes.filter(v => 
     (v.numero_vente?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
@@ -240,23 +226,6 @@ export default function VentePage() {
         ))}
       </div>
 
-      {/* Chart */}
-      {chart.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-sm font-bold mb-6 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-emerald-600" /> Progression des revenus
-          </h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={chart}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey="mois" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} formatter={(v: ValueType | undefined, _name: NameType | undefined) => [fmt(Number(v)), "Revenu"]} contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Bar dataKey="total" fill="#059669" radius={[6, 6, 0, 0]} barSize={40} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
 
       {/* Bulk Actions Toolbar */}
       {selectedIds.length > 0 && (
@@ -356,6 +325,11 @@ export default function VentePage() {
                           {v.statut_paiement !== "Payé" && v.statut_paiement !== "Annulé" && (
                             <DropdownMenuItem onClick={() => updateStatusMut.mutate({ id: v.id, status: "Payé" })} className="gap-2 cursor-pointer rounded-lg m-1 text-emerald-600">
                               <CreditCard className="h-4 w-4" /> Marquer comme payé
+                            </DropdownMenuItem>
+                          )}
+                          {v.statut_paiement === "Payé" && (
+                            <DropdownMenuItem onClick={() => updateStatusMut.mutate({ id: v.id, status: "Non payé" })} className="gap-2 cursor-pointer rounded-lg m-1 text-amber-600">
+                              <Ban className="h-4 w-4" /> Marquer non payé
                             </DropdownMenuItem>
                           )}
                           

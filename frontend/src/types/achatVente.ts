@@ -12,7 +12,7 @@ export interface Fournisseur {
   is_active: boolean;
 }
 
-export type BonCommandeStatus = 'En attente' | 'Confirmé' | 'Livré' | 'Annulé';
+export type BonCommandeStatus = 'En attente' | 'Livré' | 'Annulé';
 
 export interface LigneCommande {
   id: number;
@@ -55,6 +55,7 @@ export interface CreateBonCommandeData {
   utilisateur: number | null;
   numero_commande?: string;
   status?: BonCommandeStatus;
+  statut_paiement?: string;
   livraison_prevue?: string | null;
   lignes_data?: CreateLigneData[];
 }
@@ -128,6 +129,7 @@ export interface MouvementStock {
   produit: number | null;
   produit_name?: string;
   produit_dv: number | null;
+  produit_dv_name?: string;
   utilisateur: number | null;
   quantity: number;
   movement_type: MouvementType;

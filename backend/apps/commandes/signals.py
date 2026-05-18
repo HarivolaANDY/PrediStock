@@ -3,32 +3,41 @@ from django.dispatch import receiver
 from .models import BonCommande, DonneeVente, ProduitDonneeVente, ProduitRenvoie
 from apps.stock.models import MouvementStock
 
-@receiver(post_save, sender=ProduitDonneeVente)
-def sync_stock_on_sale_line(sender, instance, created, **kwargs):
-    """Update stock when a sale line is created."""
-    if created:
-        # Create movement - This will automatically update stock via MouvementStock's signal
-        MouvementStock.objects.create(
-            produit=instance.produit,
-            produit_dv=instance.produit_dv,
-            utilisateur=instance.donnee_vente.utilisateur,
-            quantity=instance.quantite,
-            movement_type=MouvementStock.TypeMouvement.OUT,
-            unit_price=instance.prix_unitaire,
-            reason=f"Vente {instance.donnee_vente.numero_vente}",
-            referrence=f"SALE-{instance.donnee_vente.id}-{instance.id}"
-        )
+@receiver(post_save, sender=DonneeVente)
+def sync_stock_on_sale_payment(sender, instance, **kwargs):
+    """Update stock when a sale is marked as 'Payé'. Remove movements if no longer 'Payé'."""
+    # Build list of references for this sale's lines
+    refs = [f"SALE-{instance.id}-{ligne.id}" for ligne in instance.lignes.all()]
+    
+    if instance.statut_paiement == DonneeVente.PaymentStatus.PAYE:
+        for ligne in instance.lignes.all():
+            ref = f"SALE-{instance.id}-{ligne.id}"
+            if not MouvementStock.objects.filter(referrence=ref).exists():
+                MouvementStock.objects.create(
+                    produit=ligne.produit,
+                    produit_dv=ligne.produit_dv,
+                    utilisateur=instance.utilisateur,
+                    quantity=ligne.quantite,
+                    movement_type=MouvementStock.TypeMouvement.OUT,
+                    unit_price=float(ligne.prix_unitaire),
+                    reason=f"Vente {instance.numero_vente}",
+                    referrence=ref
+                )
+    else:
+        # If no longer paid, delete the associated movements
+        MouvementStock.objects.filter(referrence__in=refs).delete()
 
 
 @receiver(post_save, sender=BonCommande)
-def sync_stock_on_purchase(sender, instance, created, **kwargs):
-    """Update stock when a purchase order is marked as 'Livré'."""
-    if instance.status == BonCommande.Status.LIVRE:
-        # We iterate through lines and only sync those not already synced
+def sync_stock_on_purchase_payment(sender, instance, **kwargs):
+    """Update stock when a purchase order is marked as 'Payé'. Remove movements if no longer 'Payé'."""
+    # Build list of references
+    refs = [f"BC-LINE-{ligne.id}" for ligne in instance.lignes.all()]
+
+    if instance.statut_paiement == BonCommande.PaymentStatus.PAYE:
         for ligne in instance.lignes.all():
             ref = f"BC-LINE-{ligne.id}"
             if not MouvementStock.objects.filter(referrence=ref).exists():
-                # This will automatically update stock via MouvementStock's signal
                 MouvementStock.objects.create(
                     produit=ligne.produit,
                     produit_dv=ligne.produit_dv,
@@ -39,6 +48,10 @@ def sync_stock_on_purchase(sender, instance, created, **kwargs):
                     reason=f"Livraison BC {instance.numero_commande}",
                     referrence=ref
                 )
+    else:
+        # If no longer paid, delete the associated movements
+        MouvementStock.objects.filter(referrence__in=refs).delete()
+
 
 @receiver(post_save, sender=ProduitRenvoie)
 def sync_stock_on_return(sender, instance, created, **kwargs):

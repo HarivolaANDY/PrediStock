@@ -41,8 +41,8 @@ export default function MouvementsPage() {
             <ArrowLeftRight className="h-6 w-6" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold tracking-tight">Mouvements de stock</h1>
-            <p className="text-sm text-muted-foreground font-medium">Historique complet des entrées et sorties</p>
+            <h1 className="text-2xl font-bold tracking-tight">Transactions Achats & Ventes</h1>
+            <p className="text-sm text-muted-foreground font-medium">Historique complet des achats et des ventes</p>
           </div>
         </div>
         <Button variant="outline" onClick={() => refetch()} className="gap-2">
@@ -53,9 +53,9 @@ export default function MouvementsPage() {
       {/* KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: "Mouvements Total", value: filteredMouvements.length, sub: "Filtrés", color: "text-violet-600", bg: "bg-violet-50" },
-          { label: "Entrées (Achats)", value: totalIn, sub: "Stock entrant", color: "text-emerald-600", bg: "bg-emerald-50" },
-          { label: "Sorties (Ventes)", value: totalOut, sub: "Stock sortant", color: "text-red-600", bg: "bg-red-50" },
+          { label: "Transactions Total", value: filteredMouvements.length, sub: "Filtrés", color: "text-violet-600", bg: "bg-violet-50" },
+          { label: "Achats", value: totalIn, sub: "Produits achetés", color: "text-emerald-600", bg: "bg-emerald-50" },
+          { label: "Ventes", value: totalOut, sub: "Produits vendus", color: "text-red-600", bg: "bg-red-50" },
         ].map((k, i) => (
           <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm">
             <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{k.label}</p>
@@ -71,8 +71,8 @@ export default function MouvementsPage() {
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-xl border border-border overflow-x-auto w-full md:w-auto">
           <Button variant={!typeFilter ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("")} className="h-8 text-xs font-bold">TOUS</Button>
-          <Button variant={typeFilter === "IN" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("IN")} className="h-8 text-xs font-bold text-emerald-600">ENTRÉES</Button>
-          <Button variant={typeFilter === "OUT" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("OUT")} className="h-8 text-xs font-bold text-red-600">SORTIES</Button>
+          <Button variant={typeFilter === "IN" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("IN")} className="h-8 text-xs font-bold text-emerald-600">ACHATS</Button>
+          <Button variant={typeFilter === "OUT" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("OUT")} className="h-8 text-xs font-bold text-red-600">VENTES</Button>
         </div>
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -113,9 +113,9 @@ export default function MouvementsPage() {
                   </td>
                   <td className="px-6 py-4">
                     {m.movement_type === "IN" ? (
-                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">ENTRÉE</Badge>
+                      <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">ACHAT</Badge>
                     ) : m.movement_type === "OUT" ? (
-                      <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-red-200">SORTIE</Badge>
+                      <Badge className="bg-red-100 text-red-700 hover:bg-red-100 border-red-200">VENTE</Badge>
                     ) : (
                       <Badge variant="outline">{m.movement_type}</Badge>
                     )}
@@ -123,7 +123,7 @@ export default function MouvementsPage() {
                   <td className="px-6 py-4">
                     <div className="flex items-center gap-2 font-bold text-foreground">
                       <Package className="h-4 w-4 text-violet-500" />
-                      {m.produit_name || `#${m.produit}`}
+                      {m.produit_name || m.produit_dv_name || `#${m.produit}`}
                     </div>
                   </td>
                   <td className="px-6 py-4 text-center font-mono font-bold text-lg">

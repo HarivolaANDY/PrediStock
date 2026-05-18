@@ -14,11 +14,12 @@ class ContenuDansSerializer(serializers.ModelSerializer):
         return obj.produit_dv.designation if obj.produit_dv else "N/A"
 
     montant_ligne = serializers.ReadOnlyField()
+    product_name = serializers.ReadOnlyField(source='produit.name')
 
     class Meta:
         model = ContenuDans
         fields = [
-            'id', 'bon_commande', 'produit', 'produit_dv', 'produit_name', 
+            'id', 'bon_commande', 'produit', 'produit_dv', 'product_name', 'produit_name', 
             'produit_dv_name', 'quantite', 'prix_unitaire', 'montant_ligne'
         ]
 
@@ -32,7 +33,12 @@ class BonCommandeSerializer(serializers.ModelSerializer):
     lignes = ContenuDansSerializer(many=True, read_only=True)
     lignes_data = serializers.JSONField(write_only=True, required=False)
     fournisseur_name = serializers.ReadOnlyField(source='fournisseur.name')
-    utilisateur_name = serializers.ReadOnlyField(source='utilisateur.username')
+    utilisateur_name = serializers.SerializerMethodField()
+
+    def get_utilisateur_name(self, obj):
+        if not obj.utilisateur: return "Système"
+        full_name = f"{obj.utilisateur.first_name} {obj.utilisateur.last_name}".strip()
+        return full_name if full_name else obj.utilisateur.username
     
     class Meta:
         model = BonCommande
@@ -93,11 +99,12 @@ class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
         return obj.produit_dv.designation if obj.produit_dv else "N/A"
 
     montant_ligne = serializers.ReadOnlyField()
+    product_name = serializers.ReadOnlyField(source='produit.name')
 
     class Meta:
         model = ProduitDonneeVente
         fields = [
-            'id', 'donnee_vente', 'produit', 'produit_dv', 'produit_name', 
+            'id', 'donnee_vente', 'produit', 'produit_dv', 'produit_name', 'product_name',
             'produit_dv_name', 'quantite', 'prix_unitaire', 'remise_applique', 'montant_ligne'
         ]
 
@@ -105,7 +112,12 @@ class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
 class DonneeVenteSerializer(serializers.ModelSerializer):
     lignes = ProduitDonneeVenteSerializer(many=True, read_only=True)
     lignes_data = serializers.JSONField(write_only=True, required=False)
-    utilisateur_name = serializers.ReadOnlyField(source='utilisateur.username')
+    utilisateur_name = serializers.SerializerMethodField()
+
+    def get_utilisateur_name(self, obj):
+        if not obj.utilisateur: return "Système"
+        full_name = f"{obj.utilisateur.first_name} {obj.utilisateur.last_name}".strip()
+        return full_name if full_name else obj.utilisateur.username
 
     class Meta:
         model = DonneeVente
