@@ -6,7 +6,6 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
@@ -91,6 +90,8 @@ export default function AnalysePage() {
 
   const commandesFiltrees = useMemo(() => {
     return commandes.filter(c => {
+      // Uniquement les commandes livrées (validées) pour l'analyse financière
+      if (c.status !== "Livré") return false;
       if (typeFlux === "ventes") return false;
       if (dateDebut && new Date(c.creer_le) < new Date(dateDebut)) return false;
       if (dateFin && new Date(c.creer_le) > new Date(dateFin + "T23:59:59")) return false;
@@ -107,6 +108,8 @@ export default function AnalysePage() {
 
   const ventesFiltrees = useMemo(() => {
     return ventes.filter(v => {
+      // Uniquement les ventes validées pour l'analyse financière
+      if (v.status !== "Validé") return false;
       if (typeFlux === "achats") return false;
       if (dateDebut && new Date(v.date_vente) < new Date(dateDebut)) return false;
       if (dateFin && new Date(v.date_vente) > new Date(dateFin + "T23:59:59")) return false;

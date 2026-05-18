@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
 
 
 class ContenuDansInline(admin.TabularInline):
@@ -40,9 +40,8 @@ class ProduitDonneeVenteAdmin(admin.ModelAdmin):
     list_display = ['donnee_vente', 'produit', 'quantite', 'prix_unitaire', 'montant_ligne']
 
 
-@admin.register(ProduitRenvoie)
-class ProduitRenvoieAdmin(admin.ModelAdmin):
-    list_display = ['produit', 'quantite_retourner',
-                    'condition_retour', 'est_reapprovisionnnable', 'date_retour']
-    list_filter = ['est_reapprovisionnnable', 'condition_retour']
-    search_fields = ['produit__name']
+@admin.register(Remboursement)
+class RemboursementAdmin(admin.ModelAdmin):
+    list_display = ['source_type', 'numero_transaction', 'produit', 'quantite', 'montant', 'date_remboursement']
+    list_filter = ['source_type', 'date_remboursement']
+    search_fields = ['numero_transaction', 'produit__name']

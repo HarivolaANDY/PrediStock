@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import {
   ShoppingCart, Plus, RefreshCw,
   Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, AlertTriangle, ExternalLink,
-  CreditCard, Ban
+  CreditCard, Ban, ShieldCheck, CheckCircle2
 } from "lucide-react"
 import { Link } from "react-router-dom"
 
@@ -266,10 +266,16 @@ export default function AchatPage() {
       {/* KPI Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: "Total Commandes", value: commandes.length, sub: "Toutes périodes", color: "text-blue-600", bg: "bg-blue-50" },
+          { label: "Total Commandes", value: commandes.filter(c => c.status !== "Annulé").length, sub: "Toutes périodes", color: "text-blue-600", bg: "bg-blue-50" },
           { label: "En Attente", value: commandes.filter(c => c.status === "En attente").length, sub: "Nécessite action", color: "text-amber-600", bg: "bg-amber-50" },
           { label: "Livrées", value: commandes.filter(c => c.status === "Livré").length, sub: "Stock mis à jour", color: "text-emerald-600", bg: "bg-emerald-50" },
-          { label: "Payé / Total", value: `${formatAmount(commandes.reduce((s, c) => s + (c.montant_paye || 0), 0))} / ${formatAmount(commandes.reduce((s, c) => s + c.montant_total, 0))}`, sub: "Suivi financier", color: "text-violet-600", bg: "bg-violet-50" },
+          { 
+            label: "Payé / Total", 
+            value: `${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + (c.montant_paye || 0), 0))} / ${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + c.montant_total, 0))}`, 
+            sub: "Suivi financier", 
+            color: "text-violet-600", 
+            bg: "bg-violet-50" 
+          },
         ].map((k, i) => (
           <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm group hover:border-blue-200 transition-all">
             <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">{k.label}</p>
@@ -325,7 +331,21 @@ export default function AchatPage() {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start">
                 {ALL_STATUSES.map(s => (
-                  <DropdownMenuItem key={s} onClick={() => bulkUpdateStatusMut.mutate({ ids: selectedIds, status: s })} className="gap-2">
+                  <DropdownMenuItem 
+                    key={s} 
+                    onClick={() => {
+                      const modifiableIds = selectedIds.filter(id => {
+                        const order = commandes.find(c => c.id === id);
+                        return order && order.status !== "Livré" && order.status !== "Annulé";
+                      });
+                      if (modifiableIds.length > 0) {
+                        bulkUpdateStatusMut.mutate({ ids: modifiableIds, status: s });
+                      } else {
+                        toast.error("Les commandes livrées ou annulées ne peuvent plus être modifiées");
+                      }
+                    }} 
+                    className="gap-2"
+                  >
                     {STATUS_CONFIG[s].icon} {s}
                   </DropdownMenuItem>
                 ))}
@@ -416,21 +436,33 @@ export default function AchatPage() {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48 p-1">
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border mb-1">Status Commande</p>
-                        {ALL_STATUSES.filter(s => s !== c.status).map(s => (
-                          <DropdownMenuItem key={s} onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: s } })} className="gap-2 text-xs font-semibold py-2">
-                            {STATUS_CONFIG[s].icon} {s}
-                          </DropdownMenuItem>
-                        ))}
+                        {/* Statut Commande */}
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border mb-1 flex items-center justify-between">
+                          Statut {c.status === "Livré" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
+                        </p>
                         
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border my-1">Paiement</p>
-                        {c.statut_paiement !== "Payé" ? (
-                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé" } })} className="gap-2 text-xs font-semibold py-2 text-emerald-600">
-                            <CreditCard className="h-3.5 w-3.5" /> Marquer comme payé
-                          </DropdownMenuItem>
+                        {c.status !== "Livré" && c.status !== "Annulé" ? (
+                          ALL_STATUSES.filter(s => s !== c.status).map(s => (
+                            <DropdownMenuItem key={s} onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: s } })} className="gap-2 text-xs font-semibold py-2">
+                              {STATUS_CONFIG[s].icon} {s}
+                            </DropdownMenuItem>
+                          ))
                         ) : (
-                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Non payé" } })} className="gap-2 text-xs font-semibold py-2 text-amber-600">
-                            <Ban className="h-3.5 w-3.5" /> Marquer non payé
+                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Statut verrouillé</div>
+                        )}
+                        
+                        {/* Paiement */}
+                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border my-1 flex items-center justify-between">
+                          Paiement {c.statut_paiement === "Payé" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
+                        </p>
+
+                        {c.statut_paiement === "Payé" ? (
+                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Commande payée (verrouillé)</div>
+                        ) : c.status === "Annulé" ? (
+                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Commande annulée</div>
+                        ) : (
+                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé", montant_paye: c.montant_total } })} className="gap-2 text-xs font-semibold py-2 text-emerald-600">
+                            <CreditCard className="h-3.5 w-3.5" /> Marquer comme payé
                           </DropdownMenuItem>
                         )}
 

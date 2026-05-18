@@ -83,6 +83,8 @@ export interface DonneeVente {
   mode_paiement: string;
   canal_vente: string;
   segment_clientele: string;
+  status: string;
+  type_vente: string;
   date_vente: string;
   lignes: LigneVente[];
   creer_le: string;
@@ -104,21 +106,23 @@ export interface CreateDonneeVenteData {
   segment_clientele?: string;
   mode_paiement?: string;
   statut_paiement?: string;
+  status?: string;
+  type_vente?: string;
   lignes_data?: CreateLigneVenteData[];
 }
 
-export interface ProduitRenvoie {
+export interface Remboursement {
   id: number;
+  source_type: 'Achat' | 'Vente' | 'Retour';
+  source_id: number | null;
+  numero_transaction: string;
   produit: number | null;
   produit_name?: string;
-  quantite_retourner: number;
-  raison_retour: string;
-  condition_retour: string;
-  montant_remise: number | null;
-  est_reapprovisionnnable: boolean;
+  quantite: number;
+  montant: number;
+  raison: string;
+  date_remboursement: string;
   notes: string | null;
-  date_retour: string;
-  creer_le: string;
 }
 
 

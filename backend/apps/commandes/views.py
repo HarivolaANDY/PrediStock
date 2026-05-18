@@ -8,13 +8,13 @@ from django_filters.rest_framework import DjangoFilterBackend
 
 from apps.core.views import GenericCRUDViewSet
 from apps.core.utils import StandardResponse
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
 from .serializers import (
     BonCommandeSerializer, ContenuDansSerializer,
     DonneeVenteSerializer, ProduitDonneeVenteSerializer,
-    ProduitRenvoieSerializer,
+    RemboursementSerializer,
 )
-from .filters import BCfilter, ContenuDansFilter, DonneeVenteFilter, ProduitRenvoieFilter
+from .filters import BCfilter, ContenuDansFilter, DonneeVenteFilter, RemboursementFilter
 
 
 class BCViewSet(viewsets.ModelViewSet):
@@ -71,12 +71,12 @@ class ProduitDonneeVenteViewSet(GenericCRUDViewSet):
     serializer_class = ProduitDonneeVenteSerializer
 
 
-class ProduitRenvoieViewSet(viewsets.ModelViewSet):
-    queryset = ProduitRenvoie.objects.all()
-    serializer_class = ProduitRenvoieSerializer
+class RemboursementViewSet(viewsets.ModelViewSet):
+    queryset = Remboursement.objects.all()
+    serializer_class = RemboursementSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
-    filterset_class = ProduitRenvoieFilter
+    filterset_class = RemboursementFilter
 
     @action(detail=False, methods=['get'])
     def get_by(self, request):
@@ -89,7 +89,7 @@ class ProduitRenvoieViewSet(viewsets.ModelViewSet):
         try:
             qs = self.get_queryset().filter(**{param: value})
             return StandardResponse.render(
-                data=ProduitRenvoieSerializer(qs, many=True).data,
+                data=RemboursementSerializer(qs, many=True).data,
                 message="Renvois récupérés.", status_code=200
             )
         except Exception as e:

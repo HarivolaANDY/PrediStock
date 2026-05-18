@@ -1,6 +1,6 @@
 from django_filters.rest_framework import FilterSet
 from django_filters import filters
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement, TransactionPaiement
 
 
 class BCfilter(FilterSet):
@@ -32,7 +32,11 @@ class DonneeVenteFilter(FilterSet):
         }
 
 
-class ProduitRenvoieFilter(FilterSet):
+class RemboursementFilter(FilterSet):
     class Meta:
-        model = ProduitRenvoie
-        fields = '__all__'
+        model = Remboursement
+        fields = {
+            'source_type': ['exact'],
+            'numero_transaction': ['icontains'],
+            'date_remboursement': ['gte', 'lte', 'exact'],
+        }

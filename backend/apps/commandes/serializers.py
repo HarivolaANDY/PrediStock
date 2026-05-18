@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
 from apps.catalogue.models import ProduitDv
 
 
@@ -109,6 +109,17 @@ class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
         ]
 
 
+class RemboursementSerializer(serializers.ModelSerializer):
+    produit_name = serializers.ReadOnlyField(source='produit.name')
+
+    class Meta:
+        model = Remboursement
+        fields = [
+            'id', 'source_type', 'source_id', 'numero_transaction', 'produit', 
+            'produit_name', 'quantite', 'montant', 'raison', 'date_remboursement', 'notes'
+        ]
+
+
 class DonneeVenteSerializer(serializers.ModelSerializer):
     lignes = ProduitDonneeVenteSerializer(many=True, read_only=True)
     lignes_data = serializers.JSONField(write_only=True, required=False)
@@ -124,8 +135,8 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'utilisateur', 'utilisateur_name', 'numero_vente', 
             'montant_total', 'montant_paye', 'remise_globale', 'statut_paiement', 
-            'mode_paiement', 'canal_vente', 'segment_clientele', 'date_vente', 
-            'lignes', 'lignes_data', 'creer_le', 'update_at'
+            'mode_paiement', 'canal_vente', 'segment_clientele', 'status', 'type_vente',
+            'date_vente', 'lignes', 'lignes_data', 'creer_le', 'update_at'
         ]
 
     def create(self, validated_data):
@@ -168,17 +179,3 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
             vente.save()
             
         return vente
-
-
-class ProduitRenvoieSerializer(serializers.ModelSerializer):
-    produit_name = serializers.SerializerMethodField()
-
-    def get_produit_name(self, obj):
-        return obj.produit.name if obj.produit else "N/A"
-    
-    class Meta:
-        model = ProduitRenvoie
-        fields = [
-            'id', 'produit', 'produit_name', 'quantite_retourner', 
-            'date_retour', 'raison_retour', 'est_reapprovisionnnable'
-        ]
