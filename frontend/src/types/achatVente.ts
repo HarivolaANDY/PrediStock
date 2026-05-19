@@ -33,6 +33,7 @@ export interface BonCommande {
   numero_commande: string;
   status: BonCommandeStatus;
   statut_paiement: string;
+  mode_paiement: string;
   montant_total: number;
   montant_paye: number;
   date_commande: string;
@@ -56,6 +57,8 @@ export interface CreateBonCommandeData {
   numero_commande?: string;
   status?: BonCommandeStatus;
   statut_paiement?: string;
+  mode_paiement?: string;
+  date_commande?: string;
   livraison_prevue?: string | null;
   lignes_data?: CreateLigneData[];
 }
@@ -81,11 +84,11 @@ export interface DonneeVente {
   remise_globale: string;
   statut_paiement: string;
   mode_paiement: string;
-  canal_vente: string;
   segment_clientele: string;
   status: string;
   type_vente: string;
   date_vente: string;
+  delai_paiement: string | null;
   lignes: LigneVente[];
   creer_le: string;
   update_at: string;
@@ -102,12 +105,12 @@ export interface CreateLigneVenteData {
 export interface CreateDonneeVenteData {
   utilisateur: number | null;
   numero_vente?: string;
-  canal_vente?: string;
   segment_clientele?: string;
   mode_paiement?: string;
   statut_paiement?: string;
   status?: string;
   type_vente?: string;
+  delai_paiement?: string | null;
   lignes_data?: CreateLigneVenteData[];
 }
 
@@ -122,6 +125,7 @@ export interface Remboursement {
   montant: number;
   raison: string;
   date_remboursement: string;
+  statut_reglement: 'Réglé' | 'Non réglé';
   notes: string | null;
 }
 

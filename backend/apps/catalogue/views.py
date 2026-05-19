@@ -265,6 +265,7 @@ class ProductViewSet(GenericCRUDViewSet):
                     'is_deriv': True,
                     'parent_name': dv.product.name if dv.product else "N/A",
                     'parent_id': dv.product.id if dv.product else None,
+                    'supplier': dv.product.supplier.id if dv.product and dv.product.supplier else None,
                 }
                 for dv in derivees_qs
             ]

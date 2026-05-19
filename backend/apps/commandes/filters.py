@@ -26,7 +26,6 @@ class DonneeVenteFilter(FilterSet):
         fields = {
             'montant_total':     ['exact', 'gt', 'lt'],
             'date_vente':        ['exact', 'gt', 'lt', 'year', 'month'],
-            'canal_vente':       ['exact', 'icontains'],
             'segment_clientele': ['exact', 'icontains'],
             'utilisateur':       ['exact'],
         }

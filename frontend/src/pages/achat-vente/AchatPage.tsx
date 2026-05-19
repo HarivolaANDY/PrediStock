@@ -1,35 +1,33 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getBonCommandes, createBonCommande, updateBonCommande, deleteBonCommande, getFournisseurs, searchProduits } from "@/services/achatVenteService"
-import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/achatVente"
-
-import { toast } from "sonner"
+import { getBonCommandes, createBonCommande, updateBonCommande, deleteBonCommande, searchProduits, getFournisseurs, getRemboursements } from "@/services/achatVenteService"
 import {
   ShoppingCart, Plus, RefreshCw,
-  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, AlertTriangle, ExternalLink,
-  CreditCard, Ban, ShieldCheck, CheckCircle2
+  Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, ExternalLink,
+  CreditCard, ShieldCheck,
+  Calendar
 } from "lucide-react"
-import { Link } from "react-router-dom"
-
+import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/achatVente"
+import { toast } from "sonner"
+import { Button } from "@/components/ui/button"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
+import { Input } from "@/components/ui/input"
+import { Badge } from "@/components/ui/badge"
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import { Button } from "@/components/ui/button"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
-
-import { Input } from "@/components/ui/input"
-import { Badge } from "@/components/ui/badge"
 import { ProductForm } from "@/components/ProductForm"
 import { SupplierForm } from "@/components/SupplierForm"
-import { ProductService, SupplierService } from "@/services/api"
 
-const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: React.ReactNode }> = {
-  "En attente": { label: "En attente", color: "bg-amber-100 text-amber-700 border-amber-200", icon: <Clock className="h-3 w-3" /> },
-  "Livré":      { label: "Livré",      color: "bg-emerald-100 text-emerald-700 border-emerald-200", icon: <Truck className="h-3 w-3" /> },
-  "Annulé":     { label: "Annulé",     color: "bg-red-100 text-red-700 border-red-200",       icon: <XCircle className="h-3 w-3" /> },
+const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: any }> = {
+  "En attente": { label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="h-3 w-3" /> },
+  "Livré":    { label: "Livré",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <Truck className="h-3 w-3" /> },
+  "Annulé":     { label: "Annulé",     color: "bg-red-50 text-red-700 border-red-100", icon: <XCircle className="h-3 w-3" /> },
 }
 
 const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> = {
@@ -37,6 +35,10 @@ const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> =
   "Partiel":  { label: "Partiel",  color: "bg-amber-100 text-amber-700 border-amber-200" },
   "Payé":     { label: "Payé",     color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
 }
+
+const MODE_PAIEMENT_OPTIONS = [
+  "Espèces", "Virement", "Chèque", "Orange Money", "YAS", "Airtel Money", "Autre"
+]
 
 const ALL_STATUSES: BonCommandeStatus[] = ["En attente", "Livré", "Annulé"]
 
@@ -74,42 +76,48 @@ export default function AchatPage() {
   const [selectedOrder, setSelectedOrder] = useState<BonCommande | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
+  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 10
 
-  // Form state for lines
-  const [lines, setLines] = useState<CreateLigneData[]>([
-    { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }
-  ])
-
-  const [form, setForm] = useState({
-    fournisseur: null as number | null,
-    livraison_prevue: "" as string,
-  })
-
-  // State for deletion confirmation
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
-  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false)
-
   // State for adding product/supplier
   const [showProductForm, setShowProductForm] = useState(false)
   const [showSupplierForm, setShowSupplierForm] = useState(false)
 
+  // Form state
+  const [lines, setLines] = useState<CreateLigneData[]>([
+    { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }
+  ])
+  const [form, setForm] = useState({
+    fournisseur: null as number | null,
+    livraison_prevue: "" as string,
+    date_commande: "" as string,
+    mode_paiement: "Espèces"
+  })
 
   // Queries
+  const { data: remboursements = [] } = useQuery({ 
+    queryKey: ["remboursements"], 
+    queryFn: () => getRemboursements() 
+  })
+  
+  const refundedOrderIds = remboursements
+    .filter(r => r.source_type === 'Achat')
+    .map(r => r.source_id)
+
   const { data: commandes = [], isLoading, refetch } = useQuery({
-    queryKey: ["bon-commandes", statusFilter],
+    queryKey: ["bon-commandes", statusFilter, refundedOrderIds],
     queryFn: () => getBonCommandes(statusFilter ? { status: statusFilter } : undefined),
+    select: (data) => data.filter(c => !refundedOrderIds.includes(c.id))
   })
 
   const { data: fournisseurs = [] } = useQuery({ queryKey: ["fournisseurs"], queryFn: getFournisseurs })
   
-  // Combined products and sub-products for the selection list
   const { data: productsAndSubProducts = [] } = useQuery({ 
     queryKey: ["produits-search-combined"], 
-    queryFn: () => searchProduits("") // Fetch all by default if possible, or we could merge manually
+    queryFn: () => searchProduits("") 
   })
 
   const createMut = useMutation({
@@ -130,7 +138,7 @@ export default function AchatPage() {
       toast.success("Mise à jour réussie")
       qc.invalidateQueries({ queryKey: ["bon-commandes"] })
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => toast.error(e.message)
   })
 
   const deleteMut = useMutation({
@@ -144,54 +152,8 @@ export default function AchatPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  // Bulk mutations
-  const bulkUpdateStatusMut = useMutation({
-    mutationFn: async ({ ids, status }: { ids: number[]; status: BonCommandeStatus }) => {
-      await Promise.all(ids.map(id => updateBonCommande(id, { status })))
-    },
-    onSuccess: () => {
-      toast.success(`${selectedIds.length} commandes mises à jour`)
-      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
-      setSelectedIds([])
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const bulkDeleteMut = useMutation({
-    mutationFn: async (ids: number[]) => {
-      await Promise.all(ids.map(id => deleteBonCommande(id)))
-    },
-    onSuccess: () => {
-      toast.success(`${selectedIds.length} commandes supprimées`)
-      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
-      setSelectedIds([])
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const createProductMut = useMutation({
-    mutationFn: ProductService.createProduct,
-    onSuccess: () => {
-      toast.success("Produit ajouté avec succès")
-      qc.invalidateQueries({ queryKey: ["produits-search-combined"] })
-      setShowProductForm(false)
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-  const createSupplierMut = useMutation({
-    mutationFn: SupplierService.createSupplier,
-    onSuccess: () => {
-      toast.success("Fournisseur ajouté avec succès")
-      qc.invalidateQueries({ queryKey: ["fournisseurs"] })
-      setShowSupplierForm(false)
-    },
-    onError: (e: Error) => toast.error(e.message),
-  })
-
-
   const resetForm = () => {
-    setForm({ fournisseur: null, livraison_prevue: "" })
+    setForm({ fournisseur: null, livraison_prevue: "", date_commande: "", mode_paiement: "Espèces" })
     setLines([{ produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }])
   }
 
@@ -206,6 +168,7 @@ export default function AchatPage() {
   const handleCreate = (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.fournisseur) return toast.error("Veuillez choisir un fournisseur")
+    if (!form.date_commande) return toast.error("La date de commande est obligatoire. Veuillez la préciser.")
     if (lines.some(l => !l.produit && !l.produit_dv)) return toast.error("Veuillez choisir un produit ou sous-produit pour chaque ligne")
 
     const userStr = localStorage.getItem("user")
@@ -214,12 +177,17 @@ export default function AchatPage() {
     if (!userId) return toast.error("Utilisateur non identifié. Veuillez vous reconnecter.")
 
     createMut.mutate({
+      ...form,
       fournisseur: form.fournisseur,
       utilisateur: userId,
       livraison_prevue: form.livraison_prevue || null,
       lignes_data: lines
     })
   }
+
+  const supplierProducts = form.fournisseur 
+    ? productsAndSubProducts.filter((p: any) => p.supplier === Number(form.fournisseur))
+    : productsAndSubProducts
 
   const filteredCommandes = commandes.filter(c => 
     c.numero_commande.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -242,7 +210,6 @@ export default function AchatPage() {
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
-      {/* Header Section */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card p-6 rounded-2xl border border-border shadow-sm">
         <div className="flex items-center gap-4">
           <div className="h-12 w-12 rounded-xl bg-blue-600 flex items-center justify-center text-white shadow-lg shadow-blue-200">
@@ -263,7 +230,6 @@ export default function AchatPage() {
         </div>
       </div>
 
-      {/* KPI Stats */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
           { label: "Total Commandes", value: commandes.filter(c => c.status !== "Annulé").length, sub: "Toutes périodes", color: "text-blue-600", bg: "bg-blue-50" },
@@ -271,106 +237,55 @@ export default function AchatPage() {
           { label: "Livrées", value: commandes.filter(c => c.status === "Livré").length, sub: "Stock mis à jour", color: "text-emerald-600", bg: "bg-emerald-50" },
           { 
             label: "Payé / Total", 
-            value: `${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + (c.montant_paye || 0), 0))} / ${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + c.montant_total, 0))}`, 
-            sub: "Suivi financier", 
-            color: "text-violet-600", 
-            bg: "bg-violet-50" 
+            value: `${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + Number(c.montant_paye), 0))} / ${formatAmount(commandes.filter(c => c.status !== "Annulé").reduce((s, c) => s + Number(c.montant_total), 0))}`, 
+            sub: "Suivi trésorerie", color: "text-slate-700", bg: "bg-slate-50" 
           },
         ].map((k, i) => (
-          <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm group hover:border-blue-200 transition-all">
-            <p className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1">{k.label}</p>
+          <div key={i} className={`p-5 rounded-2xl border border-border shadow-sm hover:translate-y-[-2px] transition-all duration-200 ${k.bg}`}>
+            <p className="text-[10px] font-black uppercase tracking-widest text-muted-foreground mb-1">{k.label}</p>
             <div className="flex items-end gap-2">
-              <span className={`text-2xl font-bold ${k.color}`}>{k.value}</span>
-              <span className="text-[10px] text-muted-foreground mb-1">{k.sub}</span>
+              <span className={`text-xl font-black ${k.color}`}>{k.value}</span>
             </div>
+            <p className="text-[10px] font-bold text-muted-foreground mt-1">{k.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Filters & Search */}
       <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
         <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-xl border border-border w-full md:w-auto overflow-x-auto">
           <Button 
             variant={statusFilter === "" ? "secondary" : "ghost"} 
             size="sm" 
-            onClick={() => setStatusFilter("")}
-            className="rounded-lg h-8 text-xs font-semibold"
-          >Tous</Button>
+            onClick={() => setStatusFilter("")} 
+            className="h-8 text-[11px] font-black uppercase"
+          >Tous les bons</Button>
           {ALL_STATUSES.map(s => (
             <Button 
-              key={s}
+              key={s} 
               variant={statusFilter === s ? "secondary" : "ghost"} 
               size="sm" 
-              onClick={() => setStatusFilter(s)}
-              className="rounded-lg h-8 text-xs font-semibold whitespace-nowrap"
+              onClick={() => setStatusFilter(s)} 
+              className="h-8 text-[11px] font-black uppercase whitespace-nowrap"
             >{s}</Button>
           ))}
         </div>
         <div className="relative w-full md:w-80">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input 
-            placeholder="Rechercher une commande..." 
-            className="pl-9 bg-card rounded-xl"
-            value={searchTerm}
-            onChange={e => setSearchTerm(e.target.value)}
+            placeholder="N° commande, fournisseur..." 
+            className="pl-9 bg-card rounded-xl border-border focus:ring-blue-500 font-medium" 
+            value={searchTerm} 
+            onChange={e => setSearchTerm(e.target.value)} 
           />
         </div>
       </div>
 
-      {/* Bulk Actions Toolbar */}
-      {selectedIds.length > 0 && (
-        <div className="flex items-center justify-between bg-blue-50 border border-blue-100 p-3 rounded-xl animate-in fade-in slide-in-from-top-2">
-          <div className="flex items-center gap-3">
-            <span className="text-sm font-bold text-blue-700">{selectedIds.length} sélectionné(s)</span>
-            <div className="h-4 w-px bg-blue-200" />
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-8 gap-2 border-blue-200 text-blue-700 hover:bg-blue-100">
-                  Changer le statut <ChevronDown className="h-3 w-3" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="start">
-                {ALL_STATUSES.map(s => (
-                  <DropdownMenuItem 
-                    key={s} 
-                    onClick={() => {
-                      const modifiableIds = selectedIds.filter(id => {
-                        const order = commandes.find(c => c.id === id);
-                        return order && order.status !== "Livré" && order.status !== "Annulé";
-                      });
-                      if (modifiableIds.length > 0) {
-                        bulkUpdateStatusMut.mutate({ ids: modifiableIds, status: s });
-                      } else {
-                        toast.error("Les commandes livrées ou annulées ne peuvent plus être modifiées");
-                      }
-                    }} 
-                    className="gap-2"
-                  >
-                    {STATUS_CONFIG[s].icon} {s}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button 
-              size="sm" 
-              variant="ghost" 
-              className="h-8 text-red-600 hover:text-red-700 hover:bg-red-50 gap-2 font-bold"
-              onClick={() => setShowBulkDeleteConfirm(true)}
-            >
-              <Trash2 className="h-3.5 w-3.5" /> Supprimer
-            </Button>
-          </div>
-          <Button size="sm" variant="ghost" className="h-8 text-blue-700 font-bold" onClick={() => setSelectedIds([])}>Annuler</Button>
-        </div>
-      )}
-
-      {/* Table Section */}
       <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm text-left">
             <thead className="bg-muted/30 border-b border-border">
               <tr>
-                <th className="px-6 py-4 w-10">
+                <th className="px-6 py-4 w-10 text-center">
                   <input 
                     type="checkbox" 
                     className="rounded border-border" 
@@ -378,104 +293,87 @@ export default function AchatPage() {
                     onChange={handleSelectAll}
                   />
                 </th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">NUMÉRO</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">FOURNISSEUR</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">STATUT</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">PAIEMENT</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground text-right">MONTANT</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">DATE</th>
-                <th className="px-6 py-4 font-bold text-muted-foreground">ACTIONS</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Référence</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Fournisseur</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Status</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-right">Montant</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px] text-center">Paiement</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Date Commande</th>
+                <th className="px-6 py-4 font-black text-muted-foreground uppercase tracking-widest text-[10px]">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
               {isLoading ? (
-                <tr><td colSpan={9} className="py-20 text-center text-muted-foreground"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Chargement...</td></tr>
+                <tr><td colSpan={8} className="py-20 text-center font-bold text-muted-foreground italic"><RefreshCw className="h-6 w-6 animate-spin mx-auto mb-2" />Chargement...</td></tr>
               ) : paginatedCommandes.length === 0 ? (
-                <tr><td colSpan={9} className="py-20 text-center text-muted-foreground font-medium">Aucun bon de commande trouvé</td></tr>
+                <tr><td colSpan={8} className="py-20 text-center text-muted-foreground font-medium italic">Aucun bon de commande trouvé</td></tr>
               ) : paginatedCommandes.map(c => (
-                <tr key={c.id} className={`hover:bg-muted/20 transition-colors group ${selectedIds.includes(c.id) ? 'bg-blue-50/50' : ''}`}>
-                  <td className="px-6 py-4">
+                <tr key={c.id} className={`hover:bg-muted/30 transition-colors group ${selectedIds.includes(c.id) ? 'bg-blue-50/50' : ''}`}>
+                  <td className="px-6 py-4 text-center">
                     <input 
                       type="checkbox" 
-                      className="rounded border-border" 
+                      className="rounded border-border text-blue-600" 
                       checked={selectedIds.includes(c.id)}
                       onChange={() => toggleSelect(c.id)}
                     />
                   </td>
                   <td className="px-6 py-4 font-mono font-bold text-blue-600">{c.numero_commande}</td>
-                  <td className="px-6 py-4">
-                    <Link 
-                      to="/suppliers" 
-                      className="group/link flex items-center gap-1 font-semibold text-foreground hover:text-blue-600 transition-colors"
-                    >
-                      {c.fournisseur_name || "—"}
-                      <ExternalLink className="h-3 w-3 opacity-0 group-hover/link:opacity-100 transition-opacity" />
-                    </Link>
-                  </td>
+                  <td className="px-6 py-4 font-bold text-slate-700">{c.fournisseur_name}</td>
                   <td className="px-6 py-4"><StatusBadge status={c.status} /></td>
-                  <td className="px-6 py-4"><PaymentStatusBadge status={c.statut_paiement} /></td>
-                  <td className="px-6 py-4 font-bold text-right tabular-nums text-foreground">{formatAmount(c.montant_total)}</td>
+                  <td className="px-6 py-4 font-black text-right tabular-nums">{formatAmount(c.montant_total)}</td>
+                  <td className="px-6 py-4 text-center"><PaymentStatusBadge status={c.statut_paiement} /></td>
+                  <td className="px-6 py-4 text-xs font-bold text-muted-foreground">{formatDate(c.date_commande)}</td>
                   <td className="px-6 py-4">
-                    <div className="flex flex-col">
-                      <span className="text-muted-foreground font-medium">{formatDate(c.date_commande)}</span>
-                      {c.status === "En attente" && c.livraison_prevue && new Date(c.livraison_prevue) < new Date() && (
-                        <span className="flex items-center gap-1 text-[10px] font-bold text-red-600 mt-1 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 w-fit">
-                          <AlertTriangle className="h-3 w-3" /> RETARD
-                        </span>
-                      )}
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 flex items-center gap-2">
-                    <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(c)} className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50">
-                      <Eye className="h-4 w-4" />
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground">
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-48 p-1">
-                        {/* Statut Commande */}
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border mb-1 flex items-center justify-between">
-                          Statut {c.status === "Livré" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
-                        </p>
-                        
-                        {c.status !== "Livré" && c.status !== "Annulé" ? (
-                          ALL_STATUSES.filter(s => s !== c.status).map(s => (
-                            <DropdownMenuItem key={s} onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: s } })} className="gap-2 text-xs font-semibold py-2">
-                              {STATUS_CONFIG[s].icon} {s}
-                            </DropdownMenuItem>
-                          ))
-                        ) : (
-                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Statut verrouillé</div>
-                        )}
-                        
-                        {/* Paiement */}
-                        <p className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border my-1 flex items-center justify-between">
-                          Paiement {c.statut_paiement === "Payé" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
-                        </p>
-
-                        {c.statut_paiement === "Payé" ? (
-                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Commande payée (verrouillé)</div>
-                        ) : c.status === "Annulé" ? (
-                          <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Commande annulée</div>
-                        ) : (
-                          <DropdownMenuItem onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé", montant_paye: c.montant_total } })} className="gap-2 text-xs font-semibold py-2 text-emerald-600">
-                            <CreditCard className="h-3.5 w-3.5" /> Marquer comme payé
+                    <div className="flex items-center gap-1">
+                      <Button variant="ghost" size="icon" onClick={() => setSelectedOrder(c)} className="h-8 w-8 text-blue-600 hover:text-blue-700 hover:bg-blue-50 rounded-lg">
+                        <Eye className="h-4 w-4" />
+                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 rounded-lg">
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-48 rounded-xl p-1 shadow-xl border-slate-200">
+                          <DropdownMenuLabel className="text-[10px] font-black uppercase text-muted-foreground px-2 py-1.5 tracking-tighter">Actions logistiques</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          {c.status === "En attente" && (
+                            <>
+                              <DropdownMenuItem 
+                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé", montant_paye: c.montant_total } })}
+                                className="gap-2 text-xs font-bold text-blue-600 py-2.5 cursor-pointer focus:bg-blue-50 focus:text-blue-700"
+                              >
+                                <CreditCard className="h-4 w-4" /> Marquer comme payé
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Livré", statut_paiement: "Payé", montant_paye: c.montant_total } })}
+                                className="gap-2 text-xs font-bold text-emerald-600 py-2.5 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700"
+                              >
+                                <ShieldCheck className="h-4 w-4" /> Marquer comme livré
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Annulé" } })}
+                                className="gap-2 text-xs font-bold text-red-600 py-2.5 cursor-pointer focus:bg-red-50 focus:text-red-700"
+                              >
+                                <XCircle className="h-4 w-4" /> Annuler la commande
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                          {c.status === "Livré" && c.statut_paiement !== "Payé" && (
+                             <DropdownMenuItem 
+                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { statut_paiement: "Payé", montant_paye: c.montant_total } })}
+                                className="gap-2 text-xs font-bold text-emerald-600 py-2.5 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700"
+                              >
+                                <CreditCard className="h-4 w-4" /> Encaisser paiement
+                              </DropdownMenuItem>
+                          )}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => setDeleteConfirmId(c.id)} className="gap-2 text-xs font-bold text-slate-500 py-2.5 cursor-pointer hover:bg-slate-50">
+                            <Trash2 className="h-4 w-4" /> Supprimer l'entrée
                           </DropdownMenuItem>
-                        )}
-
-                        <div className="h-px bg-border my-1" />
-                        <DropdownMenuItem 
-                          onClick={() => setDeleteConfirmId(c.id)} 
-                          className="gap-2 text-xs font-semibold py-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        >
-                          <Trash2 className="h-3 w-3" /> Supprimer
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-
-                    </DropdownMenu>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -483,369 +381,263 @@ export default function AchatPage() {
           </table>
         </div>
         {totalPages > 1 && (
-          <div className="flex items-center justify-between px-6 py-4 bg-muted/10 border-t border-border">
-            <p className="text-xs text-muted-foreground font-medium">Page {currentPage} sur {totalPages}</p>
+          <div className="flex items-center justify-between px-6 py-4 bg-muted/20 border-t border-border">
+            <p className="text-xs text-muted-foreground font-medium italic">Page {currentPage} sur {totalPages}</p>
             <div className="flex items-center gap-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={currentPage === 1} 
-                onClick={() => setCurrentPage(p => p - 1)}
-                className="h-8 w-8 p-0"
-              ><ChevronDown className="h-4 w-4 rotate-90" /></Button>
-              <Button 
-                variant="outline" 
-                size="sm" 
-                disabled={currentPage === totalPages} 
-                onClick={() => setCurrentPage(p => p + 1)}
-                className="h-8 w-8 p-0"
-              ><ChevronDown className="h-4 w-4 -rotate-90" /></Button>
+              <Button variant="outline" size="sm" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)} className="h-8 rounded-lg font-bold">Précédent</Button>
+              <Button variant="outline" size="sm" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)} className="h-8 rounded-lg font-bold">Suivant</Button>
             </div>
           </div>
         )}
       </div>
 
-      {/* Creation Modal */}
       <Dialog open={showModal} onOpenChange={s => { if(!s) resetForm(); setShowModal(s); }}>
         <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <ShoppingCart className="h-5 w-5 text-blue-600" />
-              Créer un nouveau bon de commande
+            <DialogTitle className="text-xl font-black flex items-center gap-2">
+              <ShoppingCart className="h-6 w-6 text-blue-600" /> Nouvelle Commande Fournisseur
             </DialogTitle>
-            <DialogDescription>
-              Remplissez les informations ci-dessous pour créer un nouveau bon de commande fournisseur.
-            </DialogDescription>
+            <DialogDescription className="font-medium text-muted-foreground">Enregistrement d'un nouvel approvisionnement stock</DialogDescription>
           </DialogHeader>
 
-
           <form onSubmit={handleCreate} className="space-y-6 pt-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Fournisseur</label>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground px-1">Fournisseur</label>
                 <div className="flex gap-2">
                   <select 
-                    className="flex-1 bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 transition-all outline-none"
+                    className="flex-1 bg-muted/40 border border-border rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all"
                     value={form.fournisseur || ""}
                     onChange={e => setForm({...form, fournisseur: Number(e.target.value)})}
-                    required
                   >
                     <option value="">Sélectionner un fournisseur</option>
                     {Array.isArray(fournisseurs) && fournisseurs.map(f => <option key={f.id} value={f.id}>{f.name}</option>)}
                   </select>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="icon" 
-                    onClick={() => setShowSupplierForm(true)}
-                    className="shrink-0 rounded-xl border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 h-10 w-10"
-                  >
+                  <Button type="button" variant="outline" size="icon" onClick={() => setShowSupplierForm(true)} className="shrink-0 rounded-xl border-dashed border-blue-300 text-blue-600 hover:bg-blue-50 h-10 w-10">
                     <Plus className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground px-1">Date de commande (Obligatoire)</label>
+                <div className="relative">
+                  <Input 
+                    type="date"
+                    className="rounded-xl border-border bg-muted/40 font-bold focus:ring-blue-500 h-11 pl-10"
+                    value={form.date_commande}
+                    onChange={e => setForm({...form, date_commande: e.target.value})}
+                    required
+                  />
+                  <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                </div>
+              </div>
+
               <div className="space-y-1.5">
-                <label className="text-xs font-bold text-muted-foreground uppercase">Livraison Prévue</label>
-                <Input 
-                  type="date" 
-                  className="rounded-xl border-border bg-muted/30"
-                  value={form.livraison_prevue}
-                  onChange={e => setForm({...form, livraison_prevue: e.target.value})}
-                />
+                <label className="text-[10px] font-black uppercase text-muted-foreground px-1">Mode de paiement</label>
+                <select 
+                  className="w-full bg-muted/40 border border-border rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                  value={form.mode_paiement}
+                  onChange={e => setForm({...form, mode_paiement: e.target.value})}
+                >
+                  {MODE_PAIEMENT_OPTIONS.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-[10px] font-black uppercase text-muted-foreground px-1">Livraison Prévue</label>
+                <div className="relative">
+                  <Input 
+                    type="date"
+                    className="rounded-xl border-border bg-muted/40 font-bold focus:ring-blue-500 h-11 pl-10"
+                    value={form.livraison_prevue}
+                    onChange={e => setForm({...form, livraison_prevue: e.target.value})}
+                  />
+                  <Clock className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                </div>
               </div>
             </div>
 
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b border-border pb-2">
-                <h3 className="text-sm font-bold flex items-center gap-2"><Package className="h-4 w-4 text-muted-foreground" /> Lignes de commande</h3>
-                <Button type="button" variant="ghost" size="sm" onClick={handleAddLine} className="h-7 text-blue-600 font-bold hover:bg-blue-50 gap-1">
-                  <Plus className="h-3 w-3" /> Ajouter un produit
+                <h3 className="text-[10px] font-black uppercase tracking-widest text-muted-foreground flex items-center gap-2">
+                  <Package className="h-4 w-4 text-blue-600" /> Articles Selectionnés
+                </h3>
+                <Button type="button" variant="ghost" size="sm" onClick={handleAddLine} className="h-8 text-blue-600 font-bold hover:bg-blue-50 gap-1.5 border border-dashed border-blue-200 rounded-lg">
+                  <Plus className="h-3.5 w-3.5" /> Ajouter une ligne
                 </Button>
               </div>
 
               <div className="space-y-3">
                 {lines.map((line, idx) => (
-                  <div key={idx} className="flex flex-col md:flex-row gap-3 bg-muted/20 p-3 rounded-xl border border-border group relative">
-                    <div className="flex-[2] space-y-1">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Produit / Sous-produit</label>
+                  <div key={idx} className="flex flex-col md:flex-row gap-4 bg-muted/20 p-4 rounded-2xl border border-border relative group/line">
+                    <div className="flex-[3] space-y-1.5">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-0.5">Produit / Variante</label>
                       <div className="flex gap-2">
                         <select 
-                          className="flex-1 bg-background border border-border rounded-lg px-3 py-1.5 text-xs focus:ring-2 focus:ring-blue-500 outline-none"
+                          className="flex-1 bg-background border border-border rounded-xl px-3 py-2 text-xs font-bold outline-none focus:ring-2 focus:ring-blue-500 transition-all"
                           value={line.produit_dv ? `dv-${line.produit_dv}` : (line.produit ? `pr-${line.produit}` : "")}
                           onChange={e => {
                             const val = e.target.value;
-                            if (!val) {
-                              handleUpdateLine(idx, { produit: null, produit_dv: null, prix_unitaire: 0 });
-                              return;
-                            }
+                            if(!val) return;
                             const [type, idStr] = val.split('-');
                             const id = Number(idStr);
-                            const selected = productsAndSubProducts.find(p => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
-                            
+                            const selected = productsAndSubProducts.find((p: any) => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
                             const price = selected?.price || 0;
-                            
                             if (type === 'dv') {
-                              handleUpdateLine(idx, { 
-                                produit_dv: id, 
-                                produit: selected?.parent_id || null, 
-                                prix_unitaire: Number(price)
-                              });
+                              handleUpdateLine(idx, { produit_dv: id, produit: (selected as any)?.parent_id || null, prix_unitaire: Number(price) });
                             } else {
-                              handleUpdateLine(idx, { 
-                                produit: id, 
-                                produit_dv: null, 
-                                prix_unitaire: Number(price)
-                              });
+                              handleUpdateLine(idx, { produit: id, produit_dv: null, prix_unitaire: Number(price) });
                             }
                           }}
                         >
-                          <option value="" disabled hidden>Choisir un item</option>
-                          {Array.isArray(productsAndSubProducts) && productsAndSubProducts.map(p => (
+                          <option value="">Choisir un article...</option>
+                          {supplierProducts.map((p: any) => (
                             <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
-                              {p.is_deriv ? `[Sous-produit] ${p.name} (de ${p.parent_name})` : `[Produit] ${p.name}`}
+                              {p.is_deriv ? `[Variante] ${p.name}` : p.name} — {formatAmount(p.price)}
                             </option>
                           ))}
                         </select>
-                        <Button 
-                          type="button" 
-                          variant="outline" 
-                          size="icon" 
-                          onClick={() => setShowProductForm(true)}
-                          className="h-[34px] w-[34px] shrink-0 rounded-lg border-dashed border-blue-300 text-blue-600 hover:bg-blue-50"
-                        >
-                          <Plus className="h-3.5 w-3.5" />
+                        <Button type="button" variant="outline" size="icon" onClick={() => setShowProductForm(true)} className="h-8 w-8 shrink-0 rounded-lg border-dashed border-blue-200 text-blue-500">
+                          <Plus className="h-3 w-3" />
                         </Button>
                       </div>
                     </div>
-                    <div className="w-full md:w-24 space-y-1">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Quantité</label>
-                      <Input 
-                        type="number" 
-                        placeholder="Qté" 
-                        className="h-8 text-xs rounded-lg bg-background"
-                        value={line.quantite}
-                        onChange={e => handleUpdateLine(idx, { quantite: Number(e.target.value) })}
-                      />
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-0.5">Qté</label>
+                      <Input type="number" className="h-8 text-xs rounded-xl bg-background font-bold" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: Number(e.target.value) })} />
                     </div>
-                    <div className="w-full md:w-32 space-y-1">
-                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Prix Unit.</label>
-                      <Input 
-                        type="number" 
-                        placeholder="Prix Unit." 
-                        className="h-8 text-xs rounded-lg bg-background"
-                        value={line.prix_unitaire}
-                        onChange={e => handleUpdateLine(idx, { prix_unitaire: Number(e.target.value) })}
-                      />
+                    <div className="flex-1 space-y-1.5">
+                      <label className="text-[10px] font-bold text-muted-foreground uppercase px-0.5">P.U (Ar)</label>
+                      <Input type="number" className="h-8 text-xs rounded-xl bg-background font-bold" value={line.prix_unitaire} onChange={e => handleUpdateLine(idx, { prix_unitaire: Number(e.target.value) })} />
                     </div>
-                    <div className="w-full md:w-32 flex items-center justify-end font-bold text-xs text-blue-600">
-                      {formatAmount(line.quantite * line.prix_unitaire)}
+                    <div className="w-24 flex items-end justify-end pb-1.5 font-black text-blue-600 tabular-nums">
+                        {formatAmount(line.quantite * line.prix_unitaire)}
                     </div>
                     {lines.length > 1 && (
-                      <Button 
-                        type="button" 
-                        variant="ghost" 
-                        size="icon" 
-                        onClick={() => handleRemoveLine(idx)}
-                        className="md:absolute md:-right-2 md:-top-2 h-6 w-6 rounded-full bg-white border border-border shadow-sm text-red-500 hover:text-red-700 hover:bg-red-50"
-                      >
-                        <Trash2 className="h-3 w-3" />
+                      <Button type="button" variant="ghost" size="icon" onClick={() => handleRemoveLine(idx)} className="md:absolute md:-right-2 md:-top-2 h-7 w-7 rounded-full bg-white border border-border shadow-sm text-red-500 hover:bg-red-50 hover:text-red-600 scale-0 group-hover/line:scale-100 transition-all">
+                        <Trash2 className="h-3.5 w-3.5" />
                       </Button>
                     )}
                   </div>
                 ))}
               </div>
 
-              <div className="flex justify-end p-4 bg-muted/30 rounded-2xl border border-border">
+              <div className="flex justify-between items-center p-6 bg-blue-50 rounded-3xl border border-blue-100 mt-4">
+                <div className="space-y-1">
+                  <p className="text-[10px] font-black text-blue-700 uppercase">Articles totaux</p>
+                  <p className="text-xl font-black text-blue-800">{lines.reduce((s, l) => s + l.quantite, 0)}</p>
+                </div>
                 <div className="text-right">
-                  <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Total Commande</p>
-                  <p className="text-2xl font-bold text-blue-600">{formatAmount(totalFormAmount)}</p>
+                  <p className="text-[10px] font-black text-blue-700 uppercase">Montant total estimé</p>
+                  <p className="text-3xl font-black text-blue-600">{formatAmount(totalFormAmount)}</p>
                 </div>
               </div>
             </div>
 
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => setShowModal(false)} className="rounded-xl">Annuler</Button>
-              <Button type="submit" disabled={createMut.isPending} className="bg-blue-600 hover:bg-blue-700 rounded-xl min-w-[140px]">
-                {createMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
-                Valider la commande
+            <DialogFooter className="gap-3 sm:justify-end">
+              <Button type="button" variant="ghost" onClick={() => { setShowModal(false); resetForm(); }} className="rounded-xl font-bold px-8">Annuler</Button>
+              <Button type="submit" disabled={createMut.isPending} className="bg-blue-600 hover:bg-blue-700 text-white rounded-xl px-12 font-black shadow-lg shadow-blue-200 border-none transition-all active:scale-95">
+                {createMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : "Valider la commande"}
               </Button>
             </DialogFooter>
           </form>
         </DialogContent>
       </Dialog>
 
-      {/* Details View */}
       <Dialog open={!!selectedOrder} onOpenChange={s => { if(!s) setSelectedOrder(null) }}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-3">
-              <Badge variant="outline" className="font-mono text-blue-600 border-blue-200 bg-blue-50">{selectedOrder?.numero_commande}</Badge>
-              Détails de la commande
-            </DialogTitle>
-            <DialogDescription>
-              Consultation des détails et des lignes de produits pour cette commande.
-            </DialogDescription>
-          </DialogHeader>
-
+        <DialogContent className="max-w-2xl rounded-3xl p-0 overflow-hidden border-none shadow-2xl">
+          <div className="bg-slate-900 p-6 text-white flex items-center justify-between">
+            <DialogHeader>
+              <DialogTitle className="text-xl font-black flex items-center gap-3 text-white">
+                <Badge variant="outline" className="font-mono text-blue-400 border-blue-800 bg-blue-950/50 px-3 py-1">{selectedOrder?.numero_commande}</Badge>
+                Détails du bon d'achat
+              </DialogTitle>
+            </DialogHeader>
+            <Button variant="ghost" size="sm" onClick={() => window.print()} className="text-blue-400 hover:text-blue-300 hover:bg-blue-950 font-bold gap-2">
+              <ExternalLink className="h-4 w-4" /> Export/Print
+            </Button>
+          </div>
           
-          <div className="space-y-6 py-4">
-            <div className="grid grid-cols-2 gap-x-8 gap-y-4 text-sm bg-muted/30 p-4 rounded-2xl border border-border">
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Fournisseur</p>
-                <p className="font-bold">{selectedOrder?.fournisseur_name}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Statut</p>
-                <div className="mt-1"><StatusBadge status={selectedOrder?.status || 'En attente'} /></div>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Date Commande</p>
-                <p className="font-semibold">{formatDate(selectedOrder?.date_commande || '')}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Responsable</p>
-                <p className="font-semibold">{selectedOrder?.utilisateur_name}</p>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Paiement</p>
-                <div className="mt-1"><PaymentStatusBadge status={selectedOrder?.statut_paiement || 'Non payé'} /></div>
-              </div>
-              <div>
-                <p className="text-[10px] font-bold text-muted-foreground uppercase">Montant Payé</p>
-                <p className="font-bold text-emerald-600">{formatAmount(selectedOrder?.montant_paye || 0)}</p>
-              </div>
+          <div className="p-6 space-y-8">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+              {[
+                { label: "Fournisseur", value: selectedOrder?.fournisseur_name, icon: <Package className="h-3.5 w-3.5" /> },
+                { label: "Status", value: selectedOrder?.status, icon: <ShoppingCart className="h-3.5 w-3.5" /> },
+                { label: "Date Commande", value: formatDate(selectedOrder?.date_commande || ""), icon: <Calendar className="h-3.5 w-3.5" /> },
+                { label: "Paiement", value: selectedOrder?.statut_paiement, icon: <CreditCard className="h-3.5 w-3.5" /> },
+              ].map((info, i) => (
+                <div key={i} className="space-y-1.5">
+                  <p className="text-[10px] font-black text-muted-foreground uppercase tracking-widest flex items-center gap-1.5">{info.icon} {info.label}</p>
+                  <p className="text-xs font-bold text-slate-700">{info.value}</p>
+                </div>
+              ))}
             </div>
 
             <div className="space-y-3">
-              <h3 className="text-xs font-bold text-muted-foreground uppercase tracking-widest px-1">Produits commandés</h3>
-              <div className="border border-border rounded-2xl overflow-hidden shadow-sm">
+              <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest px-1">Lignes de commande</h3>
+              <div className="border border-slate-200 rounded-3xl overflow-hidden shadow-sm bg-white">
                 <table className="w-full text-xs text-left">
-                  <thead className="bg-muted/50 border-b border-border">
+                  <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
-                      <th className="px-4 py-2 font-bold">PRODUIT</th>
-                      <th className="px-4 py-2 font-bold text-center">QTÉ</th>
-                      <th className="px-4 py-2 font-bold text-right">UNITÉ</th>
-                      <th className="px-4 py-2 font-bold text-right">TOTAL</th>
+                      <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter">Produit</th>
+                      <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-center">Qté</th>
+                      <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-right">P.U</th>
+                      <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-right">TOTAL</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-border">
+                  <tbody className="divide-y divide-slate-100">
                     {selectedOrder?.lignes?.map(l => (
-                      <tr key={l.id} className="hover:bg-muted/20 transition-colors">
-                        <td className="px-4 py-3 font-semibold">{l.product_name}</td>
-                        <td className="px-4 py-3 text-center font-bold text-blue-600">{l.quantite}</td>
-                        <td className="px-4 py-3 text-right text-muted-foreground">{formatAmount(l.prix_unitaire)}</td>
-                        <td className="px-4 py-3 text-right font-bold tabular-nums">{formatAmount(l.montant_ligne)}</td>
+                      <tr key={l.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="px-6 py-4 font-bold text-slate-700">{l.product_name}</td>
+                        <td className="px-6 py-4 text-center font-black text-blue-600 text-sm">x{l.quantite}</td>
+                        <td className="px-6 py-4 text-right text-slate-500 font-medium">{formatAmount(l.prix_unitaire)}</td>
+                        <td className="px-6 py-4 text-right font-black text-slate-800 text-sm">{formatAmount(l.montant_ligne)}</td>
                       </tr>
                     ))}
                   </tbody>
-                  <tfoot className="bg-muted/30 border-t border-border">
+                  <tfoot className="bg-slate-50/80 border-t border-slate-200">
                     <tr>
-                      <td colSpan={3} className="px-4 py-3 text-right font-bold text-muted-foreground uppercase">Total Global</td>
-                      <td className="px-4 py-3 text-right font-bold text-lg text-blue-600 tabular-nums">{formatAmount(selectedOrder?.montant_total || 0)}</td>
+                      <td colSpan={3} className="px-6 py-5 text-right font-black text-slate-500 uppercase tracking-widest">Total Global</td>
+                      <td className="px-6 py-5 text-right font-black text-xl text-blue-600">{formatAmount(selectedOrder?.montant_total || 0)}</td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
           </div>
-          <DialogFooter>
-            <Button onClick={() => setSelectedOrder(null)} variant="secondary" className="rounded-xl w-full md:w-auto">Fermer</Button>
+          <DialogFooter className="p-4 bg-slate-50 border-t border-slate-200">
+            <Button onClick={() => setSelectedOrder(null)} variant="secondary" className="rounded-xl font-bold px-8">Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
-      {/* Deletion Confirmation */}
-      <Dialog open={deleteConfirmId !== null} onOpenChange={(s) => { if(!s) setDeleteConfirmId(null); }}>
 
-        <DialogContent className="max-w-md">
+      <Dialog open={!!deleteConfirmId} onOpenChange={s => !s && setDeleteConfirmId(null)}>
+        <DialogContent className="rounded-3xl">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <XCircle className="h-5 w-5" />
-              Confirmer la suppression
-            </DialogTitle>
-            <DialogDescription>
-              Cette action est irréversible. Toutes les données liées à ce bon de commande seront supprimées.
-            </DialogDescription>
+             <DialogTitle className="flex items-center gap-2 text-red-600"><XCircle className="h-5 w-5" /> Confirmation de suppression</DialogTitle>
+             <DialogDescription className="font-medium">Voulez-vous vraiment supprimer cet enregistrement ? Cette action est irréversible.</DialogDescription>
           </DialogHeader>
-          <div className="py-4">
-            <p className="text-sm text-muted-foreground font-medium">
-              Êtes-vous sûr de vouloir supprimer ce bon de commande ?
-            </p>
-          </div>
-
           <DialogFooter className="gap-2">
-            <Button variant="outline" onClick={() => setDeleteConfirmId(null)} className="rounded-xl">Annuler</Button>
-            <Button 
-              variant="destructive" 
-              onClick={() => deleteConfirmId && deleteMut.mutate(deleteConfirmId)}
-              disabled={deleteMut.isPending}
-              className="rounded-xl bg-red-600 hover:bg-red-700"
-            >
-              {deleteMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
-              Supprimer définitivement
-            </Button>
+            <Button variant="ghost" onClick={() => setDeleteConfirmId(null)} className="rounded-xl font-bold">Annuler</Button>
+            <Button onClick={() => deleteMut.mutate(deleteConfirmId!)} variant="destructive" className="rounded-xl font-bold px-8">Supprimer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Bulk Deletion Confirmation */}
-      <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-red-600">
-              <AlertTriangle className="h-5 w-5" />
-              Confirmer la suppression groupée
-            </DialogTitle>
-            <DialogDescription>
-              Cette action supprimera {selectedIds.length} commandes sélectionnées. Cette action est irréversible.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter className="gap-2 pt-4">
-            <Button variant="outline" onClick={() => setShowBulkDeleteConfirm(false)} className="rounded-xl">Annuler</Button>
-            <Button 
-              variant="destructive" 
-              onClick={() => { bulkDeleteMut.mutate(selectedIds); setShowBulkDeleteConfirm(false); }}
-              disabled={bulkDeleteMut.isPending}
-              className="rounded-xl bg-red-600 hover:bg-red-700 font-bold"
-            >
-              {bulkDeleteMut.isPending ? <RefreshCw className="h-4 w-4 animate-spin mr-2" /> : null}
-              Supprimer {selectedIds.length} commandes
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Add Product Modal */}
       <Dialog open={showProductForm} onOpenChange={setShowProductForm}>
-        <DialogContent className="max-w-4xl p-0 overflow-hidden border-none shadow-2xl">
-          <ProductForm 
-            isDialog={true}
-            onClose={() => setShowProductForm(false)} 
-            onSubmit={(data) => createProductMut.mutate(data as any)} 
-          />
+        <DialogContent className="max-w-4xl p-0 border-none bg-transparent">
+          <ProductForm isDialog onClose={() => setShowProductForm(false)} onSubmit={() => { qc.invalidateQueries({ queryKey: ["produits-search-combined"] }); setShowProductForm(false); }} />
         </DialogContent>
       </Dialog>
 
-      {/* Add Supplier Modal */}
       <Dialog open={showSupplierForm} onOpenChange={setShowSupplierForm}>
-        <DialogContent className="max-w-2xl">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <Plus className="h-5 w-5 text-blue-600" />
-              Ajouter un nouveau fournisseur
-            </DialogTitle>
-            <DialogDescription>
-              Remplissez les informations ci-dessous pour créer un nouveau fournisseur.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4">
-            <SupplierForm 
-              onCancel={() => setShowSupplierForm(false)} 
-              onSubmit={(data) => createSupplierMut.mutate(data)} 
-            />
-          </div>
+        <DialogContent className="max-w-2xl p-0 border-none">
+          <SupplierForm onCancel={() => setShowSupplierForm(false)} onSubmit={() => { qc.invalidateQueries({ queryKey: ["fournisseurs"] }); setShowSupplierForm(false); }} />
         </DialogContent>
       </Dialog>
     </div>
   )
 }
-
