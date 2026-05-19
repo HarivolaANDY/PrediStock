@@ -54,6 +54,8 @@ class UserMinimalSerializer(serializers.ModelSerializer):
 
 class MouvementStockSerializer(serializers.ModelSerializer):
     utilisateur_info = UserMinimalSerializer(source='utilisateur', read_only=True)
+    produit_name = serializers.ReadOnlyField(source='produit.name')
+    produit_dv_name = serializers.ReadOnlyField(source='produit_dv.designation')
     
     def validate(self, data):
         movement_type = data.get("movement_type")

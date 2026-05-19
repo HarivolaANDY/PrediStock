@@ -176,7 +176,7 @@ export default function Connexion() {
                     type="button"
                     variant="ghost"
                     size="icon"
-                    className="absolute right-0 top-0 h-16 w-16"
+                    className="absolute right-1 top-1/2 -translate-y-1/2 h-10 w-10 text-slate-500 hover:text-slate-700"
                     onClick={() => setShowPassword(!showPassword)}
                   >
                     {showPassword ? (

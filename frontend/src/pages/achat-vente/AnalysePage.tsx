@@ -6,10 +6,10 @@ import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer,
 } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Badge } from "@/components/ui/badge"
 import type { BonCommande, DonneeVente } from "@/types/achatVente"
 
 function fmt(n: number) {
@@ -21,7 +21,7 @@ function buildComparison(
   ventes: DonneeVente[],
   groupBy: 'day' | 'month'
 ) {
-  const map: Record<string, { date: string; achats: number; ventes: number }> = {}
+  const map: Record<string, { date: string; fullDate: string; achats: number; ventes: number; products: string[] }> = {}
 
   commandes.forEach(c => {
     if (!c.creer_le) return
@@ -35,8 +35,15 @@ function buildComparison(
         ? d.toISOString().split('T')[0]
         : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
 
-      if (!map[sortKey]) map[sortKey] = { date: k, achats: 0, ventes: 0 }
+      if (!map[sortKey]) map[sortKey] = { date: k, fullDate: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }), achats: 0, ventes: 0, products: [] }
       map[sortKey].achats += Number(c.montant_total || 0)
+      
+      // Add product names
+      c.lignes?.forEach(l => {
+        if (l.product_name && !map[sortKey].products.includes(l.product_name)) {
+          map[sortKey].products.push(l.product_name)
+        }
+      })
     } catch (e) { console.error("Date error", e) }
   })
   ventes.forEach(v => {
@@ -51,8 +58,15 @@ function buildComparison(
         ? d.toISOString().split('T')[0]
         : `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`
 
-      if (!map[sortKey]) map[sortKey] = { date: k, achats: 0, ventes: 0 }
+      if (!map[sortKey]) map[sortKey] = { date: k, fullDate: d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long", year: "numeric" }), achats: 0, ventes: 0, products: [] }
       map[sortKey].ventes += Number(v.montant_total || 0)
+
+      // Add product names
+      v.lignes?.forEach(l => {
+        if (l.produit_name && !map[sortKey].products.includes(l.produit_name)) {
+          map[sortKey].products.push(l.produit_name)
+        }
+      })
     } catch (e) { console.error("Date error", e) }
   })
 
@@ -76,6 +90,8 @@ export default function AnalysePage() {
 
   const commandesFiltrees = useMemo(() => {
     return commandes.filter(c => {
+      // Uniquement les commandes livrées (validées) pour l'analyse financière
+      if (c.status !== "Livré") return false;
       if (typeFlux === "ventes") return false;
       if (dateDebut && new Date(c.creer_le) < new Date(dateDebut)) return false;
       if (dateFin && new Date(c.creer_le) > new Date(dateFin + "T23:59:59")) return false;
@@ -92,6 +108,8 @@ export default function AnalysePage() {
 
   const ventesFiltrees = useMemo(() => {
     return ventes.filter(v => {
+      // Uniquement les ventes validées pour l'analyse financière
+      if (v.status !== "Validé") return false;
       if (typeFlux === "achats") return false;
       if (dateDebut && new Date(v.date_vente) < new Date(dateDebut)) return false;
       if (dateFin && new Date(v.date_vente) > new Date(dateFin + "T23:59:59")) return false;
@@ -279,9 +297,39 @@ export default function AnalysePage() {
               <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} dy={10} />
               <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
               <Tooltip
-                cursor={{ stroke: 'hsl(var(--border))', strokeWidth: 1 }}
-                formatter={(v: ValueType | undefined, name: NameType | undefined) => [fmt(Number(v)), name === "achats" ? "Achats" : "Ventes"]}
-                contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+                content={({ active, payload }) => {
+                  if (active && payload && payload.length) {
+                    const data = payload[0].payload;
+                    return (
+                      <div className="bg-card border border-border p-4 rounded-2xl shadow-xl space-y-2 min-w-[200px]">
+                        <p className="text-xs font-bold text-muted-foreground uppercase">{data.fullDate}</p>
+                        <div className="space-y-1">
+                          {payload.map((p: any) => (
+                            <div key={p.name} className="flex items-center justify-between gap-4">
+                              <span className="text-xs font-semibold flex items-center gap-1.5">
+                                <div className={`h-1.5 w-1.5 rounded-full ${p.name === 'achats' ? 'bg-blue-500' : 'bg-emerald-500'}`} />
+                                {p.name === 'achats' ? 'Achats' : 'Ventes'}
+                              </span>
+                              <span className={`text-xs font-bold ${p.name === 'achats' ? 'text-blue-600' : 'text-emerald-600'}`}>{fmt(Number(p.value))}</span>
+                            </div>
+                          ))}
+                        </div>
+                        {data.products?.length > 0 && (
+                          <div className="pt-2 border-t border-border mt-2 text-[10px]">
+                            <p className="font-bold text-muted-foreground uppercase mb-1">Articles concernés:</p>
+                            <div className="flex flex-wrap gap-1">
+                              {data.products.slice(0, 5).map((prod: string, idx: number) => (
+                                <Badge key={idx} variant="outline" className="text-[9px] py-0 px-1 font-medium bg-muted/50">{prod}</Badge>
+                              ))}
+                              {data.products.length > 5 && <span className="text-muted-foreground">+{data.products.length - 5} autres...</span>}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                }}
               />
               {typeFlux !== "ventes" && <Area type="monotone" dataKey="achats" stroke="#2563eb" strokeWidth={3} fill="url(#gAchats)" animationDuration={1500} />}
               {typeFlux !== "achats" && <Area type="monotone" dataKey="ventes" stroke="#059669" strokeWidth={3} fill="url(#gVentes)" animationDuration={1500} />}

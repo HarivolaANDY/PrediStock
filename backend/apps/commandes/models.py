@@ -5,7 +5,6 @@ from django.conf import settings
 class BonCommande(models.Model):
     class Status(models.TextChoices):
         EN_ATTENTE = 'En attente',  'En attente'
-        CONFIRME   = 'Confirmé',    'Confirmé'
         LIVRE      = 'Livré',       'Livré'
         ANNULE     = 'Annulé',      'Annulé'
 
@@ -43,11 +42,7 @@ class BonCommande(models.Model):
         ordering = ['-creer_le']
 
     def save(self, *args, **kwargs):
-        # Automate payment status if confirmed or delivered
-        if self.status in [self.Status.CONFIRME, self.Status.LIVRE]:
-            self.statut_paiement = self.PaymentStatus.PAYE
-            if self.montant_total > 0:
-                self.montant_paye = self.montant_total
+        # Suppression de l'automatisation du paiement pour laisser le déclencheur sur 'Payé'
 
         if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
             # Get the highest ID or count to determine the next number
@@ -120,6 +115,15 @@ class DonneeVente(models.Model):
         AIRTEL = 'Airtel Money', 'Airtel Money'
         AUTRE = 'Autre', 'Autre'
 
+    class Status(models.TextChoices):
+        EN_ATTENTE = 'En attente', 'En attente'
+        VALIDE     = 'Validé', 'Validé'
+        ANNULE     = 'Annulé', 'Annulé'
+
+    class TypeVente(models.TextChoices):
+        NORMAL = 'Normal', 'Normal'
+        CREDIT = 'Crédit', 'Crédit'
+
     utilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL, null=True, blank=True,
@@ -141,6 +145,8 @@ class DonneeVente(models.Model):
     )
     canal_vente = models.CharField(max_length=128, blank=True, default="")
     segment_clientele = models.CharField(max_length=128, blank=True, default="")
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.EN_ATTENTE)
+    type_vente = models.CharField(max_length=32, choices=TypeVente.choices, default=TypeVente.NORMAL)
     date_vente = models.DateTimeField(auto_now_add=True)
     creer_le = models.DateTimeField(auto_now_add=True)
     update_at = models.DateTimeField(auto_now=True)
@@ -149,6 +155,12 @@ class DonneeVente(models.Model):
         verbose_name = "Vente"
         verbose_name_plural = "Ventes"
         ordering = ['-date_vente']
+
+    def save(self, *args, **kwargs):
+        # Force payment status to Non payé if type is Credit
+        if self.type_vente == self.TypeVente.CREDIT:
+            self.statut_paiement = self.PaymentStatus.NON_PAYE
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Vente {self.numero_vente or self.id} — {self.date_vente:%Y-%m-%d}"
@@ -182,26 +194,31 @@ class ProduitDonneeVente(models.Model):
         return f"{self.donnee_vente} : {self.produit} (x{self.quantite})"
 
 
-class ProduitRenvoie(models.Model):
+class Remboursement(models.Model):
+    class TypeSource(models.TextChoices):
+        ACHAT = 'Achat', 'Achat'
+        VENTE = 'Vente', 'Vente'
+        RETOUR = 'Retour', 'Retour'
+
+    source_type = models.CharField(max_length=20, choices=TypeSource.choices, default=TypeSource.RETOUR)
+    source_id = models.IntegerField(null=True, blank=True) # ID of BC or DV
+    numero_transaction = models.CharField(max_length=128, blank=True, default="")
     produit = models.ForeignKey(
-        'catalogue.Product', on_delete=models.SET_NULL, null=True
+        'catalogue.Product', on_delete=models.SET_NULL, null=True, blank=True
     )
-    quantite_retourner = models.IntegerField(default=0)
-    raison_retour = models.CharField(max_length=128, default="")
-    condition_retour = models.CharField(max_length=32, default="")
-    montant_remise = models.FloatField(null=True, blank=True)
-    est_reapprovisionnnable = models.BooleanField(default=False)
+    quantite = models.IntegerField(default=0)
+    montant = models.FloatField(default=0)
+    raison = models.CharField(max_length=255, default="")
+    date_remboursement = models.DateTimeField(auto_now_add=True)
     notes = models.TextField(null=True, blank=True)
-    date_retour = models.DateTimeField(auto_now_add=True)
-    creer_le = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        verbose_name = "Produit renvoyé"
-        verbose_name_plural = "Produits renvoyés"
-        ordering = ['-date_retour']
+        verbose_name = "Remboursement"
+        verbose_name_plural = "Remboursements"
+        ordering = ['-date_remboursement']
 
     def __str__(self):
-        return self.produit.name if self.produit else "Produit renvoyé"
+        return f"Remboursement {self.id} ({self.source_type})"
 class TransactionPaiement(models.Model):
     class PaymentMethod(models.TextChoices):
         ESPECES = 'Espèces', 'Espèces'

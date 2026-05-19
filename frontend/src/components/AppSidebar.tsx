@@ -53,7 +53,7 @@ const mainItems = [
 const achatVenteItems = [
   { title: "Achats", url: "/buy-sell/achats", icon: ShoppingCart },
   { title: "Ventes", url: "/buy-sell/ventes", icon: DollarSign },
-  { title: "Retours", url: "/buy-sell/retours", icon: RotateCcw },
+  { title: "Remboursements", url: "/buy-sell/retours", icon: RotateCcw },
   { title: "Analyse", url: "/buy-sell/analyse", icon: LineChart },
   { title: "Transactions", url: "/buy-sell/mouvements", icon: ArrowLeftRight },
 ]

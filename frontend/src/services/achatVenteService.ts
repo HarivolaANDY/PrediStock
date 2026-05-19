@@ -4,7 +4,7 @@ import type {
   CreateBonCommandeData,
   DonneeVente,
   CreateDonneeVenteData,
-  ProduitRenvoie,
+  Remboursement,
   MouvementStock,
   AnalyticsData,
   Fournisseur,
@@ -97,9 +97,9 @@ export const deleteDonneeVente = (id: number) =>
 
 // ─── Retours ──────────────────────────────────────────────────────────────────
 
-export const getRetours = (params?: Record<string, string>) => {
+export const getRemboursements = (params?: Record<string, string>) => {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
-  return fetchJson<ProduitRenvoie[]>(`${API_BASE_URL}/api/commandes/retours/${qs}`);
+  return fetchJson<Remboursement[]>(`${API_BASE_URL}/api/commandes/remboursements/${qs}`);
 };
 
 // ─── Analytics ────────────────────────────────────────────────────────────────

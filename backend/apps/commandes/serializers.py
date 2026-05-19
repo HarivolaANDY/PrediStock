@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
 from apps.catalogue.models import ProduitDv
 
 
@@ -14,11 +14,12 @@ class ContenuDansSerializer(serializers.ModelSerializer):
         return obj.produit_dv.designation if obj.produit_dv else "N/A"
 
     montant_ligne = serializers.ReadOnlyField()
+    product_name = serializers.ReadOnlyField(source='produit.name')
 
     class Meta:
         model = ContenuDans
         fields = [
-            'id', 'bon_commande', 'produit', 'produit_dv', 'produit_name', 
+            'id', 'bon_commande', 'produit', 'produit_dv', 'product_name', 'produit_name', 
             'produit_dv_name', 'quantite', 'prix_unitaire', 'montant_ligne'
         ]
 
@@ -32,7 +33,12 @@ class BonCommandeSerializer(serializers.ModelSerializer):
     lignes = ContenuDansSerializer(many=True, read_only=True)
     lignes_data = serializers.JSONField(write_only=True, required=False)
     fournisseur_name = serializers.ReadOnlyField(source='fournisseur.name')
-    utilisateur_name = serializers.ReadOnlyField(source='utilisateur.username')
+    utilisateur_name = serializers.SerializerMethodField()
+
+    def get_utilisateur_name(self, obj):
+        if not obj.utilisateur: return "Système"
+        full_name = f"{obj.utilisateur.first_name} {obj.utilisateur.last_name}".strip()
+        return full_name if full_name else obj.utilisateur.username
     
     class Meta:
         model = BonCommande
@@ -93,27 +99,44 @@ class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
         return obj.produit_dv.designation if obj.produit_dv else "N/A"
 
     montant_ligne = serializers.ReadOnlyField()
+    product_name = serializers.ReadOnlyField(source='produit.name')
 
     class Meta:
         model = ProduitDonneeVente
         fields = [
-            'id', 'donnee_vente', 'produit', 'produit_dv', 'produit_name', 
+            'id', 'donnee_vente', 'produit', 'produit_dv', 'produit_name', 'product_name',
             'produit_dv_name', 'quantite', 'prix_unitaire', 'remise_applique', 'montant_ligne'
+        ]
+
+
+class RemboursementSerializer(serializers.ModelSerializer):
+    produit_name = serializers.ReadOnlyField(source='produit.name')
+
+    class Meta:
+        model = Remboursement
+        fields = [
+            'id', 'source_type', 'source_id', 'numero_transaction', 'produit', 
+            'produit_name', 'quantite', 'montant', 'raison', 'date_remboursement', 'notes'
         ]
 
 
 class DonneeVenteSerializer(serializers.ModelSerializer):
     lignes = ProduitDonneeVenteSerializer(many=True, read_only=True)
     lignes_data = serializers.JSONField(write_only=True, required=False)
-    utilisateur_name = serializers.ReadOnlyField(source='utilisateur.username')
+    utilisateur_name = serializers.SerializerMethodField()
+
+    def get_utilisateur_name(self, obj):
+        if not obj.utilisateur: return "Système"
+        full_name = f"{obj.utilisateur.first_name} {obj.utilisateur.last_name}".strip()
+        return full_name if full_name else obj.utilisateur.username
 
     class Meta:
         model = DonneeVente
         fields = [
             'id', 'utilisateur', 'utilisateur_name', 'numero_vente', 
             'montant_total', 'montant_paye', 'remise_globale', 'statut_paiement', 
-            'mode_paiement', 'canal_vente', 'segment_clientele', 'date_vente', 
-            'lignes', 'lignes_data', 'creer_le', 'update_at'
+            'mode_paiement', 'canal_vente', 'segment_clientele', 'status', 'type_vente',
+            'date_vente', 'lignes', 'lignes_data', 'creer_le', 'update_at'
         ]
 
     def create(self, validated_data):
@@ -156,17 +179,3 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
             vente.save()
             
         return vente
-
-
-class ProduitRenvoieSerializer(serializers.ModelSerializer):
-    produit_name = serializers.SerializerMethodField()
-
-    def get_produit_name(self, obj):
-        return obj.produit.name if obj.produit else "N/A"
-    
-    class Meta:
-        model = ProduitRenvoie
-        fields = [
-            'id', 'produit', 'produit_name', 'quantite_retourner', 
-            'date_retour', 'raison_retour', 'est_reapprovisionnnable'
-        ]

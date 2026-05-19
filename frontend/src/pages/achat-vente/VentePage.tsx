@@ -1,9 +1,7 @@
 import { useState } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
 import { getDonneeVentes, createDonneeVente, searchProduits, updateDonneeVente, deleteDonneeVente } from "@/services/achatVenteService"
-import { DollarSign, TrendingUp, ShoppingBag, RefreshCw, Plus, Search, Eye, Package, Trash2, FileText, AlertCircle, ChevronDown, CreditCard, Ban, MoreVertical, AlertTriangle } from "lucide-react"
-import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
-import type { ValueType, NameType } from "recharts/types/component/DefaultTooltipContent"
+import { DollarSign, ShoppingBag, RefreshCw, Plus, Search, Eye, Package, Trash2, FileText, AlertCircle, ChevronDown, CreditCard, Ban, MoreVertical, AlertTriangle, TrendingUp, Clock, CheckCircle2, ShieldCheck } from "lucide-react"
 import type { DonneeVente, CreateLigneVenteData } from "@/types/achatVente"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
@@ -30,6 +28,12 @@ const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> =
   "Annulé":   { label: "Annulé",   color: "bg-slate-100 text-slate-500 border-slate-200" },
 }
 
+const SALE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
+  "En attente": { label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="h-3 w-3" /> },
+  "Validé":    { label: "Validé",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="h-3 w-3" /> },
+  "Annulé":     { label: "Annulé",     color: "bg-red-50 text-red-700 border-red-100", icon: <Ban className="h-3 w-3" /> },
+}
+
 const MODE_PAIEMENT_OPTIONS = [
   { value: "Espèces", label: "Espèces" },
   { value: "Virement", label: "Virement" },
@@ -49,17 +53,6 @@ function PaymentStatusBadge({ status }: { status: string }) {
   )
 }
 
-function buildChart(ventes: DonneeVente[]) {
-  const map: Record<string, number> = {}
-  ventes.forEach(v => {
-    if (!v.date_vente) return
-    try {
-      const k = new Date(v.date_vente).toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })
-      map[k] = (map[k] || 0) + Number(v.montant_total || 0)
-    } catch (e) { console.error("Date error", e) }
-  })
-  return Object.entries(map).slice(-12).map(([mois, total]) => ({ mois, total }))
-}
 
 export default function VentePage() {
   const qc = useQueryClient()
@@ -92,7 +85,8 @@ export default function VentePage() {
   const [form, setForm] = useState({
     canal_vente: "Direct",
     segment_clientele: "Particulier",
-    mode_paiement: "Espèces"
+    mode_paiement: "Espèces",
+    type_vente: "Normal"
   })
 
   const createMut = useMutation({
@@ -108,7 +102,7 @@ export default function VentePage() {
 
   const resetForm = () => {
     setLines([{ produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
-    setForm({ canal_vente: "Direct", segment_clientele: "Particulier", mode_paiement: "Espèces" })
+    setForm({ canal_vente: "Direct", segment_clientele: "Particulier", mode_paiement: "Espèces", type_vente: "Normal" })
   }
 
   // Bulk mutations
@@ -132,11 +126,11 @@ export default function VentePage() {
     }
   })
 
-  const updateStatusMut = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: string }) => 
-      updateDonneeVente(id, { statut_paiement: status }),
+  const updateSaleMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: any }) => 
+      updateDonneeVente(id, data),
     onSuccess: () => {
-      toast.success("Statut mis à jour")
+      toast.success("Mise à jour réussie")
       qc.invalidateQueries({ queryKey: ["donnee-ventes"] })
     },
     onError: (e: Error) => toast.error(e.message)
@@ -166,11 +160,12 @@ export default function VentePage() {
     })
   }
 
-  const totalRevenu = ventes.reduce((s, v) => s + Number(v.montant_total), 0)
-  const totalQty = ventes.reduce((s, v) => s + (v.lignes?.reduce((sq, l) => sq + l.quantite, 0) || 0), 0)
-  const avgTicket = ventes.length ? totalRevenu / ventes.length : 0
+  const activeVentes = ventes.filter(v => v.status !== "Annulé")
+  const totalRevenu = activeVentes.reduce((s, v) => s + Number(v.montant_total), 0)
+  const totalQty = activeVentes.reduce((s, v) => s + (v.lignes?.reduce((sq, l) => sq + l.quantite, 0) || 0), 0)
+  const amountPaid = activeVentes.reduce((s, v) => s + Number(v.montant_paye || 0), 0)
+  const avgTicket = activeVentes.length ? totalRevenu / activeVentes.length : 0
   const canaux = [...new Set(ventes.map(v => v.canal_vente).filter(Boolean))]
-  const chart = buildChart(ventes)
 
   const filteredVentes = ventes.filter(v => 
     (v.numero_vente?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
@@ -223,8 +218,8 @@ export default function VentePage() {
       {/* KPI Stats */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: "Total Ventes", value: ventes.length, sub: "Transactions", color: "text-emerald-600", icon: <ShoppingBag className="h-4 w-4" /> },
-          { label: "Payé / Total", value: `${fmt(ventes.reduce((s, v) => s + Number(v.montant_paye || 0), 0))} / ${fmt(totalRevenu)}`, sub: "Suivi financier", color: "text-blue-600", icon: <DollarSign className="h-4 w-4" /> },
+          { label: "Total Ventes", value: activeVentes.length, sub: "Transactions", color: "text-emerald-600", icon: <ShoppingBag className="h-4 w-4" /> },
+          { label: "Payé / Total", value: `${fmt(amountPaid)} / ${fmt(totalRevenu)}`, sub: "Suivi financier", color: "text-blue-600", icon: <DollarSign className="h-4 w-4" /> },
           { label: "Panier Moyen", value: fmt(avgTicket), sub: `${totalQty} unités vendues`, color: "text-purple-600", icon: <TrendingUp className="h-4 w-4" /> },
         ].map((k, i) => (
           <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-emerald-200 transition-all">
@@ -240,23 +235,6 @@ export default function VentePage() {
         ))}
       </div>
 
-      {/* Chart */}
-      {chart.length > 0 && (
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm">
-          <h2 className="text-sm font-bold mb-6 flex items-center gap-2">
-            <TrendingUp className="h-4 w-4 text-emerald-600" /> Progression des revenus
-          </h2>
-          <ResponsiveContainer width="100%" height={240}>
-            <BarChart data={chart}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
-              <XAxis dataKey="mois" axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} />
-              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fontWeight: 600 }} tickFormatter={v => `${(v / 1000).toFixed(0)}k`} />
-              <Tooltip cursor={{ fill: 'hsl(var(--muted))', opacity: 0.4 }} formatter={(v: ValueType | undefined, _name: NameType | undefined) => [fmt(Number(v)), "Revenu"]} contentStyle={{ borderRadius: 12, border: '1px solid hsl(var(--border))', boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }} />
-              <Bar dataKey="total" fill="#059669" radius={[6, 6, 0, 0]} barSize={40} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      )}
 
       {/* Bulk Actions Toolbar */}
       {selectedIds.length > 0 && (
@@ -306,6 +284,7 @@ export default function VentePage() {
                     />
                   </th>
                   <th className="px-6 py-4 font-bold text-muted-foreground">RÉFÉRENCE</th>
+                  <th className="px-6 py-4 font-bold text-muted-foreground">STATUS</th>
                   <th className="px-6 py-4 font-bold text-muted-foreground">CANAL</th>
                   <th className="px-6 py-4 font-bold text-muted-foreground text-right">MONTANT</th>
                   <th className="px-6 py-4 font-bold text-muted-foreground">PAIEMENT</th>
@@ -330,7 +309,20 @@ export default function VentePage() {
                         onChange={() => toggleSelect(v.id)}
                       />
                     </td>
-                    <td className="px-6 py-4 font-mono font-bold text-emerald-600">{v.numero_vente || `#${v.id}`}</td>
+                    <td className="px-6 py-4 font-mono font-bold text-emerald-600">
+                      <div className="flex flex-col">
+                        <span>{v.numero_vente || `#${v.id}`}</span>
+                        {v.type_vente === "Crédit" && <span className="text-[9px] text-amber-600 font-bold uppercase tracking-tighter">Vente à crédit</span>}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4">
+                      {v.status && (
+                        <div className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border ${SALE_STATUS_CONFIG[v.status]?.color || ''}`}>
+                          {SALE_STATUS_CONFIG[v.status]?.icon}
+                          {v.status}
+                        </div>
+                      )}
+                    </td>
                     <td className="px-6 py-4">
                       <Badge variant="outline" className="bg-blue-50 text-blue-600 border-blue-100">{v.canal_vente}</Badge>
                     </td>
@@ -346,22 +338,55 @@ export default function VentePage() {
                             <MoreVertical className="h-4 w-4" />
                           </Button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-48 rounded-xl shadow-xl border-border">
-                          <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5">Action sur la vente</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
+                        <DropdownMenuContent align="end" className="w-56 rounded-xl shadow-xl border-border p-1">
+                          <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 border-b border-border mb-1">Actions</DropdownMenuLabel>
                           <DropdownMenuItem onClick={() => setSelectedSale(v)} className="gap-2 cursor-pointer rounded-lg m-1">
-                            <Eye className="h-4 w-4 text-emerald-600" /> Détails
+                            <Eye className="h-4 w-4 text-emerald-600" /> Détails de la vente
                           </DropdownMenuItem>
                           
-                          {v.statut_paiement !== "Payé" && v.statut_paiement !== "Annulé" && (
-                            <DropdownMenuItem onClick={() => updateStatusMut.mutate({ id: v.id, status: "Payé" })} className="gap-2 cursor-pointer rounded-lg m-1 text-emerald-600">
-                              <CreditCard className="h-4 w-4" /> Marquer comme payé
-                            </DropdownMenuItem>
-                          )}
+                          {/* Statut de la Vente */}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 flex items-center justify-between">
+                            Statut {v.status === "Validé" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
+                          </DropdownMenuLabel>
                           
-                          {v.statut_paiement !== "Annulé" && (
-                            <DropdownMenuItem onClick={() => updateStatusMut.mutate({ id: v.id, status: "Annulé" })} className="gap-2 cursor-pointer rounded-lg m-1 text-amber-600">
-                              <Ban className="h-4 w-4" /> Annuler la vente
+                          {v.status !== "Validé" && v.status !== "Annulé" ? (
+                            <>
+                              <DropdownMenuItem 
+                                onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Validé" } })} 
+                                className="gap-2 cursor-pointer rounded-lg m-1 text-emerald-600"
+                              >
+                                <CheckCircle2 className="h-4 w-4" /> Valider la vente
+                              </DropdownMenuItem>
+                              <DropdownMenuItem 
+                                onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Annulé" } })} 
+                                className="gap-2 cursor-pointer rounded-lg m-1 text-red-600"
+                              >
+                                <Ban className="h-4 w-4" /> Annuler la vente
+                              </DropdownMenuItem>
+                            </>
+                          ) : (
+                            <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Statut verrouillé</div>
+                          )}
+
+                          {/* Paiement */}
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel className="text-[10px] font-bold text-muted-foreground uppercase px-2 py-1.5 flex items-center justify-between">
+                            Paiement {v.statut_paiement === "Payé" && <ShieldCheck className="h-3 w-3 text-emerald-500" />}
+                          </DropdownMenuLabel>
+
+                          {v.type_vente === "Crédit" ? (
+                             <div className="px-2 py-1 text-[9px] text-amber-600 font-bold bg-amber-50 rounded mx-1">Paiement bloqué (Crédit)</div>
+                          ) : v.statut_paiement === "Payé" ? (
+                            <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Transaction payée (verrouillé)</div>
+                          ) : v.statut_paiement === "Annulé" ? (
+                            <div className="px-2 py-1.5 text-[10px] italic text-muted-foreground">Vente annulée</div>
+                          ) : (
+                            <DropdownMenuItem 
+                              onClick={() => updateSaleMut.mutate({ id: v.id, data: { statut_paiement: "Payé", montant_paye: v.montant_total } })} 
+                              className="gap-2 cursor-pointer rounded-lg m-1 text-emerald-600"
+                            >
+                              <CreditCard className="h-4 w-4" /> Encaisser le paiement
                             </DropdownMenuItem>
                           )}
 
@@ -370,7 +395,7 @@ export default function VentePage() {
                             onClick={() => setDeleteConfirmId(v.id)} 
                             className="gap-2 cursor-pointer rounded-lg m-1 text-red-600 focus:text-red-600 focus:bg-red-50"
                           >
-                            <Trash2 className="h-4 w-4" /> Supprimer
+                            <Trash2 className="h-4 w-4" /> Supprimer l'enregistrement
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -434,10 +459,23 @@ export default function VentePage() {
                 </select>
               </div>
               <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Type de Vente</label>
+                <select className="w-full bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm outline-none" value={form.type_vente} onChange={e => setForm({...form, type_vente: e.target.value})}>
+                  <option value="Normal">Vente Normale</option>
+                  <option value="Crédit">Vente à Crédit</option>
+                </select>
+              </div>
+              <div className="space-y-1.5">
                 <label className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Mode de paiement</label>
-                <select className="w-full bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm outline-none" value={form.mode_paiement} onChange={e => setForm({...form, mode_paiement: e.target.value})}>
+                <select 
+                  className="w-full bg-muted/30 border border-border rounded-xl px-3 py-2 text-sm outline-none disabled:opacity-50" 
+                  value={form.mode_paiement} 
+                  disabled={form.type_vente === "Crédit"}
+                  onChange={e => setForm({...form, mode_paiement: e.target.value})}
+                >
                   {MODE_PAIEMENT_OPTIONS.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                 </select>
+                {form.type_vente === "Crédit" && <p className="text-[9px] text-amber-600 font-bold italic">Le paiement est forcé à "Non payé" pour les crédits.</p>}
               </div>
             </div>
 
