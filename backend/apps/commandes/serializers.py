@@ -44,7 +44,7 @@ class BonCommandeSerializer(serializers.ModelSerializer):
         model = BonCommande
         fields = [
             'id', 'fournisseur', 'fournisseur_name', 'utilisateur', 'utilisateur_name',
-            'numero_commande', 'status', 'statut_paiement', 'montant_total', 'montant_paye',
+            'numero_commande', 'status', 'statut_paiement', 'mode_paiement', 'montant_total', 'montant_paye',
             'date_commande', 'livraison_prevue', 'livraison_actuelle', 'lignes', 'lignes_data',
             'creer_le', 'update_at'
         ]
@@ -54,8 +54,8 @@ class BonCommandeSerializer(serializers.ModelSerializer):
         
         # Auto-generate numero_commande if default or empty
         if not validated_data.get('numero_commande') or validated_data.get('numero_commande') == 'BC-000000000':
-            import uuid
-            validated_data['numero_commande'] = f"BC-{str(uuid.uuid4())[:8].upper()}"
+            # Note: We can let the model handle this in save or use a better gen here
+            pass
 
         bon = BonCommande.objects.create(**validated_data)
 
@@ -116,7 +116,8 @@ class RemboursementSerializer(serializers.ModelSerializer):
         model = Remboursement
         fields = [
             'id', 'source_type', 'source_id', 'numero_transaction', 'produit', 
-            'produit_name', 'quantite', 'montant', 'raison', 'date_remboursement', 'notes'
+            'produit_name', 'quantite', 'montant', 'raison', 'date_remboursement', 
+            'statut_reglement', 'notes'
         ]
 
 
@@ -135,8 +136,8 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'utilisateur', 'utilisateur_name', 'numero_vente', 
             'montant_total', 'montant_paye', 'remise_globale', 'statut_paiement', 
-            'mode_paiement', 'canal_vente', 'segment_clientele', 'status', 'type_vente',
-            'date_vente', 'lignes', 'lignes_data', 'creer_le', 'update_at'
+            'mode_paiement', 'segment_clientele', 'status', 'type_vente',
+            'date_vente', 'delai_paiement', 'lignes', 'lignes_data', 'creer_le', 'update_at'
         ]
 
     def create(self, validated_data):

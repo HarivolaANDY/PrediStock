@@ -13,6 +13,15 @@ class BonCommande(models.Model):
         PARTIEL  = 'Partiel', 'Partiel'
         PAYE     = 'Payé', 'Payé'
 
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
     fournisseur = models.ForeignKey(
         'catalogue.Supplier', on_delete=models.SET_NULL, null=True, blank=True
     )
@@ -28,9 +37,14 @@ class BonCommande(models.Model):
         choices=PaymentStatus.choices, 
         default=PaymentStatus.NON_PAYE
     )
+    mode_paiement = models.CharField(
+        max_length=32,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.ESPECES
+    )
     montant_total = models.FloatField(default=0)
     montant_paye = models.FloatField(default=0)
-    date_commande = models.DateTimeField(auto_now_add=True)
+    date_commande = models.DateTimeField(null=True, blank=True)
     livraison_prevue = models.DateTimeField(null=True, blank=True)
     livraison_actuelle = models.DateTimeField(null=True, blank=True)
     creer_le = models.DateTimeField(auto_now_add=True)
@@ -43,6 +57,9 @@ class BonCommande(models.Model):
 
     def save(self, *args, **kwargs):
         # Suppression de l'automatisation du paiement pour laisser le déclencheur sur 'Payé'
+        from django.utils import timezone
+        if not self.date_commande:
+            self.date_commande = timezone.now()
 
         if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
             # Get the highest ID or count to determine the next number
@@ -143,11 +160,12 @@ class DonneeVente(models.Model):
         choices=PaymentMethod.choices, 
         default=PaymentMethod.ESPECES
     )
-    canal_vente = models.CharField(max_length=128, blank=True, default="")
+    # canal_vente = models.CharField(max_length=128, blank=True, default="") # Supprimé
     segment_clientele = models.CharField(max_length=128, blank=True, default="")
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.EN_ATTENTE)
     type_vente = models.CharField(max_length=32, choices=TypeVente.choices, default=TypeVente.NORMAL)
     date_vente = models.DateTimeField(auto_now_add=True)
+    delai_paiement = models.DateTimeField(null=True, blank=True)
     creer_le = models.DateTimeField(auto_now_add=True)
     update_at = models.DateTimeField(auto_now=True)
 
@@ -160,6 +178,13 @@ class DonneeVente(models.Model):
         # Force payment status to Non payé if type is Credit
         if self.type_vente == self.TypeVente.CREDIT:
             self.statut_paiement = self.PaymentStatus.NON_PAYE
+        
+        # Check deadline for cancellation
+        from django.utils import timezone
+        if self.delai_paiement and timezone.now() > self.delai_paiement and self.statut_paiement != self.PaymentStatus.PAYE:
+            self.status = self.Status.ANNULE
+            self.statut_paiement = self.PaymentStatus.ANNULE
+
         super().save(*args, **kwargs)
 
     def __str__(self):
@@ -199,6 +224,10 @@ class Remboursement(models.Model):
         ACHAT = 'Achat', 'Achat'
         VENTE = 'Vente', 'Vente'
         RETOUR = 'Retour', 'Retour'
+    
+    class StatusReglement(models.TextChoices):
+        REGLE = 'Réglé', 'Réglé'
+        NON_REGLE = 'Non réglé', 'Non réglé'
 
     source_type = models.CharField(max_length=20, choices=TypeSource.choices, default=TypeSource.RETOUR)
     source_id = models.IntegerField(null=True, blank=True) # ID of BC or DV
@@ -210,6 +239,11 @@ class Remboursement(models.Model):
     montant = models.FloatField(default=0)
     raison = models.CharField(max_length=255, default="")
     date_remboursement = models.DateTimeField(auto_now_add=True)
+    statut_reglement = models.CharField(
+        max_length=32, 
+        choices=StatusReglement.choices, 
+        default=StatusReglement.NON_REGLE
+    )
     notes = models.TextField(null=True, blank=True)
 
     class Meta:
@@ -234,6 +268,9 @@ class TransactionPaiement(models.Model):
     )
     donnee_vente = models.ForeignKey(
         'DonneeVente', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    remboursement = models.ForeignKey(
+        'Remboursement', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
     )
     montant = models.DecimalField(max_digits=12, decimal_places=2)
     mode_paiement = models.CharField(max_length=32, choices=PaymentMethod.choices)

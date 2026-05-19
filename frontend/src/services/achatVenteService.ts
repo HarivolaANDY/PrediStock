@@ -53,6 +53,9 @@ export const getBonCommandes = (params?: Record<string, string>) => {
   return fetchJson<BonCommande[]>(`${API_BASE_URL}/api/commandes/bon-commande/${qs}`);
 };
 
+export const getBonCommande = (id: number) =>
+  fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/`);
+
 export const createBonCommande = (data: CreateBonCommandeData) =>
   fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/`, {
     method: "POST",
@@ -78,6 +81,9 @@ export const getDonneeVentes = (params?: Record<string, string>) => {
   return fetchJson<DonneeVente[]>(`${API_BASE_URL}/api/commandes/donnee-vente/${qs}`);
 };
 
+export const getDonneeVente = (id: number) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`);
+
 export const createDonneeVente = (data: CreateDonneeVenteData) =>
   fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/`, {
     method: "POST",
@@ -101,6 +107,12 @@ export const getRemboursements = (params?: Record<string, string>) => {
   const qs = params ? "?" + new URLSearchParams(params).toString() : "";
   return fetchJson<Remboursement[]>(`${API_BASE_URL}/api/commandes/remboursements/${qs}`);
 };
+
+export const updateRemboursement = (id: number, data: Partial<Remboursement>) =>
+  fetchJson<Remboursement>(`${API_BASE_URL}/api/commandes/remboursements/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 
 // ─── Analytics ────────────────────────────────────────────────────────────────
 

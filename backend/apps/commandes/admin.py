@@ -23,8 +23,8 @@ class ProduitDonneeVenteInline(admin.TabularInline):
 @admin.register(DonneeVente)
 class DonneeVenteAdmin(admin.ModelAdmin):
     list_display = ['numero_vente', 'utilisateur', 'montant_total', 
-                    'canal_vente', 'date_vente']
-    list_filter = ['canal_vente', 'segment_clientele', 'date_vente']
+                    'date_vente']
+    list_filter = ['segment_clientele', 'date_vente']
     search_fields = ['numero_vente', 'utilisateur__username']
     inlines = [ProduitDonneeVenteInline]
     ordering = ['-date_vente']
