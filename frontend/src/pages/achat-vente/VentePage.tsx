@@ -23,14 +23,12 @@ function fmt(n: number | string) {
 
 const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> = {
   "Non payé": { label: "Non payé", color: "bg-red-100 text-red-700 border-red-200" },
-  "Partiel":  { label: "Partiel",  color: "bg-amber-100 text-amber-700 border-amber-200" },
   "Payé":     { label: "Payé",     color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
-  "Annulé":   { label: "Annulé",   color: "bg-slate-100 text-slate-500 border-slate-200" },
 }
 
 const SALE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
   "En attente": { label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="h-3 w-3" /> },
-  "Validé":    { label: "Validé",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="h-3 w-3" /> },
+  "Livré":     { label: "Livré",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="h-3 w-3" /> },
   "Annulé":     { label: "Annulé",     color: "bg-red-50 text-red-700 border-red-100", icon: <Ban className="h-3 w-3" /> },
 }
 
@@ -58,6 +56,7 @@ export default function VentePage() {
   const [showModal, setShowModal] = useState(false)
   const [selectedSale, setSelectedSale] = useState<DonneeVente | null>(null)
   const [searchTerm, setSearchTerm] = useState("")
+  const [statusFilter, setStatusFilter] = useState<string>("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
 
@@ -73,8 +72,8 @@ export default function VentePage() {
   const refundedSaleIds = remboursements.filter(r => r.source_type === 'Vente').map(r => r.source_id)
 
   const { data: ventes = [], isLoading, refetch } = useQuery({
-    queryKey: ["donnee-ventes", refundedSaleIds],
-    queryFn: () => getDonneeVentes(),
+    queryKey: ["donnee-ventes", statusFilter, refundedSaleIds],
+    queryFn: () => getDonneeVentes(statusFilter ? { status: statusFilter } : undefined),
     select: (data) => data.filter(v => !refundedSaleIds.includes(v.id))
   })
 
@@ -157,6 +156,16 @@ export default function VentePage() {
     
     if (!userId) return toast.error("Utilisateur non identifié. Veuillez vous reconnecter.")
 
+    // Stock validation before mutating
+    for (const l of lines) {
+      const selected = productsAndSubProducts.find((p: any) => l.produit_dv ? (p.is_deriv && p.id === l.produit_dv) : (!p.is_deriv && p.id === l.produit));
+      if (selected && selected.stock !== undefined) {
+        if (l.quantite > selected.stock) {
+          return toast.error(`Stock insuffisant pour "${selected.name}". Disponible: ${selected.stock}, Demandé: ${l.quantite}`);
+        }
+      }
+    }
+
     createMut.mutate({
       ...form,
       utilisateur: userId,
@@ -191,7 +200,7 @@ export default function VentePage() {
 
   const canChangeStatus = (v: DonneeVente) => {
     if (v.status === "Annulé") return false;
-    if (v.statut_paiement === "Payé" && v.status === "Validé") return false;
+    if (v.statut_paiement === "Payé" && v.status === "Livré") return false;
     if (!v.delai_paiement) return true;
     return new Date() <= new Date(v.delai_paiement);
   }
@@ -241,12 +250,47 @@ export default function VentePage() {
       </div>
 
       <div className="space-y-4">
-        <div className="flex flex-col md:flex-row gap-4 items-center justify-end">
-          <div className="relative w-full md:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Rechercher par numéro de vente..." className="pl-9 bg-card rounded-xl border-border focus:ring-emerald-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
-          </div>
+      <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
+        <div className="flex items-center gap-2 bg-muted/50 p-1 rounded-xl border border-border w-full md:w-auto overflow-x-auto">
+          <Button 
+            variant={statusFilter === "" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setStatusFilter("")}
+            className={`rounded-lg font-bold text-[10px] px-4 ${statusFilter === "" ? "bg-white text-slate-700 shadow-sm" : "text-muted-foreground"}`}
+          >
+            Tous
+          </Button>
+          <Button 
+            variant={statusFilter === "En attente" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setStatusFilter("En attente")}
+            className={`rounded-lg font-bold text-[10px] px-4 ${statusFilter === "En attente" ? "bg-white text-amber-600 shadow-sm" : "text-muted-foreground"}`}
+          >
+            En attente
+          </Button>
+          <Button 
+            variant={statusFilter === "Livré" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setStatusFilter("Livré")}
+            className={`rounded-lg font-bold text-[10px] px-4 ${statusFilter === "Livré" ? "bg-white text-emerald-600 shadow-sm" : "text-muted-foreground"}`}
+          >
+            Livrées
+          </Button>
+          <Button 
+            variant={statusFilter === "Annulé" ? "default" : "ghost"}
+            size="sm"
+            onClick={() => setStatusFilter("Annulé")}
+            className={`rounded-lg font-bold text-[10px] px-4 ${statusFilter === "Annulé" ? "bg-white text-red-600 shadow-sm" : "text-muted-foreground"}`}
+          >
+            Annulées
+          </Button>
         </div>
+
+        <div className="relative w-full md:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input placeholder="Rechercher par numéro de vente..." className="pl-9 bg-card rounded-xl border-border focus:ring-emerald-500" value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+        </div>
+      </div>
 
         <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
@@ -324,29 +368,38 @@ export default function VentePage() {
                             <DropdownMenuLabel className="text-[10px] font-bold uppercase text-muted-foreground px-2 py-1.5">Actions de vente</DropdownMenuLabel>
                             <DropdownMenuSeparator />
                             
-                            {!canChangeStatus(v) ? (
-                              <div className="px-3 py-2 text-[10px] italic text-red-500 bg-red-50/50 rounded-lg mx-1 mb-2">
-                                <AlertTriangle className="h-3 w-3 inline mr-1" />
-                                {v.status === "Annulé" ? "Vente déjà annulée" : 
-                                 v.statut_paiement === "Payé" && v.status === "Validé" ? "Transaction finalisée" : "Délai de paiement expiré"}
-                              </div>
-                            ) : (
-                              <>
-                                {v.statut_paiement !== "Payé" && (
-                                  <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { statut_paiement: "Payé", montant_paye: v.montant_total } })} className="gap-2 text-xs font-bold text-blue-600 py-2 cursor-pointer focus:bg-blue-50 focus:text-blue-700">
-                                    <CreditCard className="h-4 w-4" /> Marquer comme payé
+                            <div className="flex flex-col gap-1">
+                              {v.status !== "Annulé" && (
+                                <>
+                                  {/* Actions conditionnelles basées sur canChangeStatus (Paiement/Livraison) */}
+                                  {canChangeStatus(v) && (
+                                    <>
+                                      {v.statut_paiement !== "Payé" && (
+                                        <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { statut_paiement: "Payé", montant_paye: v.montant_total } })} className="gap-2 text-xs font-bold text-blue-600 py-2 cursor-pointer focus:bg-blue-50 focus:text-blue-700">
+                                          <CreditCard className="h-4 w-4" /> Marquer comme payé
+                                        </DropdownMenuItem>
+                                      )}
+                                      {v.status !== "Livré" && (
+                                         <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Livré" } })} className="gap-2 text-xs font-bold text-emerald-600 py-2 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700">
+                                          <ShieldCheck className="h-4 w-4" /> Marquer comme livré
+                                        </DropdownMenuItem>
+                                      )}
+                                    </>
+                                  )}
+
+                                  {/* Annulation - Toujours disponible si non annulé */}
+                                  <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Annulé" } })} className="gap-2 text-xs font-bold text-red-600 py-2 cursor-pointer focus:bg-red-50 focus:text-red-700">
+                                    <Ban className="h-4 w-4" /> Annuler la vente
                                   </DropdownMenuItem>
-                                )}
-                                {v.status !== "Validé" && (
-                                   <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Validé" } })} className="gap-2 text-xs font-bold text-emerald-600 py-2 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700">
-                                    <ShieldCheck className="h-4 w-4" /> Marquer comme livré
-                                  </DropdownMenuItem>
-                                )}
-                                <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Annulé", statut_paiement: "Annulé" } })} className="gap-2 text-xs font-bold text-red-600 py-2 cursor-pointer focus:bg-red-50 focus:text-red-700">
-                                  <Ban className="h-4 w-4" /> Annuler la vente
-                                </DropdownMenuItem>
-                              </>
-                            )}
+                                </>
+                              )}
+
+                              {v.status === "Annulé" && (
+                                <div className="px-3 py-2 text-[10px] italic text-slate-400 bg-slate-50 rounded-lg mx-1 mb-2">
+                                  Vente déjà annulée
+                                </div>
+                              )}
+                            </div>
 
                             <DropdownMenuSeparator />
                             <DropdownMenuItem onClick={() => setDeleteConfirmId(v.id)} className="gap-2 text-xs font-bold text-red-600/70 py-2 cursor-pointer hover:bg-red-50">
@@ -476,15 +529,15 @@ export default function VentePage() {
                       >
                         <option value="">Selectionner un article...</option>
                         {productsAndSubProducts.map((p: any) => (
-                          <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
-                            {p.is_deriv ? `🏷️ [Variante] ${p.name}` : `📦 ${p.name}`} — {fmt(p.price)}
+                          <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} disabled={p.stock <= 0}>
+                            {p.is_deriv ? `🏷️ [Variante] ${p.name}` : `📦 ${p.name}`} (Stock: {p.stock}) — {fmt(p.price)}
                           </option>
                         ))}
                       </select>
                     </div>
                     <div className="w-full md:w-24 space-y-2">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">Qté</label>
-                      <Input type="number" className="h-9 text-xs rounded-xl bg-background font-bold text-center" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: Number(e.target.value) })} />
+                      <Input type="number" step="0.001" className="h-9 text-xs rounded-xl bg-background font-bold text-center" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: parseFloat(e.target.value) || 0 })} />
                     </div>
                     <div className="w-full md:w-32 space-y-2">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-1">P.U</label>

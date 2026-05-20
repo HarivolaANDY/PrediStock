@@ -1,4 +1,4 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, post_delete
 from django.dispatch import receiver
 from .models import BonCommande, DonneeVente, ProduitDonneeVente, Remboursement
 from apps.stock.models import MouvementStock
@@ -15,13 +15,8 @@ def sync_stock_on_sale_payment(sender, instance, **kwargs):
     is_credit = instance.type_vente == DonneeVente.TypeVente.CREDIT
     is_cancelled = instance.status == DonneeVente.Status.ANNULE
 
-    # Déterminer si on doit créer les mouvements
-    should_create = (
-        not is_cancelled and (
-            (is_credit and instance.status == DonneeVente.Status.VALIDE) or
-            (not is_credit and instance.statut_paiement == DonneeVente.PaymentStatus.PAYE)
-        )
-    )
+    # Déterminer si on doit créer les mouvements : Dès que c'est LIVRÉ
+    should_create = (not is_cancelled and instance.status == DonneeVente.Status.VALIDE)
 
     if should_create:
         for ligne in instance.lignes.all():
@@ -43,24 +38,24 @@ def sync_stock_on_sale_payment(sender, instance, **kwargs):
         MouvementStock.objects.filter(referrence__in=refs).delete()
 
     # LOGIQUE REMBOURSEMENT : vente annulée APRÈS avoir été payée
-    if is_cancelled and instance.statut_paiement == DonneeVente.PaymentStatus.PAYE:
+    if is_cancelled and instance.montant_paye > 0:
         if not Remboursement.objects.filter(source_type=Remboursement.TypeSource.VENTE, source_id=instance.id).exists():
             Remboursement.objects.create(
                 source_type=Remboursement.TypeSource.VENTE,
                 source_id=instance.id,
                 numero_transaction=instance.numero_vente or f"V-{instance.id}",
-                montant=float(instance.montant_total),
-                raison="Vente annulée après paiement",
-                notes=f"Remboursement automatique pour la vente {instance.numero_vente}"
+                montant=float(instance.montant_paye),
+                raison=f"Vente annulée après paiement ({instance.statut_paiement})",
+                notes=f"Remboursement automatique à reverser au client pour la vente {instance.numero_vente}"
             )
 
 
 @receiver(post_save, sender=BonCommande)
 def sync_stock_on_purchase_payment(sender, instance, **kwargs):
-    """Update stock when a purchase order is marked as 'Payé'. Remove movements if no longer 'Payé'."""
     refs = [f"BC-LINE-{ligne.id}" for ligne in instance.lignes.all()]
 
-    if instance.statut_paiement == BonCommande.PaymentStatus.PAYE and instance.status != BonCommande.Status.ANNULE:
+    # Stock augmente dès que c'est LIVRÉ
+    if instance.status == BonCommande.Status.LIVRE:
         for ligne in instance.lignes.all():
             ref = f"BC-LINE-{ligne.id}"
             if not MouvementStock.objects.filter(referrence=ref).exists():
@@ -78,13 +73,26 @@ def sync_stock_on_purchase_payment(sender, instance, **kwargs):
         MouvementStock.objects.filter(referrence__in=refs).delete()
 
     # LOGIQUE REMBOURSEMENT (Achat Annulé alors qu'il était payé)
-    if instance.status == BonCommande.Status.ANNULE and instance.statut_paiement == BonCommande.PaymentStatus.PAYE:
+    # On crée un remboursement si la commande est annulée ET qu'il y a eu un paiement (total ou partiel)
+    if instance.status == BonCommande.Status.ANNULE and instance.montant_paye > 0:
         if not Remboursement.objects.filter(source_type=Remboursement.TypeSource.ACHAT, source_id=instance.id).exists():
             Remboursement.objects.create(
                 source_type=Remboursement.TypeSource.ACHAT,
                 source_id=instance.id,
                 numero_transaction=instance.numero_commande,
-                montant=float(instance.montant_total),
-                raison=f"Achat annulé après paiement",
-                notes=f"Remboursement automatique pour l'achat {instance.numero_commande}"
+                montant=float(instance.montant_paye),
+                raison=f"Achat annulé après paiement ({instance.statut_paiement})",
+                notes=f"Remboursement automatique à encaisser pour l'achat {instance.numero_commande}"
             )
+
+@receiver(post_delete, sender=DonneeVente)
+def cleanup_stock_on_sale_delete(sender, instance, **kwargs):
+    """Supprime les mouvements de stock si la vente est supprimée."""
+    MouvementStock.objects.filter(referrence__startswith=f"SALE-{instance.id}-").delete()
+
+@receiver(post_delete, sender=BonCommande)
+def cleanup_stock_on_purchase_delete(sender, instance, **kwargs):
+    """Supprime les mouvements de stock si l'achat est supprimé."""
+    MouvementStock.objects.filter(referrence__startswith=f"BC-LINE-").filter(reason__icontains=f"BC {instance.numero_commande}").delete()
+    # Note: For BC, the ref is BC-LINE-{ligne.id}. Since lines are deleted too, we might lose individual IDs.
+    # But filtering by reason and partial ref is safer.

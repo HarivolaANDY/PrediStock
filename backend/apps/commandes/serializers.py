@@ -160,10 +160,22 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
             
             # Auto-fill parent if missing
             if not p_id and dv_id:
-                from apps.catalogue.models import ProduitDv
                 dv_obj = ProduitDv.objects.filter(id=dv_id).first()
                 if dv_obj and dv_obj.product:
                     p_id = dv_obj.product.id
+
+            # VALIDATION STOCK
+            if dv_id:
+                dv_obj = ProduitDv.objects.get(id=dv_id)
+                if float(dv_obj.nombre) < float(quantite):
+                    vente.delete() # Annuler la création de l'entête
+                    raise serializers.ValidationError(f"Stock insuffisant pour {dv_obj.designation} (Disponible: {dv_obj.nombre}, Demandé: {quantite})")
+            elif p_id:
+                from apps.catalogue.models import Product
+                p_obj = Product.objects.get(id=p_id)
+                if float(p_obj.current_stock) < float(quantite):
+                    vente.delete()
+                    raise serializers.ValidationError(f"Stock insuffisant pour {p_obj.name} (Disponible: {p_obj.current_stock}, Demandé: {quantite})")
 
             ProduitDonneeVente.objects.create(
                 donnee_vente=vente,

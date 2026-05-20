@@ -20,6 +20,7 @@ class ContenuDansFilter(FilterSet):
 
 class DonneeVenteFilter(FilterSet):
     numero_vente = filters.CharFilter(lookup_expr='icontains')
+    status = filters.CharFilter(lookup_expr='exact')
 
     class Meta:
         model = DonneeVente
@@ -28,6 +29,7 @@ class DonneeVenteFilter(FilterSet):
             'date_vente':        ['exact', 'gt', 'lt', 'year', 'month'],
             'segment_clientele': ['exact', 'icontains'],
             'utilisateur':       ['exact'],
+            'status':            ['exact'],
         }
 
 

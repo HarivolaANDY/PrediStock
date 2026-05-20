@@ -132,7 +132,7 @@ class MouvementStock(models.Model):
         related_name='mouvements_effectues',
         verbose_name="Utilisateur responsable"
     )
-    quantity = models.IntegerField(verbose_name="Quantité")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="Quantité")
     movement_type = models.CharField(
         max_length=32,
         choices=TypeMouvement.choices,

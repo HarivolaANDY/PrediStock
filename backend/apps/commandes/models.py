@@ -42,8 +42,8 @@ class BonCommande(models.Model):
         choices=PaymentMethod.choices,
         default=PaymentMethod.ESPECES
     )
-    montant_total = models.FloatField(default=0)
-    montant_paye = models.FloatField(default=0)
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     date_commande = models.DateTimeField(null=True, blank=True)
     livraison_prevue = models.DateTimeField(null=True, blank=True)
     livraison_actuelle = models.DateTimeField(null=True, blank=True)
@@ -99,8 +99,8 @@ class ContenuDans(models.Model):
     produit_dv = models.ForeignKey(
         'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
     )
-    quantite = models.IntegerField(default=1)
-    prix_unitaire = models.FloatField(default=0)
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     creer_le = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -134,7 +134,7 @@ class DonneeVente(models.Model):
 
     class Status(models.TextChoices):
         EN_ATTENTE = 'En attente', 'En attente'
-        VALIDE     = 'Validé', 'Validé'
+        VALIDE     = 'Livré', 'Livré'
         ANNULE     = 'Annulé', 'Annulé'
 
     class TypeVente(models.TextChoices):
@@ -202,7 +202,7 @@ class ProduitDonneeVente(models.Model):
     produit_dv = models.ForeignKey(
         'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
     )
-    quantite = models.IntegerField(default=1)
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2)
     remise_applique = models.DecimalField(max_digits=12, decimal_places=2, default=0)
 
@@ -235,8 +235,8 @@ class Remboursement(models.Model):
     produit = models.ForeignKey(
         'catalogue.Product', on_delete=models.SET_NULL, null=True, blank=True
     )
-    quantite = models.IntegerField(default=0)
-    montant = models.FloatField(default=0)
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     raison = models.CharField(max_length=255, default="")
     date_remboursement = models.DateTimeField(auto_now_add=True)
     statut_reglement = models.CharField(

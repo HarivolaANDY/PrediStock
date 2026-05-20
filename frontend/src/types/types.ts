@@ -161,6 +161,7 @@ export interface Product {
   parent_id?: number;
   parent_name?: string;
   stock_actuel?: number; // Alias pour compatibilité
+  stock?: number;
 }
 
 export interface CriticalProduct {
