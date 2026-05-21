@@ -423,16 +423,36 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
         if not file.name.lower().endswith('.pdf'):
             return StandardResponse.render(message="Le fichier doit être un PDF.", status_code=400)
 
+        # 1. Sauvegarder le fichier temporairement pour l'OCR
         upload_dir = os.path.join(settings.MEDIA_ROOT, 'pdf_uploads')
         os.makedirs(upload_dir, exist_ok=True)
         filename = f"inventaire_h{historique_id or 'unknown'}_{file.name}"
+        file_path = os.path.join(upload_dir, filename)
+        
+        # On utilise default_storage pour la persistance si besoin, 
+        # mais ici on veut surtout le traiter immédiatement.
         path = default_storage.save(os.path.join('pdf_uploads', filename), file)
-        file_url = request.build_absolute_uri(settings.MEDIA_URL + path)
+        abs_path = os.path.join(settings.MEDIA_ROOT, path)
+
+        # 2. Lancer le traitement OCR en tâche de fond (thread) pour éviter les timeouts HTTP
+        import threading
+        thread = threading.Thread(
+            target=process_pdf_async,
+            kwargs={
+                "file_path": abs_path,
+                "historique_id": historique_id,
+                "user_id": request.user.id,
+            }
+        )
+        thread.start()
 
         return StandardResponse.render(
-            data={"filename": filename, "url": file_url},
-            message="PDF uploadé avec succès.",
-            status_code=200
+            data={
+                "filename": filename, 
+                "url": request.build_absolute_uri(settings.MEDIA_URL + path),
+            },
+            message="PDF uploadé. Le traitement OCR est en cours en arrière-plan. Les quantités se mettront à jour d'ici quelques instants.",
+            status_code=202 # ACCEPTED
         )
 
     @action(detail=False, methods=['post'], url_path='process-pdf')

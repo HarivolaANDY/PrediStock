@@ -66,6 +66,46 @@ def process_pdf(pdf_input):
         doc = fitz.open(stream=BytesIO(pdf_bytes), filetype="pdf")
         results = []
 
+        # 1. Tentative d'extraction directe de texte (Ultra rapide pour les PDF générés)
+        has_text = False
+        text_content = ""
+        for page in doc:
+            text_content += page.get_text()
+        
+        if len(text_content.strip()) > 50:
+            has_text = True
+            # Parsing simple par lignes
+            page_lines = text_content.split('\n')
+            for i in range(len(page_lines)):
+                line_text = page_lines[i].strip()
+                if not line_text or "Produit" in line_text or "Désignation" in line_text:
+                    continue
+                
+                # Structure probable : [Nom, Désignation, Théo, Phy, Ecart] ou suite de lignes
+                # On cherche des blocs de données
+                if i + 3 < len(page_lines):
+                    # On teste si la ligne i+2 est un nombre (quantité théorique)
+                    theo_raw = page_lines[i+2].strip()
+                    if re.match(r'^\d+(\.\d+)?$', theo_raw):
+                        p_name = page_lines[i].strip()
+                        p_des  = page_lines[i+1].strip()
+                        p_theo = _clean_quantity(theo_raw)
+                        # La quantité physique est souvent juste après
+                        p_phy  = _clean_quantity(page_lines[i+3])
+                        
+                        if p_phy and p_phy != p_theo:
+                            results.append({
+                                'produit_mere': p_name,
+                                'designation':  p_des,
+                                'qte_physique': int(p_phy),
+                            })
+
+        if has_text and results:
+            doc.close()
+            logger.info(f"Extraction texte directe réussie : {len(results)} produits trouvés.")
+            return results
+
+        # 2. Fallback OCR (pour les scans ou PDFs sans texte)
         for page_num in range(doc.page_count):
             page = doc.load_page(page_num)
             pix = page.get_pixmap(dpi=300)
@@ -189,10 +229,15 @@ def process_pdf_async(file_path, historique_id, user_id):
 
         for item in results:
             try:
+                # On utilise icontains pour être plus tolérant aux petites erreurs d'OCR (espaces, majuscules)
+                # Mais on cherche spécifiquement dans le bon historique
+                prod_name = item['produit_mere'].strip()
+                designation = item['designation'].strip()
+                
                 inv = Inventaire.objects.filter(
                     historique_id=historique_id,
-                    produit__product__name=item['produit_mere'],
-                    produit__designation=item['designation'],
+                    produit__product__name__icontains=prod_name,
+                    produit__designation__icontains=designation,
                 ).first()
 
                 if inv:
@@ -200,11 +245,42 @@ def process_pdf_async(file_path, historique_id, user_id):
                     inv.save(update_fields=['quantite_phy'])
                     updated += 1
                 else:
-                    errors.append(
-                        f"Inventaire non trouvé : {item['produit_mere']} / {item['designation']}"
+                    # Tentative de repli : seulement par la désignation si unique
+                    inv_alt = Inventaire.objects.filter(
+                        historique_id=historique_id,
+                        produit__designation__icontains=designation
                     )
+                    if inv_alt.count() == 1:
+                        inv = inv_alt.first()
+                        inv.quantite_phy = item['qte_physique']
+                        inv.save(update_fields=['quantite_phy'])
+                        updated += 1
+                    else:
+                        errors.append(
+                            f"Match impossible pour : {prod_name} / {designation}"
+                        )
             except Exception as e:
                 errors.append(str(e))
+
+        # 3. Créer une notification pour l'utilisateur
+        try:
+            from apps.notifications.models import Notification
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+            
+            Notification.creer(
+                utilisateur=user,
+                titre="Analyse OCR terminée",
+                data={
+                    "model_name": "Inventaire",
+                    "objet_nom": f"Fichier traité ({updated} produits mis à jour)",
+                    "notif": "terminée",
+                },
+                priorite=1
+            )
+        except Exception as e:
+            logger.error(f"Erreur notification OCR : {e}")
 
         _cleanup(file_path)
 
