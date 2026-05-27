@@ -239,39 +239,55 @@ class ProductViewSet(GenericCRUDViewSet):
             terme = request.data['chercher']
 
             # Produits parents qui matchent
-            produits_qs = Product.objects.filter(name__icontains=terme)
-            produits_data = ProductSerializer(
-                produits_qs, many=True, context={'request': request}
-            ).data
-            for p in produits_data:
-                p['is_deriv'] = False
-                p['parent_id'] = None
-                p['parent_name'] = None
-                # Assurer que le prix est un nombre pour le frontend
-                try:
-                    p['price'] = float(p.get('price') or 0)
-                except:
-                    p['price'] = 0
+            produits_qs = Product.objects.filter(name__icontains=terme).prefetch_related('suppliers')
+            produits_data = []
+            for p in produits_qs:
+                # Récupérer tous les IDs de fournisseurs (ForeignKey + ManyToMany)
+                supplier_ids = list(p.suppliers.values_list('id', flat=True))
+                if p.supplier_id:
+                    supplier_ids.append(p.supplier_id)
+                supplier_ids = list(set(supplier_ids)) # Unicité
+
+                p_data = ProductSerializer(p, context={'request': request}).data
+                p_data.update({
+                    'is_deriv': False,
+                    'parent_id': None,
+                    'parent_name': None,
+                    'supplier_ids': supplier_ids,
+                    'supplier': p.supplier_id, # Garder pour compatibilité
+                    'price': float(p.price or 0),
+                    'stock': float(p.current_stock)
+                })
+                produits_data.append(p_data)
 
             # Dérivées qui matchent
-            derivees_qs = ProduitDv.objects.select_related('product').filter(
+            derivees_qs = ProduitDv.objects.select_related('product', 'product__supplier').prefetch_related('product__suppliers').filter(
                 designation__icontains=terme
             )
-            derivees_data = [
-                {
+            derivees_data = []
+            for dv in derivees_qs:
+                # Récupérer tous les IDs de fournisseurs pour le parent
+                supplier_ids = []
+                if dv.product:
+                    supplier_ids = list(dv.product.suppliers.values_list('id', flat=True))
+                    if dv.product.supplier_id:
+                        supplier_ids.append(dv.product.supplier_id)
+                supplier_ids = list(set(supplier_ids))
+
+                derivees_data.append({
                     'id': dv.id,
                     'name': dv.designation,
                     'price': float(dv.product.price or 0) if dv.product else 0,
                     'is_deriv': True,
                     'parent_name': dv.product.name if dv.product else "N/A",
                     'parent_id': dv.product.id if dv.product else None,
-                    'supplier': dv.product.supplier.id if dv.product and dv.product.supplier else None,
-                }
-                for dv in derivees_qs
-            ]
+                    'supplier_ids': supplier_ids,
+                    'supplier': dv.product.supplier_id if dv.product and dv.product.supplier else None,
+                    'stock': float(dv.nombre)
+                })
 
             return StandardResponse.render(
-                data=list(produits_data) + derivees_data,
+                data=produits_data + derivees_data,
                 status_code=200
             )
 

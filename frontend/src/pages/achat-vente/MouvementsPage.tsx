@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
-import { getMouvements } from "@/services/achatVenteService"
+import { getMouvements, getRemboursements } from "@/services/achatVenteService"
 import { ArrowLeftRight, RefreshCw, Package, Search, Calendar, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,26 +15,52 @@ export default function MouvementsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
 
-  const params = typeFilter ? { movement_type: typeFilter } : undefined
-  const { data: allMouvements = [], isLoading, refetch } = useQuery({
+  const params = typeFilter && typeFilter !== "REFUND" ? { movement_type: typeFilter } : undefined
+  const { data: allMouvements = [], isLoading: isLoadingMvmts, refetch: refetchMvmts } = useQuery({
     queryKey: ["mouvements", typeFilter],
     queryFn: () => getMouvements(params),
   })
 
-  const filteredMouvements = allMouvements.filter(m => {
+  const { data: allRemboursements = [], isLoading: isLoadingRefunds, refetch: refetchRefunds } = useQuery({
+    queryKey: ["remboursements"],
+    queryFn: () => getRemboursements(),
+  })
+
+  const isLoading = isLoadingMvmts || isLoadingRefunds
+  const refetch = () => { refetchMvmts(); refetchRefunds(); }
+
+  // Fusionner et normaliser pour l'affichage
+  const combinedTransactions = [
+    ...allMouvements.map(m => ({ ...m, isRefund: false })),
+    ...allRemboursements.map(r => ({
+      id: `refund-${r.id}`,
+      timestamp: r.date_remboursement,
+      movement_type: r.source_type === "Achat" ? "REFUND_IN" : "REFUND_OUT",
+      produit_name: "Remboursement financier",
+      quantity: 0,
+      reason: r.raison,
+      referrence: r.numero_transaction,
+      montant: r.montant,
+      isRefund: true,
+      source_type: r.source_type
+    }))
+  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+
+  const filteredMouvements = combinedTransactions.filter(m => {
     const matchesSearch =
       (m.produit_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.reason || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.referrence || "").toLowerCase().includes(searchTerm.toLowerCase())
-    const matchesType = typeFilter
-      ? m.movement_type === typeFilter
-      : m.movement_type === "IN" || m.movement_type === "OUT"
-    return matchesSearch && matchesType
+    
+    if (typeFilter === "REFUND") return m.isRefund && matchesSearch
+    if (typeFilter === "IN") return !m.isRefund && m.movement_type === "IN" && matchesSearch
+    if (typeFilter === "OUT") return !m.isRefund && m.movement_type === "OUT" && matchesSearch
+    
+    return matchesSearch
   })
 
   const totalIn = allMouvements.filter(m => m.movement_type === "IN").length
   const totalOut = allMouvements.filter(m => m.movement_type === "OUT").length
-  const totalCredit = allMouvements.filter(m => m.movement_type === "OUT" && m.notes === "Crédit").length
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
@@ -62,7 +88,7 @@ export default function MouvementsPage() {
           { label: "Transactions Filtrées", value: filteredMouvements.length, sub: "Selon les filtres", color: "text-violet-600" },
           { label: "Achats (Entrées)", value: totalIn, sub: "Produits reçus", color: "text-emerald-600" },
           { label: "Ventes (Sorties)", value: totalOut, sub: "Produits vendus", color: "text-red-600" },
-          { label: "Ventes à Crédit", value: totalCredit, sub: "Parmi les sorties", color: "text-amber-600" },
+          { label: "Remboursements", value: allRemboursements.length, sub: "Flux financiers", color: "text-blue-600" },
         ].map((k, i) => (
           <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all">
             <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-1">{k.label}</p>
@@ -85,6 +111,9 @@ export default function MouvementsPage() {
           </Button>
           <Button variant={typeFilter === "OUT" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("OUT")} className="h-8 text-xs font-bold text-red-600">
             VENTES
+          </Button>
+          <Button variant={typeFilter === "REFUND" ? "secondary" : "ghost"} size="sm" onClick={() => setTypeFilter("REFUND")} className="h-8 text-xs font-bold text-blue-600">
+            REMBOURSEMENTS
           </Button>
         </div>
         <div className="relative w-full md:w-80">
@@ -126,7 +155,7 @@ export default function MouvementsPage() {
                   </td>
                 </tr>
               ) : (
-                filteredMouvements.map(m => (
+                filteredMouvements.map((m: any) => (
                   <tr key={m.id} className="hover:bg-muted/10 transition-colors group">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2 text-muted-foreground">
@@ -136,7 +165,11 @@ export default function MouvementsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex flex-col gap-1 items-start">
-                        {m.movement_type === "IN" ? (
+                        {m.isRefund ? (
+                           <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 uppercase text-[9px]">
+                             REMB. {m.source_type === "Achat" ? "ENCAISSER" : "VERSER"}
+                           </Badge>
+                        ) : m.movement_type === "IN" ? (
                           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
                             ACHAT
                           </Badge>
@@ -148,7 +181,7 @@ export default function MouvementsPage() {
                           <Badge variant="outline">{m.movement_type}</Badge>
                         )}
                         {/* Indicateur Vente à Crédit */}
-                        {m.movement_type === "OUT" && m.notes === "Crédit" && (
+                        {!m.isRefund && m.movement_type === "OUT" && m.notes === "Crédit" && (
                           <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full">
                             <Zap className="h-2.5 w-2.5" /> CRÉDIT
                           </span>
@@ -157,14 +190,24 @@ export default function MouvementsPage() {
                     </td>
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-2 font-bold text-foreground">
-                        <Package className="h-4 w-4 text-violet-500" />
-                        {m.produit_name || m.produit_dv_name || `#${m.produit}`}
+                        {m.isRefund ? (
+                          <div className="h-4 w-4 text-blue-500 font-black text-xs flex items-center justify-center border border-blue-500 rounded-sm">R</div>
+                        ) : (
+                          <Package className="h-4 w-4 text-violet-500" />
+                        )}
+                        {m.produit_name || m.produit_dv_name || `#${m.produit || ''}`}
                       </div>
                     </td>
-                    <td className="px-6 py-4 text-center font-mono font-bold text-lg">
-                      <span className={m.movement_type === "IN" ? "text-emerald-600" : "text-red-600"}>
-                        {m.movement_type === "IN" ? "+" : "-"}{m.quantity}
-                      </span>
+                    <td className="px-6 py-4 text-center font-mono font-bold text-sm">
+                      {m.isRefund ? (
+                        <span className="text-blue-600">
+                          {new Intl.NumberFormat("fr-MG").format(m.montant)} Ar
+                        </span>
+                      ) : (
+                        <span className={m.movement_type === "IN" ? "text-emerald-600" : "text-red-600"}>
+                          {m.movement_type === "IN" ? "+" : "-"}{m.quantity}
+                        </span>
+                      )}
                     </td>
                     <td className="px-6 py-4">
                       <div className="max-w-[240px]">

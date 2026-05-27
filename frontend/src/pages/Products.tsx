@@ -146,6 +146,8 @@ export default function Products() {
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [isSavingInventaire, setIsSavingInventaire] = useState(false)
+  const [localInventaire, setLocalInventaire] = useState<{[key: number]: number}>({})
 
   // ── Graphique mouvements ───────────────────────────────────────────────────
   interface StockMovement {
@@ -300,6 +302,7 @@ export default function Products() {
       })
       const data = response.data?.data || response.data?.results || response.data || []
       setInventaire(Array.isArray(data) ? data : [])
+      setLocalInventaire({}) // Reset local edits on fetch
       setIsLoadingStats(false)
     } catch (e) { console.error('Erreur inventaire:', e) }
   }, [])
@@ -345,13 +348,31 @@ export default function Products() {
     formData.append('pdf_file', selectedPdfFile)
     formData.append('historique_id', currentHistoriqueId.toString())
     try {
-      await API.post('core/pdf/upload-pdf/', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-      toast({ title: "Succès", description: "PDF uploadé !" })
+      const res = await API.post('core/pdf/upload-pdf/', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
+      toast({ title: "Succès", description: res.data?.message || "PDF uploadé et traité !" })
       setShowUploadModal(false); setSelectedPdfFile(null)
+      getInventaire(currentHistoriqueId) // Refetch to see OCR results
     } catch (err) {
       const e = err as { response?: { data?: { error?: string } } }
       toast({ title: "Erreur", description: e.response?.data?.error || "Échec upload.", variant: "destructive" })
     } finally { setIsUploading(false) }
+  }
+
+  const handleQuantityChange = (id: number, val: string) => {
+    const num = parseInt(val) || 0
+    setLocalInventaire(prev => ({ ...prev, [id]: num }))
+  }
+
+  const handleSaveInventaire = async () => {
+    if (Object.keys(localInventaire).length === 0) return
+    setIsSavingInventaire(true)
+    try {
+      const items = Object.entries(localInventaire).map(([id, qte]) => ({ id: parseInt(id), quantite_phy: qte }))
+      await API.post('stock/inventaire/bulk-update/', { items })
+      toast({ title: "Succès", description: "Quantités sauvegardées." })
+      getInventaire(currentHistoriqueId)
+    } catch { toast({ title: "Erreur", description: "Échec de la sauvegarde.", variant: "destructive" }) }
+    finally { setIsSavingInventaire(false) }
   }
 
   const handleResetFilters = () => {
@@ -849,6 +870,11 @@ export default function Products() {
                     <Button variant="outline" size="sm" onClick={handleNextHistorique} disabled={!hasNextHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">Suivante</Button>
                   </div>
                   <div className="flex gap-2">
+                    {Object.keys(localInventaire).length > 0 && (
+                      <Button variant="default" size="sm" onClick={handleSaveInventaire} disabled={isSavingInventaire} className="bg-orange-500 hover:bg-orange-600 text-white">
+                        {isSavingInventaire ? "💾 Sauvegarde..." : "Enregistrer les modifications"}
+                      </Button>
+                    )}
                     {redressID === currentHistoriqueId
                       ? <Button size="sm" onClick={() => Redresser_Inventaire(currentHistoriqueId)}>Redresser</Button>
                       : <span className="text-sm text-destructive flex items-center">Action impossible</span>
@@ -878,9 +904,16 @@ export default function Products() {
                           <TableCell>{item.produit_info?.product_mere?.name || "Inconnu"}</TableCell>
                           <TableCell>{item.produit_info?.designation || "N/A"}</TableCell>
                           <TableCell>{item.quantite_theo}</TableCell>
-                          <TableCell>{item.quantite_phy}</TableCell>
-                          <TableCell style={{ backgroundColor: item.quantite_theo > item.quantite_phy ? 'rgba(255,0,0,0.1)' : item.ecart !== 0 ? 'rgba(255,221,0,0.1)' : 'rgba(7,227,62,0.1)' }}>
-                            {item.ecart}
+                          <TableCell className="w-[120px]">
+                            <Input 
+                              type="number" 
+                              value={localInventaire[item.id] !== undefined ? localInventaire[item.id] : item.quantite_phy} 
+                              onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                              className="h-8"
+                            />
+                          </TableCell>
+                          <TableCell style={{ backgroundColor: item.quantite_theo > (localInventaire[item.id] ?? item.quantite_phy) ? 'rgba(255,0,0,0.1)' : (item.quantite_theo !== (localInventaire[item.id] ?? item.quantite_phy)) ? 'rgba(255,221,0,0.1)' : 'rgba(7,227,62,0.1)' }}>
+                            {(localInventaire[item.id] ?? item.quantite_phy) - item.quantite_theo}
                           </TableCell>
                         </TableRow>
                       )) : (

@@ -76,6 +76,25 @@ class InventaireViewSet(GenericCRUDViewSet):
             inv.redresser(new_histo)
         return StandardResponse.render(message='Redressement effectué.', status_code=200)
 
+    @action(detail=False, methods=['post'], url_path='bulk-update')
+    def bulk_update(self, request):
+        """
+        Met à jour plusieurs lignes d'inventaire d'un coup.
+        Format attendu : {'items': [{'id': 1, 'quantite_phy': 10}, ...]}
+        """
+        items = request.data.get('items', [])
+        updated_count = 0
+        for item in items:
+            inv_id = item.get('id')
+            qte_phy = item.get('quantite_phy')
+            if inv_id is not None and qte_phy is not None:
+                Inventaire.objects.filter(id=inv_id).update(quantite_phy=qte_phy)
+                updated_count += 1
+        return StandardResponse.render(
+            message=f"{updated_count} lignes d'inventaire mises à jour.",
+            status_code=200
+        )
+
 
 # ─── HistoriqueSeuilStock ────────────────────────────────────
 class HistoriqueSeuilStockViewSet(GenericCRUDViewSet):

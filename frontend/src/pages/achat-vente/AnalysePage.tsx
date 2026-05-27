@@ -71,9 +71,9 @@ function buildComparison(
   })
 
   rembs.forEach(r => {
-     if (!r.date_retour) return
+     if (!r.date_remboursement) return
      try {
-       const d = new Date(r.date_retour)
+       const d = new Date(r.date_remboursement)
        const k = groupBy === 'day' 
          ? d.toLocaleDateString("fr-FR", { day: "2-digit", month: "short" })
          : d.toLocaleDateString("fr-FR", { month: "short", year: "2-digit" })
@@ -121,7 +121,7 @@ export default function AnalysePage() {
 
   const salesFiltrees = useMemo(() => {
     return ventes.filter(v => {
-      if (v.status !== "Validé") return false;
+      if (v.status !== "Livré") return false;
       if (typeFlux === "achats") return false;
       if (dateDebut && new Date(v.date_vente) < new Date(dateDebut)) return false;
       if (dateFin && new Date(v.date_vente) > new Date(dateFin + "T23:59:59")) return false;
@@ -134,9 +134,12 @@ export default function AnalysePage() {
 
   const rembsFiltrees = useMemo(() => {
     return remboursements.filter(r => {
+      // Pour les calculs de metrics, "réglé" est exclu, mais pour le flux temporel (graph), on garde tout ou on filtre ?
+      // L'utilisateur dit : "si le remboursement est réglé... alors il n'est plus pris en compte dans les calculs"
+      // Ça s'applique surtout aux metric cards. Pour le graph d'analyse, c'est mieux de montrer l'historique.
       if (typeFlux !== "tous" && typeFlux !== "remboursements") return false;
-      if (dateDebut && new Date(r.date_retour) < new Date(dateDebut)) return false;
-      if (dateFin && new Date(r.date_retour) > new Date(dateFin + "T23:59:59")) return false;
+      if (dateDebut && new Date(r.date_remboursement) < new Date(dateDebut)) return false;
+      if (dateFin && new Date(r.date_remboursement) > new Date(dateFin + "T23:59:59")) return false;
       return true;
     })
   }, [remboursements, typeFlux, dateDebut, dateFin])
@@ -155,16 +158,25 @@ export default function AnalysePage() {
   const analytics = useMemo(() => {
     const totalAchats = commandsFiltrees.reduce((acc, c) => acc + Number(c.montant_total || 0), 0);
     const totalVentes = salesFiltrees.reduce((acc, v) => acc + Number(v.montant_total || 0), 0);
-    const totalRembs = rembsFiltrees.reduce((acc, r) => acc + Number(r.montant || 0), 0);
-    const margin = totalVentes - totalAchats - (rembsFiltrees.filter(r => r.source_type === 'Vente').reduce((s, r) => s + Number(r.montant), 0));
+    
+    // Pour les metrics cards de remboursement, on ne prend que ceux NON RÉGLÉS
+    const pendingRembs = rembsFiltrees.filter(r => r.statut_reglement !== "Réglé");
+    const aEncaisser = pendingRembs.filter(r => r.source_type === "Achat").reduce((s, r) => s + Number(r.montant), 0);
+    const aRembourser = pendingRembs.filter(r => r.source_type === "Vente").reduce((s, r) => s + Number(r.montant), 0);
+    const totalRembsPending = aEncaisser + aRembourser;
+
+    const margin = totalVentes - totalAchats - aRembourser;
+    
     return {
       total_purchases: totalAchats,
       total_sales: totalVentes,
-      total_rembs: totalRembs,
+      total_rembs: totalRembsPending,
+      a_encaisser: aEncaisser,
+      a_rembourser: aRembourser,
       margin: margin,
       purchase_count: commandsFiltrees.length,
       sale_count: salesFiltrees.length,
-      remb_count: rembsFiltrees.length
+      remb_count: pendingRembs.length
     }
   }, [commandsFiltrees, salesFiltrees, rembsFiltrees]);
 
@@ -188,23 +200,59 @@ export default function AnalysePage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        {[
-          { label: "Total Achats", value: fmt(analytics.total_purchases), sub: `${analytics.purchase_count} cmd`, color: "text-blue-600", icon: <ShoppingCart className="h-4 w-4" /> },
-          { label: "Total Ventes", value: fmt(analytics.total_sales), sub: `${analytics.sale_count} vnt`, color: "text-emerald-600", icon: <DollarSign className="h-4 w-4" /> },
-          { label: "Remboursements", value: fmt(analytics.total_rembs), sub: `${analytics.remb_count} retours`, color: "text-orange-600", icon: <RotateCcw className="h-4 w-4" /> },
-          { label: "Marges (est.)", value: fmt(analytics.margin), sub: marginPositive ? "Impact retours inclus ↑" : "Profit négatif ↓", color: marginPositive ? "text-violet-600" : "text-red-600", icon: <TrendingUp className="h-4 w-4" /> },
-        ].map((k, i) => (
-          <div key={i} className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all flex flex-col justify-between">
-            <div className="flex items-center justify-between mb-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">{k.label}</p>
-              <div className={`p-1.5 rounded-lg bg-muted ${k.color}`}>{k.icon}</div>
+        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Achats</p>
+            <div className="p-1.5 rounded-lg bg-muted text-blue-600"><ShoppingCart className="h-4 w-4" /></div>
+          </div>
+          <div className="flex items-end gap-2">
+            <span className="text-xl font-bold text-blue-600">{fmt(analytics.total_purchases)}</span>
+            <span className="text-[10px] text-muted-foreground mb-1 font-medium italic">{analytics.purchase_count} cmd</span>
+          </div>
+        </div>
+
+        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Total Ventes</p>
+            <div className="p-1.5 rounded-lg bg-muted text-emerald-600"><DollarSign className="h-4 w-4" /></div>
+          </div>
+          <div className="flex items-end gap-2">
+            <span className="text-xl font-bold text-emerald-600">{fmt(analytics.total_sales)}</span>
+            <span className="text-[10px] text-muted-foreground mb-1 font-medium italic">{analytics.sale_count} vnt</span>
+          </div>
+        </div>
+
+        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Remboursements</p>
+            <div className="p-1.5 rounded-lg bg-muted text-orange-600"><RotateCcw className="h-4 w-4" /></div>
+          </div>
+          <div className="flex items-end gap-2 mb-2">
+            <span className="text-xl font-bold text-orange-600">{fmt(analytics.total_rembs)}</span>
+            <span className="text-[10px] text-muted-foreground mb-1 font-medium italic">En cours</span>
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-border">
+            <div>
+              <p className="text-[8px] font-bold text-muted-foreground uppercase">À encaisser</p>
+              <p className="text-[10px] font-black text-emerald-600">{fmt(analytics.a_encaisser)}</p>
             </div>
-            <div className="flex items-end gap-2">
-              <span className={`text-xl font-bold ${k.color}`}>{k.value}</span>
-              <span className="text-[10px] text-muted-foreground mb-1 font-medium italic">{k.sub}</span>
+            <div>
+              <p className="text-[8px] font-bold text-muted-foreground uppercase">À rembourser</p>
+              <p className="text-[10px] font-black text-red-600">{fmt(analytics.a_rembourser)}</p>
             </div>
           </div>
-        ))}
+        </div>
+
+        <div className="bg-card p-5 rounded-2xl border border-border shadow-sm hover:border-violet-200 transition-all flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Marges (est.)</p>
+            <div className={`p-1.5 rounded-lg bg-muted ${marginPositive ? 'text-violet-600' : 'text-red-600'}`}><TrendingUp className="h-4 w-4" /></div>
+          </div>
+          <div className="flex items-end gap-2">
+            <span className={`text-xl font-bold ${marginPositive ? 'text-violet-600' : 'text-red-600'}`}>{fmt(analytics.margin)}</span>
+            <span className="text-[10px] text-muted-foreground mb-1 font-medium italic">{marginPositive ? "Profit ↑" : "Déficit ↓"}</span>
+          </div>
+        </div>
       </div>
 
       <div className="bg-card p-4 rounded-2xl border border-border shadow-sm flex flex-wrap gap-4 items-end">
@@ -290,6 +338,17 @@ export default function AnalysePage() {
                             </div>
                           ))}
                         </div>
+                        {data.products && data.products.length > 0 && (
+                          <div className="pt-2 border-t border-border">
+                            <p className="text-[8px] font-bold text-muted-foreground uppercase mb-1">Produits impliqués</p>
+                            <div className="flex flex-wrap gap-1">
+                              {data.products.slice(0, 5).map((pn: string, idx: number) => (
+                                <Badge key={idx} variant="outline" className="text-[8px] py-0 px-1 font-medium">{pn}</Badge>
+                              ))}
+                              {data.products.length > 5 && <span className="text-[8px] text-muted-foreground">+{data.products.length - 5} de plus</span>}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     );
                   }

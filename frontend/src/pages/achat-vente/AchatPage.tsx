@@ -93,7 +93,7 @@ export default function AchatPage() {
   const [form, setForm] = useState({
     fournisseur: null as number | null,
     livraison_prevue: "" as string,
-    date_commande: "" as string,
+    date_commande: new Date().toISOString().split('T')[0],
     mode_paiement: "Espèces"
   })
 
@@ -141,6 +141,47 @@ export default function AchatPage() {
     onError: (e: Error) => toast.error(e.message)
   })
 
+  const { data: api_baseUrl } = useQuery({ queryKey: ["api-url"], queryFn: () => Promise.resolve(import.meta.env.VITE_API_URL || "http://localhost:8000") })
+
+  const createProductMut = useMutation({
+    mutationFn: async (data: FormData) => {
+      const res = await fetch(`${api_baseUrl}/api/catalogue/products/`, {
+        method: "POST",
+        headers: { Authorization: `Token ${localStorage.getItem("token")}` },
+        body: data
+      })
+      if (!res.ok) throw new Error("Erreur lors de la création du produit")
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success("Produit créé")
+      qc.invalidateQueries({ queryKey: ["produits-search-combined"] })
+      setShowProductForm(false)
+    },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
+  const createSupplierMut = useMutation({
+    mutationFn: async (data: any) => {
+      const res = await fetch(`${api_baseUrl}/api/catalogue/suppliers/`, {
+        method: "POST",
+        headers: { 
+          "Content-Type": "application/json",
+          Authorization: `Token ${localStorage.getItem("token")}` 
+        },
+        body: JSON.stringify(data)
+      })
+      if (!res.ok) throw new Error("Erreur lors de la création du fournisseur")
+      return res.json()
+    },
+    onSuccess: () => {
+      toast.success("Fournisseur créé")
+      qc.invalidateQueries({ queryKey: ["fournisseurs"] })
+      setShowSupplierForm(false)
+    },
+    onError: (e: Error) => toast.error(e.message)
+  })
+
   const deleteMut = useMutation({
     mutationFn: deleteBonCommande,
     onSuccess: () => {
@@ -153,7 +194,7 @@ export default function AchatPage() {
   })
 
   const resetForm = () => {
-    setForm({ fournisseur: null, livraison_prevue: "", date_commande: "", mode_paiement: "Espèces" })
+    setForm({ fournisseur: null, livraison_prevue: "", date_commande: new Date().toISOString().split('T')[0], mode_paiement: "Espèces" })
     setLines([{ produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0 }])
   }
 
@@ -186,7 +227,10 @@ export default function AchatPage() {
   }
 
   const supplierProducts = form.fournisseur 
-    ? productsAndSubProducts.filter((p: any) => p.supplier === Number(form.fournisseur))
+    ? productsAndSubProducts.filter((p: any) => 
+        p.supplier === Number(form.fournisseur) || 
+        (p.supplier_ids && Array.isArray(p.supplier_ids) && p.supplier_ids.includes(Number(form.fournisseur)))
+      )
     : productsAndSubProducts
 
   const filteredCommandes = commandes.filter(c => 
@@ -346,16 +390,10 @@ export default function AchatPage() {
                                 <CreditCard className="h-4 w-4" /> Marquer comme payé
                               </DropdownMenuItem>
                               <DropdownMenuItem 
-                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Livré", statut_paiement: "Payé", montant_paye: c.montant_total } })}
+                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Livré" } })}
                                 className="gap-2 text-xs font-bold text-emerald-600 py-2.5 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700"
                               >
                                 <ShieldCheck className="h-4 w-4" /> Marquer comme livré
-                              </DropdownMenuItem>
-                              <DropdownMenuItem 
-                                onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Annulé" } })}
-                                className="gap-2 text-xs font-bold text-red-600 py-2.5 cursor-pointer focus:bg-red-50 focus:text-red-700"
-                              >
-                                <XCircle className="h-4 w-4" /> Annuler la commande
                               </DropdownMenuItem>
                             </>
                           )}
@@ -366,6 +404,14 @@ export default function AchatPage() {
                               >
                                 <CreditCard className="h-4 w-4" /> Encaisser paiement
                               </DropdownMenuItem>
+                          )}
+                          {c.status !== "Annulé" && (
+                            <DropdownMenuItem 
+                              onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Annulé" } })}
+                              className="gap-2 text-xs font-bold text-red-600 py-2.5 cursor-pointer focus:bg-red-50 focus:text-red-700"
+                            >
+                              <XCircle className="h-4 w-4" /> Annuler la commande
+                            </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
                           <DropdownMenuItem onClick={() => setDeleteConfirmId(c.id)} className="gap-2 text-xs font-bold text-slate-500 py-2.5 cursor-pointer hover:bg-slate-50">
@@ -507,7 +553,7 @@ export default function AchatPage() {
                     </div>
                     <div className="flex-1 space-y-1.5">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-0.5">Qté</label>
-                      <Input type="number" className="h-8 text-xs rounded-xl bg-background font-bold" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: Number(e.target.value) })} />
+                      <Input type="number" step="0.001" className="h-8 text-xs rounded-xl bg-background font-bold" value={line.quantite} onChange={e => handleUpdateLine(idx, { quantite: parseFloat(e.target.value) || 0 })} />
                     </div>
                     <div className="flex-1 space-y-1.5">
                       <label className="text-[10px] font-bold text-muted-foreground uppercase px-0.5">P.U (Ar)</label>
@@ -629,13 +675,13 @@ export default function AchatPage() {
 
       <Dialog open={showProductForm} onOpenChange={setShowProductForm}>
         <DialogContent className="max-w-4xl p-0 border-none bg-transparent">
-          <ProductForm isDialog onClose={() => setShowProductForm(false)} onSubmit={() => { qc.invalidateQueries({ queryKey: ["produits-search-combined"] }); setShowProductForm(false); }} />
+          <ProductForm isDialog onClose={() => setShowProductForm(false)} onSubmit={(data) => createProductMut.mutate(data)} />
         </DialogContent>
       </Dialog>
 
       <Dialog open={showSupplierForm} onOpenChange={setShowSupplierForm}>
         <DialogContent className="max-w-2xl p-0 border-none">
-          <SupplierForm onCancel={() => setShowSupplierForm(false)} onSubmit={() => { qc.invalidateQueries({ queryKey: ["fournisseurs"] }); setShowSupplierForm(false); }} />
+          <SupplierForm onCancel={() => setShowSupplierForm(false)} onSubmit={(data) => createSupplierMut.mutate(data)} />
         </DialogContent>
       </Dialog>
     </div>

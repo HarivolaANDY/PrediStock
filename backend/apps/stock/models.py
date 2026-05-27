@@ -65,14 +65,28 @@ class Inventaire(models.Model):
         return histo
 
     def redresser(self, new_histo):
+        # 1. Enregistrer la ligne dans le nouvel historique
         Inventaire.objects.create(
             produit=self.produit,
             quantite_theo=self.quantite_phy,
             quantite_phy=self.quantite_phy,
             historique=new_histo
         )
-        self.produit.nombre = self.quantite_phy
-        self.produit.save()
+        # 2. Créer un mouvement de stock d'ajustement
+        # L'écart est (physique - théorique). Si positif -> entrée, si négatif -> sortie.
+        diff = float(self.quantite_phy) - float(self.quantite_theo)
+        
+        if diff != 0:
+            from .models import MouvementStock
+            MouvementStock.objects.create(
+                produit=self.produit.product,
+                produit_dv=self.produit,
+                quantity=abs(diff),
+                movement_type='IN' if diff > 0 else 'OUT',
+                utilisateur=new_histo.utilisateur,
+                reason=f"Redressement inventaire #{self.historique.id} ({self.historique.description})",
+            )
+        # Note: On ne modifie plus self.produit.nombre ici, le signal de MouvementStock s'en chargera.
 
 
 class HistoriqueSeuilStock(models.Model):
@@ -132,7 +146,7 @@ class MouvementStock(models.Model):
         related_name='mouvements_effectues',
         verbose_name="Utilisateur responsable"
     )
-    quantity = models.IntegerField(verbose_name="Quantité")
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="Quantité")
     movement_type = models.CharField(
         max_length=32,
         choices=TypeMouvement.choices,
