@@ -36,24 +36,13 @@ class StandardResponse:
 
 def process_pdf(pdf_input):
     """
-    Lit un PDF d'inventaire et extrait les quantités manuscrites
-    via OCR (EasyOCR + PyMuPDF + OpenCV).
-
-    Paramètres :
-        pdf_input : chemin string vers le PDF, ou objet fichier Django
-
-    Retourne :
-        [{'produit_mere': str, 'designation': str, 'qte_physique': int}, ...]
+    Lit un PDF d'inventaire et extrait les quantités physiques.
+    Supporte les PDF textuels (générés) et les scans manuscrits (OCR).
     """
     try:
-        import easyocr
-        import numpy as np
-        import cv2
-        import fitz
+        import fitz  # PyMuPDF
         from io import BytesIO
         from django.core.files.uploadedfile import InMemoryUploadedFile
-
-        reader = easyocr.Reader(['fr', 'en'], gpu=False)
 
         if isinstance(pdf_input, str):
             with open(pdf_input, 'rb') as f:
@@ -66,69 +55,101 @@ def process_pdf(pdf_input):
         doc = fitz.open(stream=BytesIO(pdf_bytes), filetype="pdf")
         results = []
 
-        # 1. Tentative d'extraction directe de texte (Ultra rapide pour les PDF générés)
-        has_text = False
-        text_content = ""
+        # ── 1. Extraction texte structurée (PDF généré par ReportLab) ────────
+        # get_text("words") retourne [(x0,y0,x1,y1, "mot", page, block, line, word), ...]
+        # On regroupe les mots par ligne (même y0 arrondi à 5px de tolérance)
+        all_words = []
         for page in doc:
-            text_content += page.get_text()
-        
-        if len(text_content.strip()) > 50:
-            has_text = True
-            # Parsing simple par lignes
-            page_lines = text_content.split('\n')
-            for i in range(len(page_lines)):
-                line_text = page_lines[i].strip()
-                if not line_text or "Produit" in line_text or "Désignation" in line_text:
-                    continue
-                
-                # Structure probable : [Nom, Désignation, Théo, Phy, Ecart] ou suite de lignes
-                # On cherche des blocs de données
-                if i + 3 < len(page_lines):
-                    # On teste si la ligne i+2 est un nombre (quantité théorique)
-                    theo_raw = page_lines[i+2].strip()
-                    if re.match(r'^\d+(\.\d+)?$', theo_raw):
-                        p_name = page_lines[i].strip()
-                        p_des  = page_lines[i+1].strip()
-                        p_theo = _clean_quantity(theo_raw)
-                        # La quantité physique est souvent juste après
-                        p_phy  = _clean_quantity(page_lines[i+3])
-                        
-                        if p_phy and p_phy != p_theo:
-                            results.append({
-                                'produit_mere': p_name,
-                                'designation':  p_des,
-                                'qte_physique': int(p_phy),
-                            })
+            words = page.get_text("words")
+            all_words.extend(words)
 
-        if has_text and results:
+        if all_words:
+            # Grouper par Y (tolérance de 5px pour les lignes du tableau)
+            rows_by_y = {}
+            for w in all_words:
+                x0, y0, x1, y1, word = w[0], w[1], w[2], w[3], w[4]
+                # Arrondir y à la dizaine la plus proche pour regrouper la même ligne
+                y_key = round(y0 / 5) * 5
+                if y_key not in rows_by_y:
+                    rows_by_y[y_key] = []
+                rows_by_y[y_key].append((x0, word))
+
+            # Trier les lignes par position verticale
+            for y_key in sorted(rows_by_y.keys()):
+                row_words = sorted(rows_by_y[y_key], key=lambda w: w[0])  # trier par X
+                cells = [w[1] for w in row_words]
+
+                logger.debug(f"Ligne PDF: {cells}")
+
+                # Chercher les lignes de données : [ID, Produit, Désignation, Théo, Phy, Écart]
+                # La première cellule doit être un entier (l'ID inventaire)
+                if len(cells) >= 5 and cells[0].isdigit():
+                    try:
+                        inv_id = int(cells[0])
+                        # Les dernières cellules sont des nombres (théo, phy, écart)
+                        # On cherche les chiffres depuis la fin
+                        # Format : [ID, ...Produit..., ...Désignation..., Théo, Phy, Écart]
+                        # On prend les 3 derniers comme nombres
+                        last3 = cells[-3:]
+                        if all(re.match(r'^-?\d+$', c.replace(',', '.').split('.')[0]) for c in last3):
+                            qte_theo = int(re.sub(r'[^0-9]', '', last3[0]) or '0')
+                            qte_phy  = int(re.sub(r'[^0-9]', '', last3[1]) or '0')
+                            # Les cellules du milieu forment le produit et la désignation
+                            middle = cells[1:-3]
+                            # Heuristique : si >= 2 mots au milieu, le 1er = produit, reste = désignation
+                            produit     = middle[0] if middle else ''
+                            designation = ' '.join(middle[1:]) if len(middle) > 1 else ''
+                            results.append({
+                                'id_inventaire': inv_id,
+                                'produit_mere':  produit,
+                                'designation':   designation,
+                                'qte_physique':  qte_phy,
+                            })
+                            logger.info(f"Extrait: ID={inv_id} | {produit} | {designation} | Phy={qte_phy}")
+                    except (ValueError, IndexError) as e:
+                        logger.debug(f"Ligne ignorée: {cells} — {e}")
+
+        if results:
             doc.close()
-            logger.info(f"Extraction texte directe réussie : {len(results)} produits trouvés.")
+            logger.info(f"Extraction texte directe réussie : {len(results)} lignes trouvées.")
             return results
 
-        # 2. Fallback OCR (pour les scans ou PDFs sans texte)
+        # ── 2. Fallback OCR pour les scans manuscrits ─────────────────────────
+        logger.info("Pas de texte détecté, démarrage de l'OCR (peut être long sur CPU)...")
+        import easyocr
+        import numpy as np
+        import cv2
+
+        reader = easyocr.Reader(['fr', 'en'], gpu=False)
+
         for page_num in range(doc.page_count):
             page = doc.load_page(page_num)
             pix = page.get_pixmap(dpi=300)
-            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
-                pix.height, pix.width, pix.n
-            )
+            img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.height, pix.width, pix.n)
             img_cv = cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
             lines = _extract_table_ocr(img_cv, reader)
 
             for line in lines:
                 if len(line) >= 4:
-                    produit    = line[0].strip()
-                    designation = line[1].strip()
-                    qte_theo   = re.sub(r'[^0-9]', '', line[2])
-                    qte_phy    = _clean_quantity(" ".join(line[3:]).strip())
+                    id_inv = None
+                    if line[0].strip().isdigit() and len(line) >= 5:
+                        id_inv      = int(line[0].strip())
+                        produit     = line[1].strip()
+                        designation = line[2].strip()
+                        qte_phy     = _clean_quantity(" ".join(line[4:]).strip())
+                    else:
+                        produit     = line[0].strip()
+                        designation = line[1].strip()
+                        qte_phy     = _clean_quantity(" ".join(line[3:]).strip())
 
-                    if qte_phy and qte_phy != qte_theo:
+                    if qte_phy:
                         results.append({
-                            'produit_mere': produit,
-                            'designation':  designation,
-                            'qte_physique': int(qte_phy),
+                            'id_inventaire': id_inv,
+                            'produit_mere':  produit,
+                            'designation':   designation,
+                            'qte_physique':  int(qte_phy),
                         })
-                        logger.info(f"OCR: {produit} | {designation} → {qte_phy}")
+                        logger.info(f"OCR: ID {id_inv} | {produit} → Phy: {qte_phy}")
 
         doc.close()
         return results
@@ -137,7 +158,7 @@ def process_pdf(pdf_input):
         logger.error(f"Dépendance OCR manquante : {e}")
         return []
     except Exception as e:
-        logger.error(f"Erreur OCR : {e}")
+        logger.error(f"Erreur process_pdf : {e}", exc_info=True)
         return []
 
 
@@ -229,36 +250,42 @@ def process_pdf_async(file_path, historique_id, user_id):
 
         for item in results:
             try:
-                # On utilise icontains pour être plus tolérant aux petites erreurs d'OCR (espaces, majuscules)
-                # Mais on cherche spécifiquement dans le bon historique
-                prod_name = item['produit_mere'].strip()
-                designation = item['designation'].strip()
+                inv = None
                 
-                inv = Inventaire.objects.filter(
-                    historique_id=historique_id,
-                    produit__product__name__icontains=prod_name,
-                    produit__designation__icontains=designation,
-                ).first()
+                # 1. Match parfait par ID d'inventaire
+                if item.get('id_inventaire'):
+                    inv = Inventaire.objects.filter(
+                        id=item['id_inventaire'], 
+                        historique_id=historique_id
+                    ).first()
+                
+                # 2. Fallback par nom et designation
+                if not inv:
+                    prod_name = item.get('produit_mere', '').strip()
+                    designation = item.get('designation', '').strip()
+                    
+                    if prod_name and designation:
+                        inv = Inventaire.objects.filter(
+                            historique_id=historique_id,
+                            produit__product__name__icontains=prod_name,
+                            produit__designation__icontains=designation,
+                        ).first()
+
+                    # 3. Tentative de repli : seulement par la désignation si unique
+                    if not inv and designation:
+                        inv_alt = Inventaire.objects.filter(
+                            historique_id=historique_id,
+                            produit__designation__icontains=designation
+                        )
+                        if inv_alt.count() == 1:
+                            inv = inv_alt.first()
 
                 if inv:
                     inv.quantite_phy = item['qte_physique']
                     inv.save(update_fields=['quantite_phy'])
                     updated += 1
                 else:
-                    # Tentative de repli : seulement par la désignation si unique
-                    inv_alt = Inventaire.objects.filter(
-                        historique_id=historique_id,
-                        produit__designation__icontains=designation
-                    )
-                    if inv_alt.count() == 1:
-                        inv = inv_alt.first()
-                        inv.quantite_phy = item['qte_physique']
-                        inv.save(update_fields=['quantite_phy'])
-                        updated += 1
-                    else:
-                        errors.append(
-                            f"Match impossible pour : {prod_name} / {designation}"
-                        )
+                    errors.append(f"Match impossible pour ID {item.get('id_inventaire')} / {item.get('produit_mere')} / {item.get('designation')}")
             except Exception as e:
                 errors.append(str(e))
 
@@ -298,8 +325,33 @@ def process_pdf_async(file_path, historique_id, user_id):
     except Exception as e:
         _cleanup(file_path)
         logger.error(f"process_pdf_async erreur : {e}")
+        
+        try:
+            from apps.notifications.models import Notification
+            from django.contrib.auth import get_user_model
+            User = get_user_model()
+            user = User.objects.get(id=user_id)
+            Notification.creer(
+                utilisateur=user,
+                titre="Erreur Analyse OCR",
+                data={
+                    "model_name": "Inventaire",
+                    "objet_nom": "Le fichier PDF",
+                    "notif": f"a rencontré une erreur lors de l'analyse : {str(e)}",
+                },
+                priorite=2
+            )
+        except:
+            pass
+
         return {
             "detected": 0,
             "updated":  0,
             "message":  f"Erreur lors du traitement : {str(e)}"
         }
+    finally:
+        try:
+            from django.db import connection
+            connection.close()
+        except:
+            pass

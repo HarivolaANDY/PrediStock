@@ -136,10 +136,10 @@ export default function Products() {
 
   const [stats, setStats] = useState<ProductStats | null>(null)
   const [inventaire, setInventaire] = useState<InventaireItem[]>([])
-  const [currentHistoriqueId, setCurrentHistoriqueId] = useState(0)
+  const [currentHistoriqueId, setCurrentHistoriqueId] = useState<number | null>(null)
   const [currentHistoriqueDesc, setCurrentHistoriqueDesc] = useState("")
   const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
-  const [redressID, setRedressID] = useState<number | string>()
+  const [redressID, setRedressID] = useState<number | null>(null)
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [inventoryDescription, setInventoryDescription] = useState("")
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
@@ -295,10 +295,11 @@ export default function Products() {
     }
   }, [])
 
-  const getInventaire = useCallback(async (id_histo: number) => {
+  const getInventaire = useCallback(async (id_histo: number | null) => {
+    if (!id_histo) { setInventaire([]); setLocalInventaire({}); return }
     try {
       const response = await API.get('stock/inventaire/par_historique/', {
-        params: id_histo !== 0 ? { historique: id_histo } : {}
+        params: { historique: id_histo }
       })
       const data = response.data?.data || response.data?.results || response.data || []
       setInventaire(Array.isArray(data) ? data : [])
@@ -315,17 +316,24 @@ export default function Products() {
   const getListeHisto = useCallback(async () => {
     try {
       const response = await API.get('stock/historique-inventaire/')
-      const data = response.data?.data || response.data?.results || response.data || []
+      let data = response.data?.data || response.data?.results || response.data || []
+      if (!Array.isArray(data) && data?.results) data = data.results
       if (!Array.isArray(data)) return
       setList_histo(data)
       if (data.length > 0) {
-        setRedressID(data[0].id)
-        setCurrentHistoriqueId(data[0].id)
-        setCurrentHistoriqueDesc(data[0].description)
-        getInventaire(data[0].id)
+        const first = data[0]
+        setRedressID(first.id)
+        setCurrentHistoriqueId(first.id)
+        setCurrentHistoriqueDesc(first.description ?? '')
+        getInventaire(first.id)
+      } else {
+        setRedressID(null)
+        setCurrentHistoriqueId(null)
+        setCurrentHistoriqueDesc('')
+        setInventaire([])
       }
     } catch (e) { console.error('Erreur historique:', e) }
-  }, [])
+  }, [getInventaire])
 
   const Telecharger_pdf = async (historiqueId?: number, description?: string) => {
     if (!historiqueId) return
@@ -348,8 +356,11 @@ export default function Products() {
     formData.append('pdf_file', selectedPdfFile)
     formData.append('historique_id', currentHistoriqueId.toString())
     try {
-      const res = await API.post('core/pdf/upload-pdf/', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-      toast({ title: "Succès", description: res.data?.message || "PDF uploadé et traité !" })
+      const res = await API.post('core/pdf/process-pdf/', formData, { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0 // Désactive le timeout car l'OCR sur CPU peut prendre plusieurs minutes
+      })
+      toast({ title: "Succès", description: res.data?.message || "PDF uploadé et traité avec succès !" })
       setShowUploadModal(false); setSelectedPdfFile(null)
       getInventaire(currentHistoriqueId) // Refetch to see OCR results
     } catch (err) {
@@ -426,11 +437,11 @@ export default function Products() {
 
   const handleSubmitInventory = async () => {
     try {
-      const response = await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
-      setShowInventoryForm(false); setInventoryDescription(""); getListeHisto()
-      toast({ title: "Succès", description: "Inventaire préparé." })
-      const newId = response.data.id || response.data.data?.id
-      if (newId) Telecharger_pdf(newId, inventoryDescription)
+      await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
+      setShowInventoryForm(false); setInventoryDescription(""); 
+      toast({ title: "Succès", description: "Inventaire préparé avec succès." })
+      // On force un rafraîchissement immédiat de l'historique
+      await getListeHisto()
     } catch { toast({ title: "Erreur", description: "Échec inventaire.", variant: "destructive" }) }
   }
 
@@ -458,14 +469,21 @@ export default function Products() {
 
   const handlePreviousHistorique = () => {
     const idx = list_histo.findIndex(h => h.id === currentHistoriqueId)
-    if (idx > 0) { setCurrentHistoriqueId(list_histo[idx-1].id); setCurrentHistoriqueDesc(list_histo[idx-1].description); getInventaire(list_histo[idx-1].id) }
+    if (idx > 0) { 
+      const prev = list_histo[idx - 1]
+      setCurrentHistoriqueId(prev.id); setCurrentHistoriqueDesc(prev.description ?? ''); getInventaire(prev.id) 
+    }
   }
   const handleNextHistorique = () => {
     const idx = list_histo.findIndex(h => h.id === currentHistoriqueId)
-    if (idx < list_histo.length - 1) { setCurrentHistoriqueId(list_histo[idx+1].id); setCurrentHistoriqueDesc(list_histo[idx+1].description); getInventaire(list_histo[idx+1].id) }
+    if (idx !== -1 && idx < list_histo.length - 1) { 
+      const next = list_histo[idx + 1]
+      setCurrentHistoriqueId(next.id); setCurrentHistoriqueDesc(next.description ?? ''); getInventaire(next.id) 
+    }
   }
-  const hasPreviousHistorique = list_histo.length > 0 && list_histo.findIndex(h => h.id === currentHistoriqueId) > 0
-  const hasNextHistorique = list_histo.length > 0 && list_histo.findIndex(h => h.id === currentHistoriqueId) < list_histo.length - 1
+  const currentHistoIndex = list_histo.findIndex(h => h.id === currentHistoriqueId)
+  const hasPreviousHistorique = currentHistoIndex > 0
+  const hasNextHistorique = currentHistoIndex !== -1 && currentHistoIndex < list_histo.length - 1
 
   // ── Effets ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -870,21 +888,28 @@ export default function Products() {
                     <Button variant="outline" size="sm" onClick={handleNextHistorique} disabled={!hasNextHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">Suivante</Button>
                   </div>
                   <div className="flex gap-2">
-                    {Object.keys(localInventaire).length > 0 && (
-                      <Button variant="default" size="sm" onClick={handleSaveInventaire} disabled={isSavingInventaire} className="bg-orange-500 hover:bg-orange-600 text-white">
-                        {isSavingInventaire ? "💾 Sauvegarde..." : "Enregistrer les modifications"}
-                      </Button>
-                    )}
-                    {redressID === currentHistoriqueId
-                      ? <Button size="sm" onClick={() => Redresser_Inventaire(currentHistoriqueId)}>Redresser</Button>
-                      : <span className="text-sm text-destructive flex items-center">Action impossible</span>
-                    }
-                    <Button variant="default" size="sm" onClick={() => Telecharger_pdf(currentHistoriqueId, currentHistoriqueDesc)} disabled={!currentHistoriqueId || isDownloadingPdf} className="bg-green-600 hover:bg-green-700 text-white gap-2">
-                      {isDownloadingPdf ? "⏳ Téléchargement..." : <><Download className="h-4 w-4" /> PDF</>}
-                    </Button>
-                    <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
-                      <Upload className="h-4 w-4" /> Upload PDF
-                    </Button>
+                    {(() => {
+                      const isRedressed = list_histo.find(h => h.id === currentHistoriqueId)?.etat === true;
+                      return (
+                        <>
+                          {Object.keys(localInventaire).length > 0 && (
+                            <Button variant="default" size="sm" onClick={handleSaveInventaire} disabled={isSavingInventaire || isRedressed} className="bg-orange-500 hover:bg-orange-600 text-white">
+                              {isSavingInventaire ? "💾 Sauvegarde..." : "Enregistrer les modifications"}
+                            </Button>
+                          )}
+                          {redressID === currentHistoriqueId
+                            ? <Button size="sm" onClick={() => Redresser_Inventaire(currentHistoriqueId)} disabled={isRedressed} className={isRedressed ? "bg-gray-400" : ""}>{isRedressed ? "Déjà redressé" : "Redresser"}</Button>
+                            : <span className="text-sm text-destructive flex items-center">Action impossible</span>
+                          }
+                          <Button variant="default" size="sm" onClick={() => Telecharger_pdf(currentHistoriqueId, currentHistoriqueDesc)} disabled={!currentHistoriqueId || isDownloadingPdf || isRedressed} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                            {isDownloadingPdf ? "⏳ Téléchargement..." : <><Download className="h-4 w-4" /> PDF</>}
+                          </Button>
+                          <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId || isRedressed} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+                            <Upload className="h-4 w-4" /> Upload PDF
+                          </Button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
                 <div className="rounded-md border mt-4">
@@ -910,6 +935,7 @@ export default function Products() {
                               value={localInventaire[item.id] !== undefined ? localInventaire[item.id] : item.quantite_phy} 
                               onChange={(e) => handleQuantityChange(item.id, e.target.value)}
                               className="h-8"
+                              disabled={list_histo.find(h => h.id === currentHistoriqueId)?.etat === true}
                             />
                           </TableCell>
                           <TableCell style={{ backgroundColor: item.quantite_theo > (localInventaire[item.id] ?? item.quantite_phy) ? 'rgba(255,0,0,0.1)' : (item.quantite_theo !== (localInventaire[item.id] ?? item.quantite_phy)) ? 'rgba(255,221,0,0.1)' : 'rgba(7,227,62,0.1)' }}>
@@ -937,23 +963,39 @@ export default function Products() {
 
       <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Uploader un PDF d'inventaire</DialogTitle><DialogDescription>Sélectionnez un PDF à associer à l'historique actuel.</DialogDescription></DialogHeader>
+          <DialogHeader><DialogTitle>Uploader un PDF d'inventaire</DialogTitle><DialogDescription>Sélectionnez un PDF scanné pour extraire automatiquement les quantités avec l'IA (OCR).</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="pdf-upload">Fichier PDF</Label>
-              <Input id="pdf-upload" type="file" accept=".pdf" className="cursor-pointer"
+              <Input id="pdf-upload" type="file" accept=".pdf" className="cursor-pointer" disabled={isUploading}
                 onChange={(e) => {
                   const file = e.target.files?.[0]
                   if (file?.type === 'application/pdf') setSelectedPdfFile(file)
                   else toast({ title: "Erreur", description: "Fichier PDF requis.", variant: "destructive" })
                 }} />
-              {selectedPdfFile && <p className="text-sm text-muted-foreground">Fichier : <strong>{selectedPdfFile.name}</strong></p>}
+              {selectedPdfFile && !isUploading && <p className="text-sm text-muted-foreground">Fichier : <strong>{selectedPdfFile.name}</strong></p>}
+              
+              {isUploading && (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm font-medium text-blue-600 flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                    </span>
+                    Extraction des données par OCR en cours... Veuillez patienter.
+                  </p>
+                  <div className="w-full bg-blue-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-blue-600 h-2.5 rounded-full animate-pulse w-full" style={{ width: '100%', animationDuration: '2s' }}></div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Cette opération peut prendre jusqu'à quelques minutes selon la taille du PDF.</p>
+                </div>
+              )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUploadModal(false)}>Annuler</Button>
-            <Button onClick={handlePdfUpload} disabled={!selectedPdfFile || isUploading} className="bg-green-600 hover:bg-green-700 text-white">
-              {isUploading ? "Upload en cours..." : "Uploader"}
+            <Button variant="outline" onClick={() => setShowUploadModal(false)} disabled={isUploading}>Annuler</Button>
+            <Button onClick={handlePdfUpload} disabled={!selectedPdfFile || isUploading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+              {isUploading ? "Traitement..." : "Extraire les données"}
             </Button>
           </DialogFooter>
         </DialogContent>
