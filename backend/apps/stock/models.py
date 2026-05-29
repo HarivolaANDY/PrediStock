@@ -30,6 +30,12 @@ class Inventaire(models.Model):
         on_delete=models.SET_NULL,
         null=True, blank=True
     )
+    # Nom du Product parent — renseigné quand produit=None (pas de ProduitDv)
+    produit_cache = models.CharField(
+        max_length=200,
+        null=True, blank=True,
+        verbose_name="Nom produit (cache)"
+    )
     historique = models.ForeignKey(
         HistoriqueInventaire,
         on_delete=models.SET_NULL,
@@ -38,18 +44,18 @@ class Inventaire(models.Model):
     quantite_theo = models.IntegerField(default=0)
     quantite_phy = models.IntegerField(default=0)
     ecart = models.IntegerField(default=0)
-
+ 
     class Meta:
         verbose_name = "Inventaire"
         verbose_name_plural = "Inventaires"
-
+ 
     def __str__(self):
-        return f"{self.produit} — écart: {self.ecart}"
-
+        return f"{self.produit or self.produit_cache} — écart: {self.ecart}"
+ 
     def calculer_ecart(self):
         self.ecart = self.quantite_theo - self.quantite_phy
         self.save()
-
+ 
     @classmethod
     def lancer_inventaire(cls, user, description="Inventaire du mois"):
         histo = HistoriqueInventaire.objects.create(
@@ -63,31 +69,26 @@ class Inventaire(models.Model):
             for p in ProduitDv.objects.all()
         ])
         return histo
-
+ 
     def redresser(self, new_histo):
-        # 1. Enregistrer la ligne dans le nouvel historique
         Inventaire.objects.create(
             produit=self.produit,
+            produit_cache=self.produit_cache,
             quantite_theo=self.quantite_phy,
             quantite_phy=self.quantite_phy,
             historique=new_histo
         )
-        # 2. Créer un mouvement de stock d'ajustement
-        # L'écart est (physique - théorique). Si positif -> entrée, si négatif -> sortie.
         diff = float(self.quantite_phy) - float(self.quantite_theo)
-        
         if diff != 0:
             from .models import MouvementStock
             MouvementStock.objects.create(
-                produit=self.produit.product,
+                produit=self.produit.product if self.produit else None,
                 produit_dv=self.produit,
                 quantity=abs(diff),
                 movement_type='IN' if diff > 0 else 'OUT',
                 utilisateur=new_histo.utilisateur,
                 reason=f"Redressement inventaire #{self.historique.id} ({self.historique.description})",
             )
-        # Note: On ne modifie plus self.produit.nombre ici, le signal de MouvementStock s'en chargera.
-
 
 class HistoriqueSeuilStock(models.Model):
     produit = models.ForeignKey(

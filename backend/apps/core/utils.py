@@ -65,14 +65,52 @@ Règles :
 # ─── Helper JSON ─────────────────────────────────────────────
 
 def _parse_vision_json(raw: str) -> list:
-    """Parse la réponse JSON brute d'un modèle Vision."""
-    raw = re.sub(r"^```(?:json)?\s*", "", raw.strip())
-    raw = re.sub(r"\s*```$", "", raw).strip()
+    """
+    Parse la réponse JSON brute d'un modèle Vision.
+    Gère les cas où le modèle retourne plusieurs blocs JSON ou des backticks résiduels.
+    Stratégie : extraire le PREMIER tableau JSON valide trouvé dans la réponse.
+    """
+    raw = raw.strip()
+    candidates = []
 
-    try:
-        items = json.loads(raw)
-    except json.JSONDecodeError as e:
-        logger.error(f"Vision JSON invalide : {e}\nRéponse brute : {raw!r}")
+    # 1. Blocs ```json...``` ou ```...```
+    for block in re.findall(r"```(?:json)?\s*([\s\S]*?)```", raw):
+        block = block.strip()
+        if block.startswith("["):
+            candidates.append(block)
+
+    # 2. Texte brut sans backticks
+    raw_clean = re.sub(r"```(?:json)?[\s\S]*?```", "", raw).strip()
+    if raw_clean.startswith("["):
+        candidates.append(raw_clean)
+
+    # 3. Premier tableau JSON valide par comptage de brackets
+    start = raw.find("[")
+    if start != -1:
+        depth, end = 0, -1
+        for i, ch in enumerate(raw[start:], start):
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    end = i
+                    break
+        if end != -1:
+            candidates.append(raw[start:end + 1])
+
+    items = None
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate)
+            if isinstance(parsed, list):
+                items = parsed
+                break
+        except json.JSONDecodeError:
+            continue
+
+    if items is None:
+        logger.error(f"Vision JSON invalide — aucun tableau trouvé.\nRéponse brute : {raw!r}")
         return []
 
     results = []
@@ -321,20 +359,25 @@ def _fuzzy_match_product(nom_ocr: str, product_names: dict) -> dict | None:
 
 def _find_or_create_inventaire_line(historique, match: dict, qte_physique: int):
     """
-    UPSERT dans la table Inventaire selon le type de match :
+    UPSERT dans la table Inventaire.
 
-    - match["type"] == "product"   → inventaire lié au Product parent directement
-    - match["type"] == "produitdv" → inventaire lié au ProduitDv (sous-produit)
+    Règle simple et sans ambiguïté :
 
-    La table Inventaire doit avoir soit un champ FK vers Product,
-    soit un champ FK vers ProduitDv — adapte les filter() si besoin.
+    - match["type"] == "produitdv"
+        → Le PDF mentionne explicitement un sous-produit (ex: "Ranjaly")
+        → produit = dv,  produit_cache = None
 
-    Retourne ("updated"|"created", instance_Inventaire).
+    - match["type"] == "product"
+        → Le PDF mentionne le produit parent (ex: "Banane", "Ciment")
+        → On NE passe JAMAIS par les DVs, même s'ils existent
+        → produit = None, produit_cache = product.name
+        → Cela évite d'écraser les DVs quand le PDF ne les mentionne pas
     """
     from apps.stock.models import Inventaire
 
+    # ── Cas 1 : ProduitDv identifié directement ──────────────────
     if match["type"] == "produitdv":
-        dv      = match["instance"]
+        dv = match["instance"]
 
         existing = Inventaire.objects.filter(
             historique=historique,
@@ -344,47 +387,43 @@ def _find_or_create_inventaire_line(historique, match: dict, qte_physique: int):
         if existing:
             existing.quantite_phy = qte_physique
             existing.save(update_fields=["quantite_phy"])
+            logger.info(f"UPDATED [dv] '{dv.designation}' phy={qte_physique}")
             return "updated", existing
 
         inv = Inventaire.objects.create(
             historique=historique,
             produit=dv,
+            produit_cache=None,
             quantite_theo=int(dv.nombre or 0),
             quantite_phy=qte_physique,
         )
+        logger.info(f"CREATED [dv] '{dv.designation}' phy={qte_physique}")
         return "created", inv
 
-    else:  # "product" — cherche ou crée un ProduitDv par défaut pour ce Product
-        product = match["instance"]
-        from apps.catalogue.models import ProduitDv
+    # ── Cas 2 : Product parent → toujours produit=None + cache ───
+    product = match["instance"]
 
-        # Chercher un ProduitDv pour ce Product (par défaut: le premier)
-        dv = ProduitDv.objects.filter(product=product).first()
-        
-        if dv:
-            # Si on trouve un ProduitDv, utiliser la logique ProduitDv
-            existing = Inventaire.objects.filter(
-                historique=historique,
-                produit=dv,
-            ).first()
+    existing = Inventaire.objects.filter(
+        historique=historique,
+        produit=None,
+        produit_cache=product.name,
+    ).first()
 
-            if existing:
-                existing.quantite_phy = qte_physique
-                existing.save(update_fields=["quantite_phy"])
-                return "updated", existing
+    if existing:
+        existing.quantite_phy = qte_physique
+        existing.save(update_fields=["quantite_phy"])
+        logger.info(f"UPDATED [product/cache] '{product.name}' phy={qte_physique}")
+        return "updated", existing
 
-            inv = Inventaire.objects.create(
-                historique=historique,
-                produit=dv,
-                quantite_theo=int(dv.nombre or 0),
-                quantite_phy=qte_physique,
-            )
-            return "created", inv
-        else:
-            # Pas de ProduitDv pour ce Product → on ne peut pas créer d'Inventaire
-            logger.warning(f"Pas de ProduitDv trouvé pour Product={product.name}")
-            return None, None
-
+    inv = Inventaire.objects.create(
+        historique=historique,
+        produit=None,
+        produit_cache=product.name,
+        quantite_theo=int(product.current_stock or 0),
+        quantite_phy=qte_physique,
+    )
+    logger.info(f"CREATED [product/cache] '{product.name}' phy={qte_physique}")
+    return "created", inv
 
 # ─── Traitement PDF ───────────────────────────────────────────
 
@@ -578,24 +617,15 @@ def process_pdf_async(file_path, historique_id, user_id):
                     action, inv = _find_or_create_inventaire_line(
                         historique, match, qte_physique
                     )
-                    if action is None:
-                        # Cas où Product n'a pas de ProduitDv
-                        not_found.append(f"{nom_ocr} (pas de variante)")
-                        logger.warning(f"Pas de ProduitDv pour Product '{nom_match}'")
-                    elif action == "updated":
+                    if action == "updated":
                         updated += 1
-                        logger.info(
-                            f"UPDATED [{type_str}] "
-                            f"OCR='{nom_ocr}' → '{nom_match}' "
-                            f"| inv={inv.id} phy={qte_physique}"
-                        )
-                    else:  # "created"
+                    else:
                         created += 1
-                        logger.info(
-                            f"CREATED [{type_str}] "
-                            f"OCR='{nom_ocr}' → '{nom_match}' "
-                            f"| inv={inv.id} phy={qte_physique}"
-                        )
+                    logger.info(
+                        f"{action.upper()} [{type_str}] "
+                        f"OCR='{nom_ocr}' → '{nom_match}' "
+                        f"| inv={inv.id} phy={qte_physique}"
+                    )
                 except Exception as e:
                     logger.error(
                         f"Erreur UPSERT pour '{nom_ocr}' → '{nom_match}' : {e}",

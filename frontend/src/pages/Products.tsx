@@ -917,33 +917,56 @@ export default function Products() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Produit</TableHead>
-                        <TableHead>Désignation</TableHead>
+                        <TableHead>Produit Dv</TableHead>
                         <TableHead>Qté théorique</TableHead>
                         <TableHead>Qté physique</TableHead>
                         <TableHead>Écart</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inventaire.length > 0 ? inventaire.map((item, index) => (
-                        <TableRow key={index}>
-                          <TableCell>{item.produit_info?.product_mere?.name || "Inconnu"}</TableCell>
-                          <TableCell>{item.produit_info?.designation || "N/A"}</TableCell>
-                          <TableCell>{item.quantite_theo}</TableCell>
-                          <TableCell className="w-[120px]">
-                            <Input 
-                              type="number" 
-                              value={localInventaire[item.id] !== undefined ? localInventaire[item.id] : item.quantite_phy} 
-                              onChange={(e) => handleQuantityChange(item.id, e.target.value)}
-                              className="h-8"
-                              disabled={list_histo.find(h => h.id === currentHistoriqueId)?.etat === true}
-                            />
-                          </TableCell>
-                          <TableCell style={{ backgroundColor: item.quantite_theo > (localInventaire[item.id] ?? item.quantite_phy) ? 'rgba(255,0,0,0.1)' : (item.quantite_theo !== (localInventaire[item.id] ?? item.quantite_phy)) ? 'rgba(255,221,0,0.1)' : 'rgba(7,227,62,0.1)' }}>
-                            {(localInventaire[item.id] ?? item.quantite_phy) - item.quantite_theo}
+                      {inventaire.length > 0 ? inventaire.map((item, index) => {
+                        const productName  = item.produit_info?.product_mere?.name || "Inconnu"
+                        const designDv     = item.produit_info?.designation ?? null   // null si pas de sous-produit
+                        const isRedressed  = list_histo.find(h => h.id === currentHistoriqueId)?.etat === true
+                      
+                        return (
+                          <TableRow key={index}>
+                            {/* Produit parent */}
+                            <TableCell>{productName}</TableCell>
+                      
+                            {/* Produit Dv — vide si pas de sous-produit */}
+                            <TableCell>{designDv ?? <span className="text-muted-foreground text-xs italic">—</span>}</TableCell>
+                      
+                            <TableCell>{item.quantite_theo}</TableCell>
+                      
+                            <TableCell className="w-[120px]">
+                              <Input
+                                type="number"
+                                value={localInventaire[item.id] !== undefined ? localInventaire[item.id] : item.quantite_phy}
+                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                className="h-8"
+                                disabled={isRedressed}
+                              />
+                            </TableCell>
+                      
+                            <TableCell style={{
+                              backgroundColor:
+                                item.quantite_theo > (localInventaire[item.id] ?? item.quantite_phy)
+                                  ? 'rgba(255,0,0,0.1)'
+                                  : item.quantite_theo !== (localInventaire[item.id] ?? item.quantite_phy)
+                                    ? 'rgba(255,221,0,0.1)'
+                                    : 'rgba(7,227,62,0.1)',
+                            }}>
+                              {(localInventaire[item.id] ?? item.quantite_phy) - item.quantite_theo}
+                            </TableCell>
+                          </TableRow>
+                        )
+                      }) : (
+                        <TableRow>
+                          <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
+                            Aucun inventaire disponible.
                           </TableCell>
                         </TableRow>
-                      )) : (
-                        <TableRow><TableCell colSpan={5} className="text-center text-muted-foreground py-8">Aucun inventaire disponible.</TableCell></TableRow>
                       )}
                     </TableBody>
                   </Table>
