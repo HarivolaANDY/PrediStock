@@ -71,9 +71,26 @@ class InventaireViewSet(GenericCRUDViewSet):
     @action(detail=False, methods=['post'])
     def redresser(self, request):
         histo_id = request.data.get('historique')
-        new_histo = HistoriqueInventaire.objects.create(utilisateur=request.user)
-        for inv in Inventaire.objects.filter(historique=histo_id):
+        try:
+            old_histo = HistoriqueInventaire.objects.get(id=histo_id)
+        except HistoriqueInventaire.DoesNotExist:
+            return StandardResponse.render(message='Historique introuvable.', status_code=404)
+
+        if old_histo.etat:
+            return StandardResponse.render(message='Cet inventaire est déjà redressé.', status_code=400)
+
+        new_histo = HistoriqueInventaire.objects.create(
+            utilisateur=request.user,
+            description=f"Redressement de : {old_histo.description}"
+        )
+        
+        for inv in Inventaire.objects.filter(historique=old_histo):
             inv.redresser(new_histo)
+        
+        # Marquer l'ancien comme terminé
+        old_histo.etat = True
+        old_histo.save(update_fields=['etat'])
+
         return StandardResponse.render(message='Redressement effectué.', status_code=200)
 
     @action(detail=False, methods=['post'], url_path='bulk-update')
