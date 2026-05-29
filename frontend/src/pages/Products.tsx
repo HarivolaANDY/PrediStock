@@ -139,7 +139,6 @@ export default function Products() {
   const [currentHistoriqueId, setCurrentHistoriqueId] = useState<number | null>(null)
   const [currentHistoriqueDesc, setCurrentHistoriqueDesc] = useState("")
   const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
-  const [redressID, setRedressID] = useState<number | null>(null)
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [inventoryDescription, setInventoryDescription] = useState("")
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
@@ -313,21 +312,23 @@ export default function Products() {
     getListeHisto(); getInventaire(id_histo)
   }
 
-  const getListeHisto = useCallback(async () => {
+  const getListeHisto = useCallback(async (selectId?: number) => {
     try {
       const response = await API.get('stock/historique-inventaire/')
       let data = response.data?.data || response.data?.results || response.data || []
       if (!Array.isArray(data) && data?.results) data = data.results
       if (!Array.isArray(data)) return
       setList_histo(data)
+      
       if (data.length > 0) {
-        const first = data[0]
-        setRedressID(first.id)
-        setCurrentHistoriqueId(first.id)
-        setCurrentHistoriqueDesc(first.description ?? '')
-        getInventaire(first.id)
+        // Si un ID est spécifié (ex: après création), on le sélectionne
+        // Sinon on prend le premier de la liste (le plus récent grâce au backend ordering: ['-date'])
+        const target = selectId ? data.find((h: HistoriqueInventaire) => h.id === selectId) || data[0] : data[0]
+        
+        setCurrentHistoriqueId(target.id)
+        setCurrentHistoriqueDesc(target.description ?? '')
+        getInventaire(target.id)
       } else {
-        setRedressID(null)
         setCurrentHistoriqueId(null)
         setCurrentHistoriqueDesc('')
         setInventaire([])
@@ -437,11 +438,15 @@ export default function Products() {
 
   const handleSubmitInventory = async () => {
     try {
-      await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
+      const res = await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
       setShowInventoryForm(false); setInventoryDescription(""); 
       toast({ title: "Succès", description: "Inventaire préparé avec succès." })
-      // On force un rafraîchissement immédiat de l'historique
-      await getListeHisto()
+      
+      // On récupère l'ID du nouvel inventaire depuis la réponse du backend
+      const newId = res.data?.data?.id || res.data?.id
+      
+      // On rafraîchit la liste et on sélectionne le nouvel inventaire
+      await getListeHisto(newId)
     } catch { toast({ title: "Erreur", description: "Échec inventaire.", variant: "destructive" }) }
   }
 
@@ -897,11 +902,15 @@ export default function Products() {
                               {isSavingInventaire ? "💾 Sauvegarde..." : "Enregistrer les modifications"}
                             </Button>
                           )}
-                          {redressID === currentHistoriqueId
-                            ? <Button size="sm" onClick={() => Redresser_Inventaire(currentHistoriqueId)} disabled={isRedressed} className={isRedressed ? "bg-gray-400" : ""}>{isRedressed ? "Déjà redressé" : "Redresser"}</Button>
-                            : <span className="text-sm text-destructive flex items-center">Action impossible</span>
-                          }
-                          <Button variant="default" size="sm" onClick={() => Telecharger_pdf(currentHistoriqueId, currentHistoriqueDesc)} disabled={!currentHistoriqueId || isDownloadingPdf || isRedressed} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                          <Button 
+                            size="sm" 
+onClick={() => currentHistoriqueId && Redresser_Inventaire(currentHistoriqueId)}
+                            disabled={!currentHistoriqueId || isRedressed} 
+                            className={isRedressed ? "bg-gray-400" : ""}
+                          >
+                            {isRedressed ? "Déjà redressé" : "Redresser"}
+                          </Button>
+                          <Button variant="default" size="sm" onClick={() => currentHistoriqueId && Telecharger_pdf(currentHistoriqueId, currentHistoriqueDesc)} disabled={!currentHistoriqueId || isDownloadingPdf || isRedressed} className="bg-green-600 hover:bg-green-700 text-white gap-2">
                             {isDownloadingPdf ? "⏳ Téléchargement..." : <><Download className="h-4 w-4" /> PDF</>}
                           </Button>
                           <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId || isRedressed} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
