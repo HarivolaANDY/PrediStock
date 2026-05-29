@@ -61,7 +61,7 @@ class Inventaire(models.Model):
         histo = HistoriqueInventaire.objects.create(
             utilisateur=user,
             description=description,
-            etat=True
+            etat=False
         )
         from apps.catalogue.models import ProduitDv
         cls.objects.bulk_create([
