@@ -65,7 +65,7 @@ class GenericCRUDViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         if self.queryset is not None:
-            return self.queryset
+            return self.queryset.all()
         if self.model is None:
             raise ValueError("'model' doit être défini dans la classe héritée.")
         return self.model.objects.all()

@@ -308,8 +308,24 @@ export default function Products() {
   }, [])
 
   const Redresser_Inventaire = async (id_histo: number) => {
-    await API.post("stock/inventaire/redresser/", { historique: id_histo })
-    getListeHisto(); getInventaire(id_histo)
+    try {
+      await API.post("stock/inventaire/redresser/", { historique: id_histo })
+      toast({ title: "Succès", description: "Inventaire redressé avec succès." })
+      getListeHisto(id_histo)
+    } catch (e) {
+      toast({ title: "Erreur", description: "Échec du redressement.", variant: "destructive" })
+    }
+  }
+
+  const Supprimer_Inventaire = async (id_histo: number) => {
+    if (!window.confirm("Voulez-vous vraiment supprimer cet inventaire ?")) return;
+    try {
+      await API.delete(`stock/historique-inventaire/${id_histo}/`)
+      toast({ title: "Succès", description: "Inventaire supprimé." })
+      getListeHisto()
+    } catch (e) {
+      toast({ title: "Erreur", description: "Échec de la suppression.", variant: "destructive" })
+    }
   }
 
   const getListeHisto = useCallback(async (selectId?: number) => {
@@ -371,8 +387,14 @@ export default function Products() {
   }
 
   const handleQuantityChange = (id: number, val: string) => {
-    const num = parseInt(val) || 0
-    setLocalInventaire(prev => ({ ...prev, [id]: num }))
+    // Remplacer virgule par point pour le parsing
+    const normalizedVal = val.replace(',', '.')
+    const num = parseFloat(normalizedVal)
+    if (!isNaN(num)) {
+      setLocalInventaire(prev => ({ ...prev, [id]: num }))
+    } else if (val === '') {
+      setLocalInventaire(prev => ({ ...prev, [id]: 0 }))
+    }
   }
 
   const handleSaveInventaire = async () => {
@@ -916,6 +938,9 @@ onClick={() => currentHistoriqueId && Redresser_Inventaire(currentHistoriqueId)}
                           <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId || isRedressed} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
                             <Upload className="h-4 w-4" /> Upload PDF
                           </Button>
+                          <Button variant="destructive" size="sm" onClick={() => currentHistoriqueId && Supprimer_Inventaire(currentHistoriqueId)} disabled={!currentHistoriqueId} className="gap-2">
+                            <Trash2 className="h-4 w-4" /> Supprimer
+                          </Button>
                         </>
                       );
                     })()}
@@ -973,7 +998,7 @@ onClick={() => currentHistoriqueId && Redresser_Inventaire(currentHistoriqueId)}
                       }) : (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                            Aucun inventaire disponible.
+                            Aucune donnée. Veuillez uploader un PDF pour commencer.
                           </TableCell>
                         </TableRow>
                       )}

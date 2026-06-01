@@ -22,6 +22,11 @@ import { Category, StockMouvement, PDV, StockTrendPoint } from "@/types/types"
 
 
 function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
+  // 1. Champ unifié calculé côté backend (couvre tous les cas : dv seul, parent seul, les deux)
+  if ((mouvement as any).produit_display_name) return (mouvement as any).produit_display_name
+  // 2. Nom du sous-produit (variante)
+  if ((mouvement as any).produit_dv_name) return (mouvement as any).produit_dv_name
+  // 3. Détails embarqués
   const details = mouvement.product_details
   if (details) {
     if (details.designation) return details.designation
@@ -30,6 +35,7 @@ function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
   }
   if (mouvement.product_name) return mouvement.product_name
   if (mouvement.produit_nom) return mouvement.produit_nom
+  // 4. Résolution par ID via liste PDV
   const produitId = mouvement.produit ?? mouvement.product ?? null
   if (produitId !== null) {
     const match = PDVs.find((p) => p.product === produitId || p.id === produitId)

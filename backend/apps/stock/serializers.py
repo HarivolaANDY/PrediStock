@@ -113,6 +113,24 @@ class MouvementStockSerializer(serializers.ModelSerializer):
     utilisateur_info  = UserMinimalSerializer(source='utilisateur', read_only=True)
     produit_name      = serializers.ReadOnlyField(source='produit.name')
     produit_dv_name   = serializers.ReadOnlyField(source='produit_dv.designation')
+    produit_display_name = serializers.SerializerMethodField()
+
+    def get_produit_display_name(self, obj):
+        """Retourne toujours un nom lisible, qu'il y ait une variante ou non."""
+        # Priorité : variante > produit parent > fallback
+        if obj.produit_dv:
+            dv_name = obj.produit_dv.designation or ""
+            parent_name = ""
+            if obj.produit_dv.product:
+                parent_name = obj.produit_dv.product.name or ""
+            elif obj.produit:
+                parent_name = obj.produit.name or ""
+            if parent_name and dv_name and dv_name != parent_name:
+                return f"{parent_name} — {dv_name}"
+            return dv_name or parent_name or "Inconnu"
+        if obj.produit:
+            return obj.produit.name or "Inconnu"
+        return "Inconnu"
 
     def validate(self, data):
         movement_type = data.get("movement_type")

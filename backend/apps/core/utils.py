@@ -124,7 +124,7 @@ def _parse_vision_json(raw: str) -> list:
             logger.warning(f"Quantité null pour '{produit}', ignoré.")
             continue
         try:
-            qte = int(str(qte_raw).replace(",", ".").split(".")[0])
+            qte = float(str(qte_raw).replace(",", ".").strip())
         except (ValueError, TypeError):
             logger.warning(f"Quantité illisible '{qte_raw}' pour '{produit}', ignoré.")
             continue
@@ -482,7 +482,7 @@ def process_pdf(pdf_input):
                                 "id_inventaire": inv_id,
                                 "produit_mere":  middle[0] if middle else "",
                                 "designation":   " ".join(middle[1:]) if len(middle) > 1 else "",
-                                "qte_physique":  int(re.sub(r"[^0-9]", "", last3[1]) or "0"),
+                                "qte_physique":  float(last3[1].replace(",", ".").strip() or "0"),
                             })
                     except (ValueError, IndexError):
                         pass
@@ -494,7 +494,7 @@ def process_pdf(pdf_input):
                             "id_inventaire": None,
                             "produit_mere":  produit,
                             "designation":   "",
-                            "qte_physique":  int(qte_raw),
+                            "qte_physique":  float(qte_raw.replace(",", ".").strip() or "0"),
                         })
 
         if results:
@@ -531,7 +531,7 @@ def process_pdf(pdf_input):
 # ─── Utilitaires ─────────────────────────────────────────────
 
 def _clean_quantity(text: str):
-    cleaned = re.sub(r"[^0-9]", "", text)
+    cleaned = re.sub(r"[^0-9.,]", "", text)
     return cleaned if cleaned else None
 
 

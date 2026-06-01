@@ -78,16 +78,11 @@ class InventaireViewSet(GenericCRUDViewSet):
 
         if old_histo.etat:
             return StandardResponse.render(message='Cet inventaire est déjà redressé.', status_code=400)
-
-        new_histo = HistoriqueInventaire.objects.create(
-            utilisateur=request.user,
-            description=f"Redressement de : {old_histo.description}"
-        )
         
         for inv in Inventaire.objects.filter(historique=old_histo):
-            inv.redresser(new_histo)
+            inv.redresser(request.user)
         
-        # Marquer l'ancien comme terminé
+        # Marquer l'inventaire comme terminé
         old_histo.etat = True
         old_histo.save(update_fields=['etat'])
 
@@ -129,10 +124,12 @@ class HistoriqueSeuilStockViewSet(GenericCRUDViewSet):
         serializer.save(utilisateur=self.request.user)
 
 
-# ─── MouvementStock ─────────────────────────────────────────
+# ─── MouvementStock ─────────────────────────────────
 class MouvementStockViewSet(GenericCRUDViewSet):
     model = MouvementStock
-    queryset = MouvementStock.objects.select_related('produit', 'utilisateur').all()
+    queryset = MouvementStock.objects.select_related(
+        'produit', 'produit_dv', 'produit_dv__product', 'utilisateur'
+    ).all()
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
@@ -152,7 +149,39 @@ class MouvementStockViewSet(GenericCRUDViewSet):
         return qs
 
     def perform_create(self, serializer):
-        serializer.save(utilisateur=self.request.user)
+        """Accepte id_product (legacy) et id_produit_dv en plus des FKs DRF standard."""
+        from apps.catalogue.models import Product, ProduitDv
+
+        data = self.request.data
+
+        # Mapper id_product → produit si non fourni directement
+        produit = serializer.validated_data.get('produit')
+        if produit is None:
+            id_product = data.get('id_product') or data.get('produit')
+            if id_product:
+                try:
+                    produit = Product.objects.get(id=int(id_product))
+                except (Product.DoesNotExist, ValueError, TypeError):
+                    produit = None
+
+        # Mapper id_produit_dv → produit_dv si fourni
+        produit_dv = serializer.validated_data.get('produit_dv')
+        if produit_dv is None:
+            id_dv = data.get('id_produit_dv') or data.get('produit_dv')
+            if id_dv:
+                try:
+                    produit_dv = ProduitDv.objects.get(id=int(id_dv))
+                    # Résoudre le parent si absent
+                    if produit is None and produit_dv.product:
+                        produit = produit_dv.product
+                except (ProduitDv.DoesNotExist, ValueError, TypeError):
+                    produit_dv = None
+
+        serializer.save(
+            utilisateur=self.request.user,
+            produit=produit,
+            produit_dv=produit_dv,
+        )
 
     @action(detail=False, methods=['get'])
     def stats(self, request):

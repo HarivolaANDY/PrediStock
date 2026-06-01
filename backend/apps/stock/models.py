@@ -41,9 +41,9 @@ class Inventaire(models.Model):
         on_delete=models.SET_NULL,
         null=True
     )
-    quantite_theo = models.IntegerField(default=0)
-    quantite_phy = models.IntegerField(default=0)
-    ecart = models.IntegerField(default=0)
+    quantite_theo = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    quantite_phy = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    ecart = models.DecimalField(max_digits=12, decimal_places=3, default=0)
  
     class Meta:
         verbose_name = "Inventaire"
@@ -63,32 +63,29 @@ class Inventaire(models.Model):
             description=description,
             etat=False
         )
-        from apps.catalogue.models import ProduitDv
-        cls.objects.bulk_create([
-            cls(produit=p, quantite_theo=p.nombre, historique=histo)
-            for p in ProduitDv.objects.all()
-        ])
         return histo
  
-    def redresser(self, new_histo):
-        Inventaire.objects.create(
-            produit=self.produit,
-            produit_cache=self.produit_cache,
-            quantite_theo=self.quantite_phy,
-            quantite_phy=self.quantite_phy,
-            historique=new_histo
-        )
+    def redresser(self, user):
         diff = float(self.quantite_phy) - float(self.quantite_theo)
         if diff != 0:
             from .models import MouvementStock
+            from apps.catalogue.models import Product
+            
+            p_mere = None
+            if self.produit:
+                p_mere = self.produit.product
+            elif self.produit_cache:
+                p_mere = Product.objects.filter(name=self.produit_cache).first()
+                
             MouvementStock.objects.create(
-                produit=self.produit.product if self.produit else None,
+                produit=p_mere,
                 produit_dv=self.produit,
                 quantity=abs(diff),
                 movement_type='IN' if diff > 0 else 'OUT',
-                utilisateur=new_histo.utilisateur,
+                utilisateur=user,
                 reason=f"Redressement inventaire #{self.historique.id} ({self.historique.description})",
             )
+
 
 class HistoriqueSeuilStock(models.Model):
     produit = models.ForeignKey(
@@ -200,11 +197,21 @@ class MouvementStock(models.Model):
         
 @receiver(post_save, sender=MouvementStock)
 def update_stock_on_mouvement(sender, instance, created, **kwargs):
-    if not created or not instance.produit:
+    if not created:
         return
-    
-    produit = instance.produit
+
     dv = instance.produit_dv
+    produit = instance.produit
+
+    # Si produit parent absent, on le résout depuis la variante
+    if produit is None and dv is not None:
+        try:
+            produit = dv.product
+        except Exception:
+            produit = None
+
+    if produit is None:
+        return
     qty = float(instance.quantity)
 
     # 1. Mise à jour du stock parent

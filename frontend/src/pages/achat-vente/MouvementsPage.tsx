@@ -48,7 +48,7 @@ export default function MouvementsPage() {
 
   const filteredMouvements = combinedTransactions.filter(m => {
     const matchesSearch =
-      (m.produit_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (m.produit_display_name || m.produit_name || m.produit_dv_name || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.reason || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
       (m.referrence || "").toLowerCase().includes(searchTerm.toLowerCase())
     
@@ -195,7 +195,7 @@ export default function MouvementsPage() {
                         ) : (
                           <Package className="h-4 w-4 text-violet-500" />
                         )}
-                        {m.produit_name || m.produit_dv_name || `#${m.produit || ''}`}
+                        {m.produit_display_name || m.produit_name || m.produit_dv_name || `#${m.produit || m.produit_dv || '?'}`}
                       </div>
                     </td>
                     <td className="px-6 py-4 text-center font-mono font-bold text-sm">
