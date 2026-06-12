@@ -610,6 +610,7 @@ export default function VentePage() {
                 <thead className="bg-slate-50 border-b border-slate-200">
                   <tr>
                     <th className="px-6 py-4 font-black text-slate-500 uppercase">Produit</th>
+                    <th className="px-6 py-4 font-black text-slate-500 uppercase text-center">Prix</th>
                     <th className="px-6 py-4 font-black text-slate-500 uppercase text-center">Qté</th>
                     <th className="px-6 py-4 font-black text-slate-500 uppercase text-right">TOTAL</th>
                   </tr>
@@ -618,6 +619,7 @@ export default function VentePage() {
                   {selectedSale?.lignes?.map(l => (
                     <tr key={l.id}>
                       <td className="px-6 py-4 font-bold text-slate-700">{l.produit_name}</td>
+                      <td className="px-6 py-4 text-center font-black text-emerald-600">{l.prix_unitaire}</td>
                       <td className="px-6 py-4 text-center font-black text-emerald-600">x{l.quantite}</td>
                       <td className="px-6 py-4 text-right font-black text-slate-800">{fmt(l.montant_ligne)}</td>
                     </tr>
