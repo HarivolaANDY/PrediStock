@@ -68,6 +68,7 @@ interface ProductStats {
 }
 
 const ITEMS_PER_PAGE = 10
+const HISTORY_PER_PAGE = 20
 
 export default function Stock() {
   const [categories, setCategories] = useState<Category[]>([])
@@ -94,6 +95,9 @@ export default function Stock() {
 
   // ── Pagination Alertes ───────────────────────────────────────────────────
   const [currentPage, setCurrentPage] = useState(1)
+
+  // ── Pagination Historique ────────────────────────────────────────────────
+  const [historyPage, setHistoryPage] = useState(1)
 
   const toggleRow = (id: number) => {
     setExpandedRows(prev => {
@@ -374,13 +378,20 @@ export default function Stock() {
     getListePDV(); fetchSeuilHistorique(); fetchCategoryChart(); fetchAlertProducts()
   }, [])
 
-  const filteredPDVs = useMemo(() =>
-    PDVs.filter(p =>
-      (p.designation || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.infos?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-    ),
-    [PDVs, searchTerm]
-  )
+  // Produits ayant au moins un mouvement enregistré
+  const filteredPDVs = useMemo(() => {
+    const movedProductIds = new Set(Object.keys(mouvementsByProduct).map(Number))
+    return PDVs.filter(p => {
+      const produitId: number | null = (p as any).product ?? (p as any).id ?? null
+      const hasMovement = produitId !== null && movedProductIds.has(produitId)
+      if (!hasMovement) return false
+      const term = searchTerm.toLowerCase()
+      return (
+        (p.designation || '').toLowerCase().includes(term) ||
+        (p.infos?.name || '').toLowerCase().includes(term)
+      )
+    })
+  }, [PDVs, mouvementsByProduct, searchTerm])
 
   const filteredMovements = useMemo(() =>
     stockMouvements.filter(m => {
@@ -392,6 +403,36 @@ export default function Stock() {
     }),
     [stockMouvements, mouvementSearchTerm, PDVs]
   )
+
+  // ── Pagination Historique ─────────────────────────────────────────────────
+  const historyTotalPages = useMemo(
+    () => Math.ceil(filteredMovements.length / HISTORY_PER_PAGE),
+    [filteredMovements.length]
+  )
+
+  const pagedMovements = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PER_PAGE
+    return filteredMovements.slice(start, start + HISTORY_PER_PAGE)
+  }, [filteredMovements, historyPage])
+
+  const goToHistoryPage = useCallback((page: number) => {
+    setHistoryPage(Math.max(1, Math.min(page, historyTotalPages)))
+  }, [historyTotalPages])
+
+  // Reset page historique quand filtre ou données changent
+  useEffect(() => {
+    setHistoryPage(1)
+  }, [filteredMovements.length])
+
+  const getHistoryVisiblePages = () => {
+    if (historyTotalPages <= 5) return Array.from({ length: historyTotalPages }, (_, i) => i + 1)
+    const half = 2
+    let start = Math.max(1, historyPage - half)
+    let end = Math.min(historyTotalPages, historyPage + half)
+    if (historyPage <= half + 1) end = Math.min(historyTotalPages, 5)
+    if (historyPage >= historyTotalPages - half) start = Math.max(1, historyTotalPages - 4)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }
 
   return (
     <div className="space-y-6">
@@ -589,7 +630,7 @@ export default function Stock() {
                     </Table>
                   </div>
                   <div className="mt-4">
-                    <p className="text-sm text-muted-foreground">{filteredPDVs.length} produit(s) affiché(s) sur {PDVs.length}</p>
+                    <p className="text-sm text-muted-foreground">{filteredPDVs.length} produit(s) avec mouvement(s) affiché(s)</p>
                   </div>
                 </CardContent>
               </Card>
@@ -668,7 +709,7 @@ export default function Stock() {
                               </div>
                             </TableCell>
                           </TableRow>
-                        ) : filteredMovements.map((mouvement, index) => (
+                        ) : pagedMovements.map((mouvement, index) => (
                           <TableRow key={mouvement.id ?? `mouvement-${index}`}>
                             <TableCell className="text-sm">
                               {new Date(mouvement.timestamp).toLocaleDateString()} {new Date(mouvement.timestamp).toLocaleTimeString()}
@@ -693,6 +734,52 @@ export default function Stock() {
                         ))}
                       </TableBody>
                     </Table>
+                  </div>
+
+                  {/* ── Pagination Historique ── */}
+                  <div className="flex items-center justify-between pt-4 border-t mt-2">
+                    <p className="text-sm text-muted-foreground">
+                      Page <span className="font-medium text-foreground">{historyPage}</span> sur{" "}
+                      <span className="font-medium text-foreground">{Math.max(historyTotalPages, 1)}</span>
+                      {" "}· {filteredMovements.length} mouvement(s)
+                    </p>
+                    {historyTotalPages > 1 && (
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyPage - 1)}
+                          disabled={historyPage === 1} className="h-8 w-8 p-0" aria-label="Page précédente">
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
+
+                        {getHistoryVisiblePages()[0] > 1 && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => goToHistoryPage(1)} className="h-8 w-8 p-0 text-xs">1</Button>
+                            {getHistoryVisiblePages()[0] > 2 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                          </>
+                        )}
+
+                        {getHistoryVisiblePages().map(page => (
+                          <Button key={page} variant={page === historyPage ? "default" : "outline"} size="sm"
+                            onClick={() => goToHistoryPage(page)} className="h-8 w-8 p-0 text-xs"
+                            aria-current={page === historyPage ? "page" : undefined}>
+                            {page}
+                          </Button>
+                        ))}
+
+                        {getHistoryVisiblePages()[getHistoryVisiblePages().length - 1] < historyTotalPages && (
+                          <>
+                            {getHistoryVisiblePages()[getHistoryVisiblePages().length - 1] < historyTotalPages - 1 && (
+                              <span className="px-1 text-muted-foreground text-sm">…</span>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyTotalPages)} className="h-8 w-8 p-0 text-xs">{historyTotalPages}</Button>
+                          </>
+                        )}
+
+                        <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyPage + 1)}
+                          disabled={historyPage === historyTotalPages} className="h-8 w-8 p-0" aria-label="Page suivante">
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
