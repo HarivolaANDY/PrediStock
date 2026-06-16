@@ -311,10 +311,48 @@ export default function Stock() {
   const getListePDV = async () => {
     setIsLoadingPDVs(true)
     try {
-      const res = await API.get('catalogue/produits-dv/')
-      const data = res.data?.data || res.data?.results || res.data || []
-      setPDVs(Array.isArray(data) ? data : [])
-    } catch (e) { console.error(e); setPDVs([]) }
+      // Récupérer les ProduitDv (variantes)
+      const resDV = await API.get('catalogue/produits-dv/')
+      const dvs = resDV.data?.data || resDV.data?.results || resDV.data || []
+      
+      // Récupérer les produits parents sans variantes
+      const resProducts = await API.get('catalogue/products/?page_size=1000')
+      const allProducts = resProducts.data?.data?.results || resProducts.data?.results || resProducts.data?.data || resProducts.data || []
+      
+      // Extraire les IDs des produits parents qui ont des variantes
+      const productsWithDV = new Set(
+        (Array.isArray(dvs) ? dvs : []).map((dv: any) => dv.product || dv.product_id)
+      )
+      
+      // Ajouter les produits parents sans variantes
+      const productsWithoutDV = (Array.isArray(allProducts) ? allProducts : []).filter(
+        (p: any) => !productsWithDV.has(p.id)
+      )
+      
+      // Transformer les produits parents pour qu'ils aient le même format que les PDVs
+      const formattedProducts = productsWithoutDV.map((p: any) => ({
+        id: p.id,
+        product: p.id,  // Pour la compatibilité avec filteredPDVs
+        designation: p.name,
+        nombre: p.current_stock,
+        infos: {
+          name: p.name,
+          category: p.category,
+          unite_mesure: p.unite_mesure,
+        }
+      }))
+      
+      // Combiner les deux listes
+      const combined = [
+        ...(Array.isArray(dvs) ? dvs : []),
+        ...formattedProducts
+      ]
+      
+      setPDVs(combined)
+    } catch (e) { 
+      console.error('Erreur getListePDV:', e)
+      setPDVs([]) 
+    }
     finally { setIsLoadingPDVs(false) }
   }
 
@@ -996,9 +1034,9 @@ export default function Stock() {
       {showStockMouvementForm && selectedProduct && (
         <StockMouvementForm
           onClose={() => setShowStockMouvementForm(false)}
-          onSubmit={() => { setShowStockMouvementForm(false); refetch() }}
+          onSubmit={() => { setShowStockMouvementForm(false); refetch(); getListePDV(); fetchStockMouvements() }}
           initialData={{
-            id_product: selectedProduct.id,
+            produit: selectedProduct.id,
             product_name: selectedProduct.designation || selectedProduct.infos?.name || "",
             quantity: 0, movement_type: 'IN', reason: '', notes: ''
           }}

@@ -2,7 +2,7 @@ const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000/api"
 
 export interface StockMouvementData {
     id_movement?: number;
-    id_product: number;
+    produit: number;
     quantity: number;
     movement_type: 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'SCRAP';
     reason: string;

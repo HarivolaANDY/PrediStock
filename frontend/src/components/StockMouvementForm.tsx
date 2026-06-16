@@ -11,7 +11,7 @@ import { stockMouvementService } from '@/services/stockMouvementService'
 
 interface StockMouvement {
   id_movement?: number
-  id_product: number
+  produit: number
   product_name?: string
   quantity: string | number
   movement_type: 'IN' | 'OUT' | 'ADJUSTMENT' | 'RETURN' | 'SCRAP'
@@ -41,7 +41,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
 
   const [formData, setFormData] = useState<StockMouvement>({
     id_movement: initialData?.id_movement,
-    id_product: initialData?.id_product || 0,
+    produit: initialData?.produit || 0,
     product_name: initialData?.product_name || "",
     quantity: initialData?.quantity || "",
     movement_type: initialData?.movement_type || 'IN',
@@ -54,7 +54,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
   }
 
   const handleSaveClick = () => {
-    if (!formData.id_product) {
+    if (!formData.produit) {
       toast({ title: "Erreur", description: "Le produit est requis.", variant: "destructive" })
       return
     }
@@ -76,7 +76,7 @@ export function StockMouvementForm({ onClose, onSubmit, initialData }: StockMouv
       const quantity = parseFloat(formData.quantity.toString() || "0")
 
       const mouvementData = {
-        id_product: formData.id_product,
+        produit: formData.produit,
         quantity,
         movement_type: formData.movement_type,
         reason: formData.reason.trim(),
