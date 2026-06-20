@@ -9,9 +9,8 @@ services:
     rootDir: backend
     buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput --clear
     startCommand: gunicorn config.wsgi:application --workers=2 --threads=4 --timeout=120
-    healthCheckPath: /admin/login/
     envVarGroups:
-      - key: predistock-settings
+      - predistock-settings
     envVars:
       - key: DJANGO_SETTINGS_MODULE
         value: config.settings
@@ -27,7 +26,14 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: python manage.py qcluster
     envVarGroups:
-      - key: predistock-settings
+      - predistock-settings
+
+  # ─── Redis (for django-q broker & caching) ────────────────
+  - type: keyvalue
+    name: predistock-redis
+    plan: free
+    region: frankfurt
+    maxmemoryPolicy: allkeys-lru
 
 # ─── PostgreSQL Database ────────────────────────────────────
 databases:
@@ -36,13 +42,6 @@ databases:
     region: frankfurt
     databaseName: predistock
     ipAllowList: []
-
-# ─── Redis (for django-q broker & caching) ──────────────────
-redis:
-  - name: predistock-redis
-    plan: free
-    region: frankfurt
-    maxmemoryPolicy: allkeys-lru
 
 # ─── Shared Environment Variables ───────────────────────────
 envVarGroups:
@@ -62,7 +61,6 @@ envVarGroups:
           property: connectionString
       - key: REDIS_URL
         fromService:
-          type: redis
           name: predistock-redis
           property: connectionString
       - key: GOOGLE_API_KEY
