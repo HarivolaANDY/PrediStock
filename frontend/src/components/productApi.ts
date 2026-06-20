@@ -1,123 +1,149 @@
-
 import { API_BASE_URL, getAuthHeaders } from "@/config/api.config";
-import { unites_mesures } from "@/types/unites_mesures";
 
 export const API_URL = `${API_BASE_URL}/catalogue/products/`;
 
-export async function saveProduct(data: any, token?: string) {
-  let method = "POST";
-  let url = `${API_URL}`;
-  
-  // Extraire l'ID soit du FormData soit directement des données
-  const id = data instanceof FormData ? data.get('id') : data.id;
-  
-  if (id) {
-    method = "PATCH";  // Utiliser PATCH au lieu de PUT pour la mise à jour partielle
-    url = `${API_URL}${id}/`;  // Utiliser l'endpoint /:id/ pour la modification
-    console.log('Update URL:', url);
+interface ProductApiResponse {
+  status: string;
+  message?: string;
+  data?: unknown;
+}
+
+/** Retourne uniquement le header Authorization, sans Content-Type */
+function getAuthOnlyHeader(): Record<string, string> {
+  const all = getAuthHeaders() as Record<string, string>;
+  const { "Content-Type": _removed, ...rest } = all;
+  return rest;
+}
+
+/**
+ * Upload une seule image pour un produit via /upload_image/
+ * Retourne true si succès, false sinon
+ */
+async function uploadSingleImage(productId: number, file: File): Promise<boolean> {
+  const imgForm = new FormData();
+  imgForm.append("product_img", file);
+
+  const response = await fetch(`${API_URL}${productId}/upload_image/`, {
+    method: "POST",
+    headers: getAuthOnlyHeader(), // ← pas de Content-Type, navigateur gère le boundary
+    body: imgForm,
+  });
+
+  if (!response.ok) {
+    const err = await response.text();
+    console.warn(`⚠️ Échec upload image "${file.name}":`, err);
+    return false;
+  }
+  console.log(`✅ Image "${file.name}" uploadée`);
+  return true;
+}
+
+export async function saveProduct(
+  data: FormData | Record<string, unknown>,
+  token?: string
+) {
+  const authHeader = token
+    ? { Authorization: `Token ${token}` }
+    : getAuthHeaders();
+
+  // ── Extraire id, images et champs scalaires du FormData ──────────────────
+  let id: string | null = null;
+  const imageFiles: File[] = [];
+  const jsonData: Record<string, unknown> = {};
+
+  if (data instanceof FormData) {
+    data.forEach((value, key) => {
+      if (key === "product_img") {
+        // FormData peut contenir plusieurs entrées "product_img"
+        if (value instanceof File) imageFiles.push(value);
+        return;
+      }
+      if (key === "id") { id = value as string; return; }
+
+      if (key === "price")
+        jsonData[key] = parseFloat(value as string);
+      else if (["stock_threshold", "current_stock"].includes(key))
+        jsonData[key] = parseInt(value as string, 10);
+      else if (["category", "supplier"].includes(key))
+        jsonData[key] = value ? parseInt(value as string, 10) : null;
+      else if (["is_active", "est_perissable"].includes(key))
+        jsonData[key] = value === "true";
+      else
+        jsonData[key] = value;
+    });
+  } else {
+    Object.assign(jsonData, data);
+    id = (data.id as string) ?? null;
   }
 
-  // Si les données sont déjà dans un FormData, les convertir en JSON
-  if (data instanceof FormData) {
-    try {
-      const jsonData: any = {};
-      
-      // Convertir les données du FormData en objet JSON
-      data.forEach((value, key) => {
-        if (key === 'price') {
-          jsonData[key] = parseFloat(value as string);
-        } else if (key === 'stock_threshold' || key === 'current_stock') {
-          jsonData[key] = parseInt(value as string, 10);
-        } else if (key === 'category' || key === 'supplier') {
-          jsonData[key] = value ? parseInt(value as string, 10) : null;
-        } else if (key === 'is_active' || key === 'est_perissable') {
-          jsonData[key] = value === 'true';
-        } else {
-          jsonData[key] = value;
-        }
-      });
+  const method = id ? "PATCH" : "POST";
+  const url    = id ? `${API_URL}${id}/` : API_URL;
 
-      // Assurez-vous que tous les champs requis sont présents
-      const requiredFields = {
-        name: jsonData.name || '',
-        description: jsonData.description || '',
-        price: jsonData.price || 0,
-        stock_threshold: jsonData.stock_threshold || 0,
-        current_stock: jsonData.current_stock || 0,
-        sku: jsonData.sku || '',
-        is_active: true,
-        category: jsonData.category || null,
-        supplier: jsonData.supplier || null,
-        est_perissable: jsonData.est_perissable || false,
-        unite_mesure: jsonData.unite_mesure || 'unit',
-      };
+  const payload = {
+    name:            jsonData.name            ?? "",
+    description:     jsonData.description     ?? "",
+    price:           jsonData.price           ?? 0,
+    stock_threshold: jsonData.stock_threshold ?? 0,
+    current_stock:   jsonData.current_stock   ?? 0,
+    sku:             jsonData.sku             ?? "",
+    is_active:       true,
+    category:        jsonData.category        ?? null,
+    supplier:        jsonData.supplier        ?? null,
+    est_perissable:  jsonData.est_perissable  ?? false,
+    unite_mesure:    jsonData.unite_mesure    ?? "pc",
+  };
 
-      console.log('Données JSON préparées:', requiredFields);
-      
-      // Log de la configuration de la requête
-      // Préparer les headers
-      const headers = {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Token ${localStorage.getItem('token')}` } : getAuthHeaders()),
-      };
+  console.log("📦 [JSON] Payload produit:", JSON.stringify(payload, null, 2));
 
-      console.log('Configuration requête:', {
-        url,
-        method,
-        headers,
-        body: requiredFields
-      });
-      
-      const response = await fetch(url, {
-        method,
-        body: JSON.stringify(requiredFields),
-        headers,
-      });
-      
-      const result = await response.json();
-      console.log('Response:', result);
+  // ── Étape 1 : créer/modifier le produit en JSON ───────────────────────────
+  const response = await fetch(url, {
+    method,
+    headers: { "Content-Type": "application/json", ...authHeader },
+    body: JSON.stringify(payload),
+  });
 
-      if (!response.ok || result.status === "error") {
-        throw new Error(result.message || "Erreur lors de l'enregistrement");
-      }
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error("❌ Réponse backend (JSON):", errorBody);
+    throw new Error(errorBody);
+  }
 
-      return result.data;
-    } catch (error: any) {
-      console.error('Erreur détaillée:', error);
-      throw new Error(error.message || "Erreur lors de l'enregistrement du produit");
+  const result = (await response.json()) as ProductApiResponse;
+  if (result.status === "error") {
+    throw new Error(result.message || "Erreur lors de l'enregistrement");
+  }
+
+  const savedProduct = result.data as { id?: number } | undefined;
+  const productId = savedProduct?.id ?? (id ? parseInt(id) : null);
+
+  // ── Étape 2 : upload de TOUTES les images en séquence ────────────────────
+  // ── Étape 2 : upload de TOUTES les images en séquence ────────────────────
+  if (imageFiles.length > 0 && productId) {
+    console.log(`🖼️ Upload de ${imageFiles.length} image(s) pour produit #${productId}...`);
+
+    // ✅ Si c'est une modification, supprimer les anciennes images d'abord
+    if (id) {
+      await fetch(`${API_URL}${productId}/remove_image/`, {
+        method: "DELETE",
+        headers: authHeader as Record<string, string>,
+      }).catch(() => {}); // silencieux si pas d'image principale
+    }
+
+    const results = []
+    for (const file of imageFiles) {
+      const ok = await uploadSingleImage(productId, file)
+      results.push(ok)
+    }
+
+    const succeeded = results.filter((r) => r.status === "fulfilled" && r.value).length;
+    const failed    = results.length - succeeded;
+
+    if (failed > 0) {
+      console.warn(`⚠️ ${failed} image(s) non uploadée(s), ${succeeded} réussie(s)`);
+    } else {
+      console.log(`✅ Toutes les images uploadées (${succeeded}/${imageFiles.length})`);
     }
   }
 
-  // Pour les données non-FormData, les formater et les envoyer en JSON
-  const formattedData = {
-    price: data.price?.toString() ?? "0",
-    stock_threshold: parseInt(data.stock_threshold || "0", 10),
-    current_stock: parseInt(data.current_stock || "0", 10),
-    is_active: true,
-    sku: data.sku || `SKU-${Date.now()}`,
-    description: data.description || "Aucune description",
-    name: data.name || "",
-    category: data.category ? (typeof data.category === 'object' ? data.category.id : data.category) : null,
-    supplier: data.supplier ? (typeof data.supplier === 'object' ? data.supplier.id : data.supplier) : null,
-    est_perissable: Boolean(data.est_perissable),
-  };
-
-  const headers = {
-      "Content-Type": "application/json",
-      "Authorization": `Token ${localStorage.getItem('token')}`,
-  };
-
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: JSON.stringify(formattedData),
-  });
-
-  const result = await response.json();
-
-  if (response.ok && (result.status === "success" || result.status === "ok")) {
-    return result.data;
-  }
-
-  throw new Error(result.message || "Erreur lors de l'enregistrement");
+  return savedProduct;
 }

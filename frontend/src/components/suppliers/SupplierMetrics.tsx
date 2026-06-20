@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Search } from "lucide-react"
+import { Search, Trash2 } from "lucide-react"
 import type { SupplierLike } from "@/types/suppliers"
 import { useToast } from "@/hooks/use-toast"
 
@@ -59,15 +59,19 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
     note: "",
   })
 
-  const filtered = useMemo(() => {
-    const term = search.toLowerCase()
-    return suppliers.filter(
-      (s) =>
-        s.name.toLowerCase().includes(term) ||
-        s.email.toLowerCase().includes(term) ||
-        s.phone.includes(search)
+  const safeString = (value?: string | null) => value ?? ""
+
+const filtered = useMemo(() => {
+  const term = safeString(search).toLowerCase()
+
+  return suppliers.filter((s) => {
+    return (
+      safeString(s.name).toLowerCase().includes(term) ||
+      safeString(s.email).toLowerCase().includes(term) ||
+      safeString(s.phone).includes(search)
     )
-  }, [suppliers, search])
+  })
+}, [suppliers, search])
 
   const filteredInteractions = useMemo(() => {
     const ids = new Set(filtered.map((s) => s.id))
@@ -80,7 +84,7 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
     if (!newInteraction.supplierId || !suppliers.some((s) => s.id === newInteraction.supplierId)) {
       setNewInteraction((ni) => ({ ...ni, supplierId: suppliers[0]?.id ?? "" }))
     }
-  }, [suppliers])
+  }, [suppliers, newInteraction.supplierId])
 
   const addInteraction = () => {
     if (!newInteraction.supplierId || !newInteraction.note.trim()) {
@@ -162,10 +166,22 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
                     <TableRow key={s.id}>
                       <TableCell className="font-medium">{s.name}</TableCell>
                       <TableCell>{s.leadTime} days</TableCell>
-                      <TableCell>{s.minOrderQuantity.toLocaleString()}</TableCell>
-                      <TableCell>{s.maxOrderQuantity.toLocaleString()}</TableCell>
+                      <TableCell>
+                        {s.minOrderQuantity != null ? s.minOrderQuantity.toLocaleString() : "-"}
+                      </TableCell>
+                      <TableCell>
+                        {s.maxOrderQuantity != null ? s.maxOrderQuantity.toLocaleString() : "-"}
+                      </TableCell>
                       <TableCell>{s.isActive ? "Active" : "Inactive"}</TableCell>
-                      <TableCell>{s.createdAt}</TableCell>
+                      <TableCell>
+                        {s.createdAt
+                          ? new Date(s.createdAt).toLocaleDateString('fr-FR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: 'numeric',
+                            })
+                          : '-'}
+                      </TableCell>
                     </TableRow>
                   ))
                 )}
@@ -234,12 +250,13 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
                   <TableHead>Supplier</TableHead>
                   <TableHead>Type</TableHead>
                   <TableHead>Note</TableHead>
+                  <TableHead className="w-[80px]">Actions</TableHead>  {/* ← AJOUTÉ */}
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {filteredInteractions.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={4} className="h-24 text-center text-muted-foreground">
+                    <TableCell colSpan={5} className="h-24 text-center text-muted-foreground">  {/* ← colSpan 4 → 5 */}
                       No interactions yet.
                     </TableCell>
                   </TableRow>
@@ -252,6 +269,17 @@ export function SupplierMetrics({ suppliers, search, onSearch }: SupplierMetrics
                         <TableCell>{supplier?.name ?? "Unknown"}</TableCell>
                         <TableCell className="capitalize">{i.type}</TableCell>
                         <TableCell className="max-w-[400px] whitespace-pre-wrap">{i.note}</TableCell>
+                        {/* ← AJOUTÉ : bouton supprimer */}
+                        <TableCell>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive"
+                            onClick={() => deleteInteraction(i.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </TableCell>
                       </TableRow>
                     )
                   })

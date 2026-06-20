@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import API from "@/services/axios";
 import { PanierItem, ProduitInserer } from '@/types/types';
 

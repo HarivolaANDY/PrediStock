@@ -7,9 +7,45 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
+interface ReportData {
+  type: string;
+  format: string;
+  dateRange: string;
+  includeCharts: boolean;
+  priority: string;
+  emailNotification: boolean;
+  template?: {
+    id: string;
+    name: string;
+    description: string;
+    category: string;
+    estimatedSize: string;
+    estimatedTime: string;
+  };
+  estimatedTime?: string;
+  estimatedSize?: string;
+}
+
 interface GenerateReportModalProps {
   onClose: () => void
-  onGenerate: (data: any) => void
+  onGenerate: (data: {
+    type: string;
+    format: string;
+    dateRange: string;
+    includeCharts: boolean;
+    priority: string;
+    emailNotification: boolean;
+    template?: {
+      id: string;
+      name: string;
+      description: string;
+      category: string;
+      estimatedSize: string;
+      estimatedTime: string;
+    };
+    estimatedTime?: string;
+    estimatedSize?: string;
+  }) => void
   initialData?: {
     type?: string;
     name?: string;

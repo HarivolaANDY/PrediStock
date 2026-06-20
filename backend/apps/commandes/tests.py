@@ -6,7 +6,7 @@ from rest_framework.authtoken.models import Token
 
 from apps.accounts.models import User
 from apps.catalogue.models import Product, Category, Supplier
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, ProduitRenvoie
+from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
 
 
 # ─── Helpers ────────────────────────────────────────────────
@@ -278,21 +278,22 @@ class DonneeVenteActionsTests(TestCase):
 
 
 # ════════════════════════════════════════════════════════════
-#  PRODUIT RENVOYÉ
+#  REMBOURSEMENT
 # ════════════════════════════════════════════════════════════
 
-class ProduitRenvoieTests(TestCase):
+class RemboursementTests(TestCase):
     def setUp(self):
         self.user = create_user()
         self.client = auth_client(self.user)
-        self.url = reverse('retour-list')
-        self.product = create_product("Produit Retour")
-        self.retour = ProduitRenvoie.objects.create(
+        self.url = reverse('remboursement-list')
+        self.product = create_product("Produit Remboursé")
+        self.remboursement = Remboursement.objects.create(
+            source_type='Vente',
+            numero_transaction="V-TEST-001",
             produit=self.product,
-            quantite_retourner=5,
-            raison_retour="Défaut qualité",
-            condition_retour="Mauvais état",
-            est_reapprovisionnnable=False,
+            quantite=5,
+            montant=5000,
+            raison="Défaut qualité",
         )
 
     def test_list_returns_200(self):
@@ -303,64 +304,38 @@ class ProduitRenvoieTests(TestCase):
         response = anon_client().get(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
 
-    def test_create_retour(self):
+    def test_create_remboursement(self):
         response = self.client.post(self.url, {
+            "source_type": "Vente",
+            "numero_transaction": "V-TEST-002",
             "produit": self.product.pk,
-            "quantite_retourner": 2,
-            "raison_retour": "Produit endommagé",
-            "condition_retour": "Cassé",
-            "est_reapprovisionnnable": True,
+            "quantite": 2,
+            "montant": 2000,
+            "raison": "Produit endommagé",
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
-    def test_retrieve_retour(self):
-        url = reverse('retour-detail', kwargs={'pk': self.retour.pk})
+    def test_retrieve_remboursement(self):
+        url = reverse('remboursement-detail', kwargs={'pk': self.remboursement.pk})
         response = self.client.get(url)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
-    def test_retrieve_nonexistent_returns_404(self):
-        url = reverse('retour-detail', kwargs={'pk': 99999})
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-
-    def test_update_retour(self):
-        url = reverse('retour-detail', kwargs={'pk': self.retour.pk})
+    def test_update_remboursement(self):
+        url = reverse('remboursement-detail', kwargs={'pk': self.remboursement.pk})
         response = self.client.patch(url, {
-            "est_reapprovisionnnable": True
+            "raison": "Autre raison"
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.retour.refresh_from_db()
-        self.assertTrue(self.retour.est_reapprovisionnnable)
+        self.remboursement.refresh_from_db()
+        self.assertEqual(self.remboursement.raison, "Autre raison")
 
-    def test_delete_retour(self):
-        url = reverse('retour-detail', kwargs={'pk': self.retour.pk})
+    def test_delete_remboursement(self):
+        url = reverse('remboursement-detail', kwargs={'pk': self.remboursement.pk})
         response = self.client.delete(url)
         self.assertIn(response.status_code, [
             status.HTTP_200_OK, status.HTTP_204_NO_CONTENT
         ])
-        self.assertFalse(ProduitRenvoie.objects.filter(pk=self.retour.pk).exists())
-
-    def test_get_by_action(self):
-        url = reverse('retour-get-by')
-        response = self.client.get(
-            url + '?param=raison_retour&value=Défaut qualité'
-        )
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-    def test_get_by_missing_params(self):
-        url = reverse('retour-get-by')
-        response = self.client.get(url)
-        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-
-    def test_str_with_product(self):
-        self.assertEqual(str(self.retour), "Produit Retour")
-
-    def test_str_without_product(self):
-        retour_sans = ProduitRenvoie.objects.create(
-            produit=None, quantite_retourner=1,
-            raison_retour="Test", condition_retour="OK",
-        )
-        self.assertEqual(str(retour_sans), "Produit renvoyé")
+        self.assertFalse(Remboursement.objects.filter(pk=self.remboursement.pk).exists())
 
 
 # ════════════════════════════════════════════════════════════

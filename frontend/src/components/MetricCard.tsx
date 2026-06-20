@@ -1,6 +1,7 @@
 import { ReactNode } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { cn } from "@/lib/utils"
+import { ArrowUp, ArrowDown, TrendingUp, TrendingDown, Minus } from "lucide-react"
 
 interface MetricCardProps {
   title: string
@@ -25,47 +26,90 @@ export function MetricCard({
   className
 }: MetricCardProps) {
   const variantStyles = {
-    default: "border-border",
-    blue: "border-blue-500/20 bg-blue-500/5",
-    success: "border-success/20 bg-success/5",
-    warning: "border-warning/20 bg-warning/5", 
-    destructive: "border-destructive/20 bg-destructive/5",
-    prediction: "border-prediction/20 bg-prediction/5"
+    default: "border-border bg-gradient-to-br from-white to-slate-50",
+    blue: "border-blue-500/20 bg-gradient-to-br from-blue-50 to-white",
+    success: "border-green-500/20 bg-gradient-to-br from-green-50 to-white",
+    warning: "border-yellow-500/20 bg-gradient-to-br from-yellow-50 to-white", 
+    destructive: "border-red-500/20 bg-gradient-to-br from-red-50 to-white",
+    prediction: "border-indigo-500/20 bg-gradient-to-br from-indigo-50 to-white"
   }
 
   const iconStyles = {
-    default: "text-muted-foreground",
-    blue: "text-blue-500",
-    success: "text-success",
-    warning: "text-warning",
-    destructive: "text-destructive", 
-    prediction: "text-prediction"
+    default: "text-slate-600",
+    blue: "text-blue-600",
+    success: "text-green-600",
+    warning: "text-yellow-600",
+    destructive: "text-red-600", 
+    prediction: "text-indigo-600"
+  }
+
+  const getTrendIcon = (value: number) => {
+    if (value > 0) return <ArrowUp className="h-3 w-3" />
+    if (value < 0) return <ArrowDown className="h-3 w-3" />
+    return <Minus className="h-3 w-3" />
+  }
+
+  const getTrendColor = (value: number) => {
+    if (value > 0) return "text-green-600"
+    if (value < 0) return "text-red-600"
+    return "text-slate-500"
   }
 
   return (
-    <Card className={cn(variantStyles[variant], className)}>
-      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-        <CardTitle className="text-sm font-medium">{title}</CardTitle>
+    <Card className={cn(
+      variantStyles[variant], 
+      "relative overflow-hidden transition-all duration-300 hover:shadow-lg hover:-translate-y-1 border-0",
+      className
+    )}>
+      {/* Decorative corner accents */}
+      <div className="absolute top-0 right-0 w-24 h-24 bg-gradient-to-br opacity-20 rounded-full blur-xl scale-150 transform -translate-x-12 -translate-y-12" 
+           style={{ background: variant === "blue" ? "linear-gradient(135deg, #3b82f6, #818cf8)" : 
+                           variant === "success" ? "linear-gradient(135deg, #10b981, #34d399)" :
+                           variant === "warning" ? "linear-gradient(135deg, #f59e0b, #fbbf24)" :
+                           variant === "destructive" ? "linear-gradient(135deg, #ef4444, #f87171)" :
+                           variant === "prediction" ? "linear-gradient(135deg, #6366f1, #8b5cf6)" :
+                           "linear-gradient(135deg, #64748b, #94a3b8)" }} />
+      
+      <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2 relative z-10">
+        <div className="space-y-1">
+          <CardTitle className="text-sm font-medium text-slate-700">{title}</CardTitle>
+          {description && (
+            <CardDescription className="text-xs text-slate-500">{description}</CardDescription>
+          )}
+        </div>
         {icon && (
-          <div className={cn("h-4 w-4", iconStyles[variant])}>
+          <div className={cn("h-10 w-10 rounded-xl flex items-center justify-center bg-white/50 backdrop-blur-sm shadow-sm", iconStyles[variant])}>
             {icon}
           </div>
         )}
       </CardHeader>
-      <CardContent>
-        <div className="text-2xl font-bold">{value}</div>
-        {description && (
-          <CardDescription className="text-xs">{description}</CardDescription>
-        )}
+      <CardContent className="relative z-10">
+        <div className={cn(
+          "text-3xl font-bold transition-all duration-300",
+          variant === "blue" ? "text-blue-700" : 
+          variant === "success" ? "text-green-700" :
+          variant === "warning" ? "text-yellow-700" :
+          variant === "destructive" ? "text-red-700" :
+          variant === "prediction" ? "text-indigo-700" :
+          "text-slate-900"
+        )}>
+          {value}
+        </div>
+
         {trend && (
-          <div className="flex items-center space-x-1 text-xs mt-1">
-            <span className={cn(
-              "font-medium",
-              trend.value > 0 ? "text-success" : trend.value < 0 ? "text-destructive" : "text-muted-foreground"
+          <div className="flex items-center space-x-2 text-xs mt-2">
+            <div className={cn(
+              "flex items-center space-x-1 px-2 py-1 rounded-full text-xs font-medium transition-colors duration-200",
+              trend.value > 0 ? "bg-green-100 text-green-700" : 
+              trend.value < 0 ? "bg-red-100 text-red-700" : 
+              "bg-slate-100 text-slate-700"
             )}>
-              {trend.value > 0 ? "+" : ""}{trend.value}%
-            </span>
-            <span className="text-muted-foreground">{trend.label}</span>
+              {getTrendIcon(trend.value)}
+              <span className={getTrendColor(trend.value)}>
+                {trend.value > 0 ? "+" : ""}{trend.value}%
+              </span>
+            </div>
+            <span className="text-slate-500">{trend.label}</span>
           </div>
         )}
       </CardContent>

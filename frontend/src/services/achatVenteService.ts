@@ -1,0 +1,151 @@
+import { API_BASE_URL } from "@/services/api";
+import type {
+  BonCommande,
+  CreateBonCommandeData,
+  DonneeVente,
+  CreateDonneeVenteData,
+  Remboursement,
+  MouvementStock,
+  AnalyticsData,
+  Fournisseur,
+  PaginatedResponse,
+} from "@/types/achatVente";
+import type { Product } from "@/types/types";
+
+
+const authHeaders = () => ({
+  "Content-Type": "application/json",
+  Authorization: `Token ${localStorage.getItem("token")}`,
+});
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, { headers: authHeaders(), ...options });
+  const text = await res.text();
+  
+  if (!res.ok) {
+    let msg = `Erreur ${res.status}`;
+    try {
+      if (text) {
+        const parsed = JSON.parse(text);
+        msg = parsed.message || parsed.detail || msg;
+      }
+    } catch { /* use default */ }
+    throw new Error(msg);
+  }
+
+  if (!text) return null as unknown as T;
+
+  try {
+    const parsed = JSON.parse(text);
+    // Unwrap StandardResponse envelope if present
+    if (parsed && typeof parsed === "object" && "data" in parsed) return parsed.data as T;
+    return parsed as T;
+  } catch {
+    return text as unknown as T;
+  }
+}
+
+
+// ─── Bon Commande ─────────────────────────────────────────────────────────────
+
+export const getBonCommandes = (params?: Record<string, string>) => {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return fetchJson<BonCommande[]>(`${API_BASE_URL}/api/commandes/bon-commande/${qs}`);
+};
+
+export const getBonCommande = (id: number) =>
+  fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/`);
+
+export const createBonCommande = (data: CreateBonCommandeData) =>
+  fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateBonCommande = (id: number, data: Partial<CreateBonCommandeData>) =>
+  fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteBonCommande = (id: number) =>
+  fetchJson<void>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/`, {
+    method: "DELETE",
+  });
+
+// ─── Donnée Vente ─────────────────────────────────────────────────────────────
+
+
+export const getDonneeVentes = (params?: Record<string, string>) => {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return fetchJson<DonneeVente[]>(`${API_BASE_URL}/api/commandes/donnee-vente/${qs}`);
+};
+
+export const getDonneeVente = (id: number) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`);
+
+export const createDonneeVente = (data: CreateDonneeVenteData) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
+export const updateDonneeVente = (id: number, data: Partial<CreateDonneeVenteData>) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+export const deleteDonneeVente = (id: number) =>
+  fetchJson<void>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`, {
+    method: "DELETE",
+  });
+
+// ─── Retours ──────────────────────────────────────────────────────────────────
+
+export const getRemboursements = (params?: Record<string, string>) => {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return fetchJson<Remboursement[]>(`${API_BASE_URL}/api/commandes/remboursements/${qs}`);
+};
+
+export const updateRemboursement = (id: number, data: Partial<Remboursement>) =>
+  fetchJson<Remboursement>(`${API_BASE_URL}/api/commandes/remboursements/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+
+// ─── Analytics ────────────────────────────────────────────────────────────────
+
+export const getAnalytics = () =>
+  fetchJson<AnalyticsData>(`${API_BASE_URL}/api/commandes/analytics/`);
+
+
+// ─── Mouvements de stock ──────────────────────────────────────────────────────
+
+export const getMouvements = (params?: Record<string, string>) => {
+  const qs = params ? "?" + new URLSearchParams(params).toString() : "";
+  return fetchJson<MouvementStock[]>(`${API_BASE_URL}/api/stock/mouvements/${qs}`);
+};
+
+// ─── Fournisseurs (for the purchase create form) ──────────────────────────────
+
+export const getFournisseurs = () =>
+  fetchJson<PaginatedResponse<Fournisseur> | Fournisseur[]>(`${API_BASE_URL}/api/catalogue/suppliers/`).then(res => {
+    if (res && typeof res === "object" && "results" in res && Array.isArray(res.results)) return res.results;
+    return Array.isArray(res) ? res : [];
+  });
+// ─── Produits (for order lines) ───────────────────────────────────────────────
+
+export const getProduits = () =>
+  fetchJson<PaginatedResponse<Product> | Product[]>(`${API_BASE_URL}/api/catalogue/products/`).then(res => {
+    // If paginated, return the results array
+    if (res && typeof res === "object" && "results" in res && Array.isArray(res.results)) return res.results;
+    // Otherwise return the response as is (if it's already an array)
+    return Array.isArray(res) ? res : [];
+  });
+
+export const searchProduits = (terme: string) =>
+  fetchJson<Product[]>(`${API_BASE_URL}/api/catalogue/products/`, {
+    method: "POST",
+    body: JSON.stringify({ chercher: terme }),
+  });

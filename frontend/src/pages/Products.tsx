@@ -1,7 +1,7 @@
-import { useState, useCallback, useEffect } from "react"
+import { useState, useCallback, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { categoryAPI } from '@/services/api'
-import { Package, Plus, Search, Filter, Edit, Eye, Trash2, BarChart3, DollarSign, TriangleAlert, Download, Upload } from "lucide-react"
+import { Package, Plus, Search, Edit, Eye, Trash2, BarChart3, DollarSign, Download, Upload, Filter, ChevronLeft, ChevronRight, AlertTriangle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,11 +14,18 @@ import { BarChart } from "@/components/charts/BarChart"
 import { LineChart } from "@/components/charts/LineChart"
 import DeleteConfirmationModal from "@/components/DeleteConfirmationModal"
 import { saveProduct } from "@/components/productApi"
-import { useProducts } from "@/hooks/useProducts"
+import { useProducts, StockStatusFilter } from "@/hooks/useProducts"
 import ImportModal from "@/components/ImportModal"
 import { CategoryForm } from "@/components/CategoryForm"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils"
+import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import API from '@/services/axios'
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { RotateCcw } from "lucide-react"
+import { Category, ProductStats, InventaireItem, HistoriqueInventaire } from '@/types/types'
+import { toast } from '@/components/ui/use-toast'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import { Label } from "@/components/ui/label"
 
 type Product = {
   id: number
@@ -29,6 +36,7 @@ type Product = {
   price: string
   stock_threshold: number
   current_stock: number
+  unite_mesure: string
   is_active: boolean
   created_at: string
   updated_at: string
@@ -36,29 +44,19 @@ type Product = {
   supplier: number | null
 }
 
-import { Category as CategoryType } from '@/types/types'
-import { toast } from '@/components/ui/use-toast'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog"
-import { Label } from "@/components/ui/label"
-
-// ---------------------------------------------------------------------------
-// Données fictives de fallback — utilisées UNIQUEMENT si l'API ne renvoie rien
-// ---------------------------------------------------------------------------
-const MOCK_STOCK_MOVEMENT_DATA = [
-  { month: "Jan", inbound: 450, outbound: 380, net: 70 },
-  { month: "Fév", inbound: 520, outbound: 420, net: 100 },
-  { month: "Mar", inbound: 380, outbound: 480, net: -100 },
-  { month: "Avr", inbound: 680, outbound: 520, net: 160 },
-  { month: "Mai", inbound: 590, outbound: 450, net: 140 },
-  { month: "Jun", inbound: 720, outbound: 580, net: 140 },
-]
+// ── Statut stock réel — aligné sur filter_stock_status (filters.py) ─────────
+// rupture     : stock = 0
+// critique    : 0 < stock <= 25% du seuil
+// stock_faible: 25% < stock <= 50% du seuil
+// en_stock    : stock > 50% du seuil (ou seuil = 0)
+function getStockStatus(current_stock: number, stock_threshold: number): "rupture" | "critique" | "stock_faible" | "en_stock" {
+  if (current_stock === 0) return "rupture"
+  if (stock_threshold <= 0) return "en_stock"
+  const ratio = current_stock / stock_threshold
+  if (ratio <= 0.25) return "critique"
+  if (ratio <= 0.50) return "stock_faible"
+  return "en_stock"
+}
 
 const MOCK_REVENUE_DATA = [
   { month: "Jan", electronics: 32000, clothing: 21000, furniture: 14000 },
@@ -68,7 +66,45 @@ const MOCK_REVENUE_DATA = [
   { month: "Mai", electronics: 47000, clothing: 27000, furniture: 19000 },
   { month: "Jun", electronics: 62000, clothing: 35000, furniture: 25000 },
 ]
-// ---------------------------------------------------------------------------
+
+const MetricCardsStats = ({ stats }: { stats: ProductStats | null }) => {
+  if (!stats) return <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4"><MetricCard title="Nombre de types de produits" value="Loading..." icon={<Package className="h-4 w-4" />} /></div>
+  return (
+    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <MetricCard title="Nombre de types de produits" value={stats.total_produits?.toString() || "0"} icon={<Package className="h-4 w-4" />} />
+      <MetricCard title="Total Stock" value={stats.total_stock?.toString() || "0"} icon={<DollarSign className="h-4 w-4" />} variant="success" />
+      <MetricCard
+        title="Produits en Rupture"
+        value={stats.total_stock_rupture?.toString() || "0"}
+        description={stats.total_produits > 0 ? `${((stats.total_stock_rupture * 100) / stats.total_produits).toFixed(2)}% du catalogue` : "0%"}
+        icon={<BarChart3 className="h-4 w-4" />}
+        variant="destructive"
+      />
+
+      {/* ✅ Carte Alertes splitée — identique au Dashboard */}
+      <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <p className="text-sm text-muted-foreground font-medium">Alertes Stock</p>
+            <p className="text-xs text-muted-foreground">Produits sous seuil</p>
+          </div>
+          <AlertTriangle className="h-5 w-5 text-amber-500" />
+        </div>
+        <div className="grid grid-cols-2 gap-3 mt-2">
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground">Faible</p>
+            <p className="text-xl font-bold text-orange-500">{stats.total_stock_faible ?? 0}</p>
+          </div>
+          <div className="rounded-lg border p-3 text-center">
+            <p className="text-xs text-muted-foreground">Critique</p>
+            <p className="text-xl font-bold text-red-500">{stats.total_stock_critique ?? 0}</p>
+          </div>
+        </div>
+        <div className="mt-4 text-xs text-muted-foreground">Surveillance des stocks critiques</div>
+      </div>
+    </div>
+  )
+}
 
 export default function Products() {
   const navigate = useNavigate()
@@ -77,143 +113,257 @@ export default function Products() {
   const [searchTerm, setSearchTerm] = useState("")
   const [isloadingStats, setIsLoadingStats] = useState(true)
   const [showCategoryForm, setShowCategoryForm] = useState(false)
-  const [editingCategory, setEditingCategory] = useState<CategoryType | null>(null)
+  const [editingCategory, setEditingCategory] = useState<Category | null>(null)
   const [analyticsSearchTerm, setAnalyticsSearchTerm] = useState("")
   const [showProductForm, setShowProductForm] = useState(false)
   const [editingProduct, setEditingProduct] = useState<Product | null>(null)
   const [showDeleteModal, setShowDeleteModal] = useState(false)
   const [productToDelete, setProductToDelete] = useState<Product | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const { products, loading, error, refetch, totalCount, hasNextPage, hasPreviousPage } = useProducts(currentPage)
-  const [stats, setStats] = useState<any>(null)
-  const [inventaire, setInventaire] = useState<any[]>([])
-  const [currentHistoriqueId, setCurrentHistoriqueId] = useState(0)
-  const [currentHistoriquedesc, setCurrentHistoriqueDesc] = useState("")
-  const [list_histo, setList_histo] = useState<any[]>([])
-  const [redressID, setRedressID] = useState<any>()
+
+  // ── Filtres ────────────────────────────────────────────────────────────────
+  const [filterCategory, setFilterCategory] = useState<string>("all")
+  const [filterUnit, setFilterUnit] = useState("")
+  const [filterStatus, setFilterStatus] = useState<StockStatusFilter>("all")
+
+  const { products, loading, error, refetch, totalCount, hasNextPage, hasPreviousPage } = useProducts({
+    page: currentPage,
+    category: filterCategory === "all" ? undefined : filterCategory,
+    unite_mesure: filterUnit || undefined,
+    search: searchTerm || undefined,
+    status: filterStatus,
+  })
+
+  const [stats, setStats] = useState<ProductStats | null>(null)
+  const [inventaire, setInventaire] = useState<InventaireItem[]>([])
+  const [currentHistoriqueId, setCurrentHistoriqueId] = useState<number | null>(null)
+  const [currentHistoriqueDesc, setCurrentHistoriqueDesc] = useState("")
+  const [list_histo, setList_histo] = useState<HistoriqueInventaire[]>([])
   const [showInventoryForm, setShowInventoryForm] = useState(false)
   const [inventoryDescription, setInventoryDescription] = useState("")
   const [isDownloadingPdf, setIsDownloadingPdf] = useState(false)
   const [showUploadModal, setShowUploadModal] = useState(false)
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null)
   const [isUploading, setIsUploading] = useState(false)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
+  const [isSavingInventaire, setIsSavingInventaire] = useState(false)
+  const [localInventaire, setLocalInventaire] = useState<{[key: number]: number}>({})
 
-  // ── États pour les données réelles des graphiques ──────────────────────────
-  const [stockMovements, setStockMovements] = useState<any[]>([])
-  const [revenueData, setRevenueData] = useState<any[]>([])
+  // ── Graphique mouvements ───────────────────────────────────────────────────
+  interface StockMovement {
+    period: string
+    inbound: number
+    outbound: number
+    net: number
+    [key: string]: string | number
+  }
+  const [timeRange, setTimeRange] = useState<"day" | "month" | "year">("month")
+  // ✅ Données réelles depuis /stock/mouvements/chart/?range=...
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>([])
+  const [stockMovementsLoading, setStockMovementsLoading] = useState(true)
 
-  // Données effectives : réelles si disponibles, fictives sinon
-  const stockMovementChartData = stockMovements.length > 0 ? stockMovements : MOCK_STOCK_MOVEMENT_DATA
-  const revenueChartData = revenueData.length > 0 ? revenueData : MOCK_REVENUE_DATA
-  const isStockMovementMock = stockMovements.length === 0
+  // ── Revenus ────────────────────────────────────────────────────────────────
+  interface ChartDataPoint { [key: string]: unknown }
+  const [revenueData, setRevenueData] = useState<ChartDataPoint[]>([])
   const isRevenueMock = revenueData.length === 0
-  // ───────────────────────────────────────────────────────────────────────────
+
+  // ── Mouvements par produit ─────────────────────────────────────────────────
+  interface ProductMovement {
+    product: string
+    inbound: number
+    outbound: number
+    net: number
+    [key: string]: string | number
+  }
+  const [productMovements, setProductMovements] = useState<ProductMovement[]>([])
+  const [productMovementsLoading, setProductMovementsLoading] = useState(true)
+  const isFirstMount = useRef(true)
+
+  // ── Pagination ─────────────────────────────────────────────────────────────
+  const PAGE_SIZE = 10
+  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE))
+
+  const getVisiblePages = () => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1)
+    const half = 2
+    let start = Math.max(1, currentPage - half)
+    let end = Math.min(totalPages, currentPage + half)
+    if (currentPage <= half + 1) end = Math.min(totalPages, 5)
+    if (currentPage >= totalPages - half) start = Math.max(1, totalPages - 4)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }
+
+  // Nombre de filtres actifs
+  const activeFilterCount = [filterCategory !== "all", filterUnit !== "", filterStatus !== "all"].filter(Boolean).length
+
+  const statusLabel: Record<StockStatusFilter, string> = {
+    all: "Tous",
+    en_stock: "En stock",
+    stock_faible: "Stock faible",
+    critique: "Critique",
+    rupture: "Rupture",
+  }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
   const getStatusBadge = (current_stock: number, threshold: number) => {
-    const pourcentage = (threshold * 15) / 100
-    if (current_stock === 0) return <Badge variant="destructive">Rupture</Badge>
-    if (current_stock <= pourcentage) return <Badge variant="secondary" className="bg-warning text-warning-foreground">Stock faible</Badge>
-    return <Badge variant="default" className="bg-success text-success-foreground">En stock</Badge>
+    switch (getStockStatus(current_stock, threshold)) {
+      case "rupture":      return <Badge variant="destructive">Rupture</Badge>
+      case "critique":     return <Badge className="bg-orange-600 hover:bg-orange-600 text-white">Critique</Badge>
+      case "stock_faible": return <Badge variant="secondary" className="bg-warning text-warning-foreground">Stock faible</Badge>
+      case "en_stock":     return <Badge variant="default" className="bg-success text-success-foreground">En stock</Badge>
+    }
   }
 
   // ── Appels API ─────────────────────────────────────────────────────────────
-  const getStats = async () => {
+  const loadCategories = useCallback(async () => {
+    try {
+      const response = await categoryAPI.getCategories()
+      if (response?.data) {
+        const map = (response.data as Category[]).reduce((acc: Record<string, string>, c: Category) => {
+          if (c.id) acc[c.id] = c.name; return acc
+        }, {})
+        setCategories(map)
+      }
+    } catch (e) { console.error("Erreur catégories:", e) }
+  }, [])
+
+  const getStats = useCallback(async () => {
     try {
       const res = await API.get('catalogue/products/stats/')
       setStats(res.data.data)
       setIsLoadingStats(false)
-    } catch (error) {
-      console.error('Erreur stats:', error)
-    }
-  }
+    } catch (e) { console.error('Erreur stats:', e) }
+  }, [])
 
-  /** Mouvements de stock mensuels — fallback sur MOCK_STOCK_MOVEMENT_DATA si vide */
-  const getStockMovements = async () => {
+  // ✅ Données réelles — endpoint /stock/mouvements/chart/?range=...
+  // Backend (views.py stock) : TruncMonth/Day/Year sur 'timestamp'
+  const getStockMovements = useCallback(async (isInitial = false) => {
+    if (!isInitial) setStockMovementsLoading(true)
     try {
-      const response = await API.get('stock/mouvements/')
-      const data = response.data?.data || response.data?.results || response.data || []
-      setStockMovements(Array.isArray(data) && data.length > 0 ? data : [])
-    } catch (error) {
-      console.error('Erreur mouvements de stock:', error)
+      const response = await API.get('stock/mouvements/chart/', {
+        params: { range: timeRange }
+      })
+      const data = response.data?.data || []
+      setStockMovements(
+        Array.isArray(data)
+          ? data.map((item: StockMovement) => ({
+              period: item.period ?? "—",
+              inbound: item.inbound ?? 0,
+              outbound: item.outbound ?? 0,
+              net: item.net ?? 0,
+            }))
+          : []
+      )
+    } catch (e) {
+      console.error('Erreur mouvements chart:', e)
       setStockMovements([])
+    } finally {
+      setStockMovementsLoading(false)
     }
-  }
+  }, [timeRange])
 
-  /** Revenus par catégorie mensuels — fallback sur MOCK_REVENUE_DATA si vide */
-  const getRevenueData = async () => {
+  const getRevenueData = useCallback(async () => {
     try {
       const response = await API.get('catalogue/revenues/mensuel/')
       const data = response.data?.data || response.data?.results || response.data || []
       setRevenueData(Array.isArray(data) && data.length > 0 ? data : [])
-    } catch (error) {
-      console.error('Erreur revenus:', error)
-      setRevenueData([]) // déclenche le fallback fictif
-    }
-  }
+    } catch { setRevenueData([]) }
+  }, [])
 
-  const getInventaire = async (id_histo: number) => {
+  const getProductMovements = useCallback(async (isInitial = false) => {
+    if (!isInitial) setProductMovementsLoading(true)
     try {
-      const params = id_histo !== 0 ? { historique: id_histo } : {}
-      const response = await API.get('stock/inventaire/par_historique/', { params })
+      const response = await API.get('stock/mouvements/chart_by_product/', {
+        params: { limit: 20 }
+      })
+      const data = response.data?.data || []
+      setProductMovements(
+        Array.isArray(data)
+          ? data.map((item: ProductMovement) => ({
+              product: item.product ?? "Inconnu",
+              inbound: item.inbound ?? 0,
+              outbound: item.outbound ?? 0,
+              net: item.net ?? 0,
+            }))
+          : []
+      )
+    } catch (e) {
+      console.error('Erreur mouvements par produit:', e)
+      setProductMovements([])
+    } finally {
+      setProductMovementsLoading(false)
+    }
+  }, [])
+
+  const getInventaire = useCallback(async (id_histo: number | null) => {
+    if (!id_histo) { setInventaire([]); setLocalInventaire({}); return }
+    try {
+      const response = await API.get('stock/inventaire/par_historique/', {
+        params: { historique: id_histo }
+      })
       const data = response.data?.data || response.data?.results || response.data || []
       setInventaire(Array.isArray(data) ? data : [])
+      setLocalInventaire({}) // Reset local edits on fetch
       setIsLoadingStats(false)
-    } catch (error) {
-      console.error('Erreur inventaire:', error)
-    }
-  }
+    } catch (e) { console.error('Erreur inventaire:', e) }
+  }, [])
 
   const Redresser_Inventaire = async (id_histo: number) => {
-    await API.post("stock/inventaire/redresser/", { historique: id_histo })
-    getListeHisto()
-    getInventaire(id_histo)
-  }
-
-  const getListeHisto = async () => {
     try {
-      const response = await API.get('stock/historique-inventaire/')
-      const data = response.data?.data || response.data?.results || response.data || []
-      if (!Array.isArray(data)) { console.warn('Format inattendu:', response.data); return }
-      setList_histo(data)
-      if (data.length > 0) {
-        const latest = data[0]
-        setRedressID(latest.id)
-        setCurrentHistoriqueId(latest.id)
-        setCurrentHistoriqueDesc(latest.description)
-        getInventaire(latest.id)
-      }
-    } catch (error) {
-      console.error('Erreur historique:', error)
+      await API.post("stock/inventaire/redresser/", { historique: id_histo })
+      toast({ title: "Succès", description: "Inventaire redressé avec succès." })
+      getListeHisto(id_histo)
+    } catch (e) {
+      toast({ title: "Erreur", description: "Échec du redressement.", variant: "destructive" })
     }
   }
+
+  const Supprimer_Inventaire = async (id_histo: number) => {
+    if (!window.confirm("Voulez-vous vraiment supprimer cet inventaire ?")) return;
+    try {
+      await API.delete(`stock/historique-inventaire/${id_histo}/`)
+      toast({ title: "Succès", description: "Inventaire supprimé." })
+      getListeHisto()
+    } catch (e) {
+      toast({ title: "Erreur", description: "Échec de la suppression.", variant: "destructive" })
+    }
+  }
+
+  const getListeHisto = useCallback(async (selectId?: number) => {
+    try {
+      const response = await API.get('stock/historique-inventaire/')
+      let data = response.data?.data || response.data?.results || response.data || []
+      if (!Array.isArray(data) && data?.results) data = data.results
+      if (!Array.isArray(data)) return
+      setList_histo(data)
+      
+      if (data.length > 0) {
+        // Si un ID est spécifié (ex: après création), on le sélectionne
+        // Sinon on prend le premier de la liste (le plus récent grâce au backend ordering: ['-date'])
+        const target = selectId ? data.find((h: HistoriqueInventaire) => h.id === selectId) || data[0] : data[0]
+        
+        setCurrentHistoriqueId(target.id)
+        setCurrentHistoriqueDesc(target.description ?? '')
+        getInventaire(target.id)
+      } else {
+        setCurrentHistoriqueId(null)
+        setCurrentHistoriqueDesc('')
+        setInventaire([])
+      }
+    } catch (e) { console.error('Erreur historique:', e) }
+  }, [getInventaire])
 
   const Telecharger_pdf = async (historiqueId?: number, description?: string) => {
     if (!historiqueId) return
     setIsDownloadingPdf(true)
     try {
-      const details = {
-        table: "Inventaire",
-        year: "2025",
-        month: "",
-        day: "",
-        specific: historiqueId,
-        titre: `Inventaire - ${description || 'Historique ' + historiqueId} - ${Date.now()}.pdf`,
-      }
-      const res = await API.post("core/pdf/dynamic/", details, { responseType: 'blob' })
+      const details = { table: "Inventaire", year: "2025", month: "", day: "", specific: historiqueId,
+        titre: `Inventaire - ${description || 'Historique ' + historiqueId} - ${Date.now()}.pdf` }
+      const res = (await API.post("core/pdf/dynamic/", details, { responseType: 'blob' })) as unknown as AxiosResponseWithBlob
       const parsed = await parseAxiosBlobResponse(res, details.titre)
-      if (parsed.files?.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files])
-        downloadAll(parsed.files)
-      }
-      toast({ title: "Succès", description: "PDF téléchargé avec succès.", variant: "default" })
-    } catch (err) {
-      console.error("Erreur PDF:", err)
-      toast({ title: "Erreur", description: "Échec du téléchargement du PDF.", variant: "destructive" })
-    } finally {
-      setIsDownloadingPdf(false)
-    }
+      if (parsed.files?.length) downloadAll(parsed.files)
+      toast({ title: "Succès", description: "PDF téléchargé." })
+    } catch { toast({ title: "Erreur", description: "Échec du téléchargement.", variant: "destructive" }) }
+    finally { setIsDownloadingPdf(false) }
   }
 
   const handlePdfUpload = async () => {
@@ -223,224 +373,204 @@ export default function Products() {
     formData.append('pdf_file', selectedPdfFile)
     formData.append('historique_id', currentHistoriqueId.toString())
     try {
-      await API.post('core/pdf/upload-pdf/', formData, { headers: { 'Content-Type': 'multipart/form-data' } })
-      toast({ title: "Succès", description: "PDF uploadé avec succès !", variant: "default" })
-      setShowUploadModal(false)
-      setSelectedPdfFile(null)
-    } catch (err: any) {
-      console.error(err)
-      toast({ title: "Erreur", description: err.response?.data?.error || "Échec de l'upload.", variant: "destructive" })
-    } finally {
-      setIsUploading(false)
+      const res = await API.post('core/pdf/process-pdf/', formData, { 
+        headers: { 'Content-Type': 'multipart/form-data' },
+        timeout: 0 // Désactive le timeout car l'OCR sur CPU peut prendre plusieurs minutes
+      })
+      toast({ title: "Succès", description: res.data?.message || "PDF uploadé et traité avec succès !" })
+      setShowUploadModal(false); setSelectedPdfFile(null)
+      getInventaire(currentHistoriqueId) // Refetch to see OCR results
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: string } } }
+      toast({ title: "Erreur", description: e.response?.data?.error || "Échec upload.", variant: "destructive" })
+    } finally { setIsUploading(false) }
+  }
+
+  const handleQuantityChange = (id: number, val: string) => {
+    // Remplacer virgule par point pour le parsing
+    const normalizedVal = val.replace(',', '.')
+    const num = parseFloat(normalizedVal)
+    if (!isNaN(num)) {
+      setLocalInventaire(prev => ({ ...prev, [id]: num }))
+    } else if (val === '') {
+      setLocalInventaire(prev => ({ ...prev, [id]: 0 }))
     }
   }
 
-  // ── Filtres produits ───────────────────────────────────────────────────────
-  const filteredProducts = useCallback(() => {
-    return products?.filter((product: any) =>
-      product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      String(product.category).toLowerCase().includes(searchTerm.toLowerCase())
-    ) ?? []
-  }, [products, searchTerm])
+  const handleSaveInventaire = async () => {
+    if (Object.keys(localInventaire).length === 0) return
+    setIsSavingInventaire(true)
+    try {
+      const items = Object.entries(localInventaire).map(([id, qte]) => ({ id: parseInt(id), quantite_phy: qte }))
+      await API.post('stock/inventaire/bulk-update/', { items })
+      toast({ title: "Succès", description: "Quantités sauvegardées." })
+      getInventaire(currentHistoriqueId)
+    } catch { toast({ title: "Erreur", description: "Échec de la sauvegarde.", variant: "destructive" }) }
+    finally { setIsSavingInventaire(false) }
+  }
 
-  const allFilteredProducts = filteredProducts()
+  const handleResetFilters = () => {
+    setSearchTerm(""); setFilterCategory("all"); setFilterUnit(""); setFilterStatus("all"); setCurrentPage(1)
+  }
 
-  // ── Handlers UI ────────────────────────────────────────────────────────────
-  const handleAddProduct = () => { setEditingProduct(null); setShowProductForm(true); refetch() }
+  const handleAddProduct = () => { setEditingProduct(null); setShowProductForm(true) }
   const handleViewDetails = (id: string) => navigate(`/product/${id}`)
-  const handleEditProduct = (product: Product) => { setEditingProduct(product); setShowProductForm(true); refetch() }
+  const handleEditProduct = (product: Product) => { setEditingProduct(product); setShowProductForm(true) }
   const handleCloseForm = () => { setShowProductForm(false); setEditingProduct(null); refetch() }
   const handleAddCategory = () => { setEditingCategory(null); setShowCategoryForm(true) }
   const handleCloseCategoryForm = () => { setShowCategoryForm(false); setEditingCategory(null) }
-  const handleImportModal = () => setShowImportModal(true)
-  const handleDeleteClick = (product: Product) => { setProductToDelete(product); setShowDeleteModal(true); refetch() }
-  const handleConfirmDelete = () => { setShowDeleteModal(false); setProductToDelete(null); refetch() }
-
-  const handleSubmitCategory = async (data: CategoryType) => {
-    setShowCategoryForm(false)
-    setEditingCategory(null)
-    if (typeof refetch === 'function') refetch()
+  const handleDeleteClick = (product: Product) => { setProductToDelete(product); setShowDeleteModal(true) }
+  const handleConfirmDelete = async () => {
+    if (!productToDelete) return
     try {
-      const response = await categoryAPI.getCategories()
-      const categoryMap = response.data.reduce((acc: { [key: number]: string }, category) => {
-        if (category.id) acc[category.id] = category.name
-        return acc
-      }, {})
-      setCategories(categoryMap)
+      await API.delete(`catalogue/products/${productToDelete.id}/`)
+      toast({ title: "Succès", description: "Produit supprimé." })
+      setShowDeleteModal(false)
+      setProductToDelete(null)
+      refetch() // ← rafraîchit la liste
     } catch (error) {
-      console.error("Erreur rechargement catégories:", error)
+      console.error("Erreur suppression:", error)
+      toast({ 
+        title: "Erreur", 
+        description: "Impossible de supprimer le produit.", 
+        variant: "destructive" 
+      })
     }
-    toast({ title: "Succès", description: `La catégorie ${data.name} a été ${data.id ? 'modifiée' : 'créée'} avec succès.`, variant: "default" })
   }
 
-  const handleSubmitProduct = async (data: any) => {
+  const handleSubmitCategory = async (data: Category) => {
+    setShowCategoryForm(false); setEditingCategory(null); refetch()
     try {
-      await saveProduct(data)
-      setShowProductForm(false)
-      setEditingProduct(null)
-    } catch (error) {
-      console.error(error)
-    } finally {
-      refetch()
-    }
+      const response = await categoryAPI.getCategories()
+      if (response?.data) {
+        const map = (response.data as Category[]).reduce((acc: Record<string, string>, c: Category) => {
+          if (c.id) acc[c.id] = c.name; return acc
+        }, {})
+        setCategories(map)
+      }
+    } catch (e) { console.error("Erreur catégories:", e) }
+    toast({ title: "Succès", description: `Catégorie "${data.name}" ${data.id ? 'modifiée' : 'créée'}.` })
+  }
+
+  const handleSubmitProduct = async (data: FormData | Record<string, unknown>) => {
+    try { await saveProduct(data); setShowProductForm(false); setEditingProduct(null) }
+    catch (e) { console.error(e) }
+    finally { refetch() }
   }
 
   const handleSubmitInventory = async () => {
     try {
-      const response = await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
-      setShowInventoryForm(false)
-      setInventoryDescription("")
-      getListeHisto()
-      toast({ title: "Succès", description: "Inventaire préparé avec succès.", variant: "default" })
-      const newHistoriqueId = response.data.id || response.data.data.id
-      const newDescription = inventoryDescription || response.data.description
-      if (newHistoriqueId) Telecharger_pdf(newHistoriqueId, newDescription)
-    } catch (error) {
-      console.error("Erreur inventaire:", error)
-      toast({ title: "Erreur", description: "Échec de la préparation de l'inventaire.", variant: "destructive" })
-    }
+      const res = await API.post('stock/inventaire/lancer/', { description: inventoryDescription })
+      setShowInventoryForm(false); setInventoryDescription(""); 
+      toast({ title: "Succès", description: "Inventaire préparé avec succès." })
+      
+      // On récupère l'ID du nouvel inventaire depuis la réponse du backend
+      const newId = res.data?.data?.id || res.data?.id
+      
+      // On rafraîchit la liste et on sélectionne le nouvel inventaire
+      await getListeHisto(newId)
+    } catch { toast({ title: "Erreur", description: "Échec inventaire.", variant: "destructive" }) }
   }
 
-  // Navigation historiques
+  const handleExportCSV = async () => {
+    try {
+      const res = await API.get('catalogue/products/', { params: { page_size: 100 } })
+      const allProducts = res.data?.data?.results || res.data?.data || []
+      if (allProducts.length === 0) { toast({ title: "Exportation", description: "Aucune donnée." }); return }
+      const headers = ["Produit", "Catégorie", "Prix", "Quantité", "Statut"]
+      const rows = allProducts.map((p: Product) => {
+        const sl = { rupture: "Rupture", critique: "Critique", stock_faible: "Stock faible", en_stock: "En stock" }[getStockStatus(p.current_stock, p.stock_threshold)]
+        const cat = p.category ? (categories[p.category] || "Catégorie inconnue") : "Non catégorisé"
+        return [`"${p.name.replace(/"/g, '""')}"`, `"${cat}"`, p.price, p.current_stock, sl]
+      })
+      const csv = [headers.join(";"), ...rows.map((r: (string | number)[]) => r.join(";"))].join("\n")
+      const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' })
+      const now = new Date()
+      const filename = `products_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a'); a.href = url; a.setAttribute('download', filename)
+      document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+      toast({ title: "Succès", description: `${allProducts.length} produits exportés.` })
+    } catch { toast({ title: "Erreur", description: "Échec export CSV.", variant: "destructive" }) }
+  }
+
   const handlePreviousHistorique = () => {
     const idx = list_histo.findIndex(h => h.id === currentHistoriqueId)
-    if (idx > 0) {
-      setCurrentHistoriqueId(list_histo[idx - 1].id)
-      setCurrentHistoriqueDesc(list_histo[idx - 1].description)
-      getInventaire(list_histo[idx - 1].id)
+    if (idx > 0) { 
+      const prev = list_histo[idx - 1]
+      setCurrentHistoriqueId(prev.id); setCurrentHistoriqueDesc(prev.description ?? ''); getInventaire(prev.id) 
     }
   }
   const handleNextHistorique = () => {
     const idx = list_histo.findIndex(h => h.id === currentHistoriqueId)
-    if (idx < list_histo.length - 1) {
-      setCurrentHistoriqueId(list_histo[idx + 1].id)
-      setCurrentHistoriqueDesc(list_histo[idx + 1].description)
-      getInventaire(list_histo[idx + 1].id)
+    if (idx !== -1 && idx < list_histo.length - 1) { 
+      const next = list_histo[idx + 1]
+      setCurrentHistoriqueId(next.id); setCurrentHistoriqueDesc(next.description ?? ''); getInventaire(next.id) 
     }
   }
-  const hasPreviousHistorique = list_histo?.length > 0 && list_histo.findIndex(h => h.id === currentHistoriqueId) > 0
-  const hasNextHistorique = list_histo?.length > 0 && list_histo.findIndex(h => h.id === currentHistoriqueId) < list_histo.length - 1
+  const currentHistoIndex = list_histo.findIndex(h => h.id === currentHistoriqueId)
+  const hasPreviousHistorique = currentHistoIndex > 0
+  const hasNextHistorique = currentHistoIndex !== -1 && currentHistoIndex < list_histo.length - 1
 
-  // ── Effet initial ──────────────────────────────────────────────────────────
+  // ── Effets ─────────────────────────────────────────────────────────────────
   useEffect(() => {
-    getListeHisto()
-    getStats()
-    getStockMovements()
-    getRevenueData()
-    loadCategories()
-  }, [])
-
-  const loadCategories = async () => {
-    try {
-      const response = await categoryAPI.getCategories()
-      const categoryMap = response.data.reduce((acc: { [key: number]: string }, category) => {
-        if (category.id) acc[category.id] = category.name
-        return acc
-      }, {})
-      setCategories(categoryMap)
-    } catch (error) {
-      console.error("Erreur rechargement catégories:", error)
+    const init = async () => {
+      // Exécuter les appels initiaux en parallèle
+      await Promise.all([
+        getListeHisto(),
+        getStats(),
+        getRevenueData(),
+        getProductMovements(true),
+        loadCategories(),
+        getStockMovements(true) // Appel initial sans déclencher setStockMovementsLoading(true)
+      ])
     }
-  }
+    init()
+  }, [getListeHisto, getStats, getRevenueData, getProductMovements, loadCategories, getStockMovements])
 
-  // ── Composant MetricCards ──────────────────────────────────────────────────
-  const MetricCardsStats = () => {
-    if (!stats) return <div>Loading...</div>
-    return (
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <MetricCard
-          title="Nombre de type des produits"
-          value={stats.total_produits.toString()}
-          icon={<Package className="h-4 w-4" />}
-        />
-        <MetricCard
-          title="Calcul Total Stock"
-          value={stats.total_stock.toString()}
-          icon={<DollarSign className="h-4 w-4" />}
-          variant="success"
-        />
-        <MetricCard
-          title="En Stock Faible"
-          value={stats.total_stock_faible}
-          description={stats.total_produits > 0 ? (((stats.total_stock_faible * 100) / stats.total_produits).toFixed(2) + "% du stock total") : "0% du stock total"}
-          icon={<TriangleAlert className="h-4 w-4" />}
-          variant="warning"
-        />
-        <MetricCard
-          title="Produits en Rupture"
-          value={stats.total_stock_rupture.toString()}
-          description={stats.total_produits > 0 ? (((stats.total_stock_rupture * 100) / stats.total_produits).toFixed(2) + "% du stock total") : "0% du stock total"}
-          icon={<BarChart3 className="h-4 w-4" />}
-          variant="destructive"
-        />
-      </div>
-    )
-  }
+  // Re-fetch mouvements quand timeRange change (après le premier mount)
+  useEffect(() => {
+    if (isFirstMount.current) {
+      isFirstMount.current = false
+      return
+    }
+    getStockMovements()
+  }, [timeRange, getStockMovements])
 
-  // ── Guards ─────────────────────────────────────────────────────────────────
-  if (loading) return (
-    <div className="flex items-center justify-center h-screen">
-      <div className="text-xl font-medium">Chargement...</div>
-    </div>
-  )
 
-  if (error) return (
-    <div className="flex flex-col items-center justify-center h-screen">
-      <div className="max-w-md p-6 bg-red-50 border border-red-200 rounded-lg">
-        <h2 className="text-xl font-bold text-red-700 mb-2">Erreur</h2>
-        <p className="text-red-600">{error}</p>
-        {error.includes("token") && (
-          <div className="mt-4 p-4 bg-amber-50 border border-amber-200 rounded-lg">
-            <h3 className="text-lg font-semibold text-amber-700 mb-2">Comment résoudre ce problème :</h3>
-            <ol className="list-decimal list-inside text-amber-600 space-y-2">
-              <li>Créez un fichier <code className="bg-amber-100 px-1 rounded">.env.local</code> à la racine du projet frontend</li>
-              <li>Ajoutez la variable <code className="bg-amber-100 px-1 rounded">VITE_DEFAULT_AUTH_TOKEN=votre_token_ici</code></li>
-              <li>Redémarrez l'application</li>
-            </ol>
-            <p className="mt-2 text-amber-600">Consultez le README pour plus d'informations.</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
+  if (loading) return <div className="flex items-center justify-center h-screen"><div className="text-xl font-medium">Chargement...</div></div>
+  if (error) return <div className="flex flex-col items-center justify-center h-screen"><div className="max-w-md p-6 bg-red-50 border border-red-200 rounded-lg"><h2 className="text-xl font-bold text-red-700 mb-2">Erreur</h2><p className="text-red-600">{error}</p></div></div>
 
-  // ── Rendu ──────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Produits</h1>
-          <p className="text-muted-foreground">
-            Gérez votre inventaire de produits, vos analyses et vos indicateurs de performance
-          </p>
+          <p className="text-muted-foreground">Gérez votre inventaire, vos analyses et vos indicateurs de performance</p>
         </div>
         <div className="flex gap-2">
           <Button className="gap-2 text-white bg-bouton hover:bg-bouton-hover" variant="outline" onClick={handleAddCategory}>
-            <Plus className="h-4 w-4" />
-            Nouvelle Catégorie
+            <Plus className="h-4 w-4" />Nouvelle Catégorie
           </Button>
           <Button className="gap-2 text-white bg-bouton hover:bg-bouton-hover" variant="outline" onClick={handleAddProduct}>
-            <Plus className="h-4 w-4" />
-            Nouveau Produit
+            <Plus className="h-4 w-4" />Nouveau Produit
           </Button>
           <Button className="gap-2 text-white bg-bouton hover:bg-bouton-hover" variant="outline" onClick={() => setShowInventoryForm(true)}>
-            Preparer un inventaire
+            Préparer un inventaire
           </Button>
         </div>
       </div>
 
-      {/* Overview Metrics */}
-      {stats && !isloadingStats ? <MetricCardsStats /> : <div>Loading...</div>}
+      {stats && !isloadingStats ? <MetricCardsStats stats={stats} /> : <div>Loading...</div>}
 
       <Tabs defaultValue="inventory" className="space-y-6">
         <TabsList className="grid w-full grid-cols-3">
           <TabsTrigger value="inventory">Inventaire des Produits</TabsTrigger>
           <TabsTrigger value="analytics">Analyses</TabsTrigger>
-          <TabsTrigger value="metrics">Inventaire</TabsTrigger>
+          <TabsTrigger value="metrics">Inventaire périodique</TabsTrigger>
         </TabsList>
 
-        {/* ── Onglet Inventaire des produits ── */}
+        {/* ── Inventaire ── */}
         <TabsContent value="inventory">
           <Card>
             <CardHeader>
@@ -454,16 +584,76 @@ export default function Products() {
                   <Input
                     placeholder="Rechercher un produit ou une catégorie..."
                     value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1) }}
                     className="pl-10"
                   />
                 </div>
-                <Button variant="outline" className="gap-2">
-                  <Search className="h-4 w-4" />
-                  Filtrer
-                </Button>
-                <Button variant="outline" className="gap-2" onClick={handleImportModal}>Importer</Button>
-                <Button variant="outline" className="gap-2">Exporter</Button>
+
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="gap-2">
+                      <Filter className="h-4 w-4" />
+                      Filtrer
+                      {activeFilterCount > 0 && (
+                        <Badge variant="secondary" className="ml-1 px-1 h-5 min-w-5 justify-center">{activeFilterCount}</Badge>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-80">
+                    <div className="grid gap-4">
+                      <div className="space-y-2">
+                        <h4 className="font-medium leading-none">Filtres</h4>
+                        <p className="text-sm text-muted-foreground">Affinez votre liste de produits</p>
+                      </div>
+                      <div className="grid gap-2">
+                        <div className="grid gap-1">
+                          <Label htmlFor="category">Catégorie</Label>
+                          <Select value={filterCategory} onValueChange={(val) => { setFilterCategory(val); setCurrentPage(1) }}>
+                            <SelectTrigger id="category"><SelectValue placeholder="Toutes les catégories" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Toutes les catégories</SelectItem>
+                              {Object.entries(categories).map(([id, name]) => (
+                                <SelectItem key={id} value={id}>{name}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor="unit">Unité</Label>
+                          <Input id="unit" placeholder="kg, pièces, litres..." value={filterUnit}
+                            onChange={(e) => { setFilterUnit(e.target.value); setCurrentPage(1) }} />
+                        </div>
+                        <div className="grid gap-1">
+                          <Label htmlFor="status">Statut stock</Label>
+                          <Select value={filterStatus} onValueChange={(val) => { setFilterStatus(val as StockStatusFilter); setCurrentPage(1) }}>
+                            <SelectTrigger id="status"><SelectValue placeholder="Tous les statuts" /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">Tous les statuts</SelectItem>
+                              <SelectItem value="en_stock">
+                                <span className="flex items-center gap-2"><span className="inline-block w-2 h-2 rounded-full bg-green-500" />En stock</span>
+                              </SelectItem>
+                              <SelectItem value="stock_faible">
+                                <span className="flex items-center gap-2"><span className="inline-block w-2 h-2 rounded-full bg-yellow-500" />Stock faible</span>
+                              </SelectItem>
+                              <SelectItem value="critique">
+                                <span className="flex items-center gap-2"><span className="inline-block w-2 h-2 rounded-full bg-orange-500" />Critique</span>
+                              </SelectItem>
+                              <SelectItem value="rupture">
+                                <span className="flex items-center gap-2"><span className="inline-block w-2 h-2 rounded-full bg-red-500" />Rupture</span>
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                      </div>
+                      <Button variant="ghost" className="w-full gap-2 text-muted-foreground hover:text-foreground" onClick={handleResetFilters}>
+                        <RotateCcw className="h-4 w-4" />Réinitialiser les filtres
+                      </Button>
+                    </div>
+                  </PopoverContent>
+                </Popover>
+
+                <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>Importer</Button>
+                <Button variant="outline" className="gap-2" onClick={handleExportCSV}>Exporter</Button>
               </div>
 
               <div className="rounded-md border">
@@ -474,17 +664,20 @@ export default function Products() {
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Prix</TableHead>
                       <TableHead>Quantité</TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>Unité</TableHead>
+                      <TableHead>Statut</TableHead>
                       <TableHead>Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {allFilteredProducts.map((product) => (
-                      <TableRow
-                        key={product.id}
-                        onClick={() => handleViewDetails(String(product.id))}
-                        className="cursor-pointer hover:bg-muted/50 transition-colors"
-                      >
+                    {products.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                          Aucun produit{filterStatus !== "all" ? ` avec le statut "${statusLabel[filterStatus]}"` : ""} trouvé
+                        </TableCell>
+                      </TableRow>
+                    ) : products.map((product) => (
+                      <TableRow key={product.id} onClick={() => handleViewDetails(String(product.id))} className="cursor-pointer hover:bg-muted/50 transition-colors">
                         <TableCell>
                           <div className="flex items-center gap-3">
                             <div className="h-8 w-8 rounded-lg bg-muted flex items-center justify-center">
@@ -495,23 +688,16 @@ export default function Products() {
                             <p className="font-medium">{product.name}</p>
                           </div>
                         </TableCell>
-                        <TableCell>
-                          {product.category ? (categories[product.category] || "Catégorie inconnue") : "Non catégorisé"}
-                        </TableCell>
+                        <TableCell>{product.category ? (categories[product.category] || "Catégorie inconnue") : "Non catégorisé"}</TableCell>
                         <TableCell>{parseFloat(product.price).toLocaleString()} Ariary</TableCell>
                         <TableCell>{product.current_stock}</TableCell>
+                        <TableCell>{product.unite_mesure || "—"}</TableCell>
                         <TableCell>{getStatusBadge(product.current_stock, product.stock_threshold)}</TableCell>
                         <TableCell>
                           <div className="flex items-center gap-3">
-                            <div className="cursor-pointer" title="Voir les détails" onClick={(e) => { e.stopPropagation(); handleViewDetails(String(product.id)) }}>
-                              <Eye className="h-4 w-4" />
-                            </div>
-                            <div className="cursor-pointer text-blue-600" title="Modifier" onClick={(e) => { e.stopPropagation(); handleEditProduct(product) }}>
-                              <Edit className="h-4 w-4" />
-                            </div>
-                            <div className="cursor-pointer text-red-600" title="Supprimer" onClick={(e) => { e.stopPropagation(); handleDeleteClick(product) }}>
-                              <Trash2 className="h-4 w-4" />
-                            </div>
+                            <div className="cursor-pointer" onClick={(e) => { e.stopPropagation(); handleViewDetails(String(product.id)) }}><Eye className="h-4 w-4" /></div>
+                            <div className="cursor-pointer text-blue-600" onClick={(e) => { e.stopPropagation(); handleEditProduct(product) }}><Edit className="h-4 w-4" /></div>
+                            <div className="cursor-pointer text-red-600" onClick={(e) => { e.stopPropagation(); handleDeleteClick(product) }}><Trash2 className="h-4 w-4" /></div>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -520,15 +706,43 @@ export default function Products() {
                 </Table>
               </div>
 
+              {/* ✅ Pagination avec numéros de pages + ellipses */}
               <div className="flex items-center justify-between mt-4">
-                <p className="text-sm text-muted-foreground">{allFilteredProducts.length} produits sur {totalCount}</p>
-                <div className="flex gap-2">
-                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={!hasPreviousPage}>
-                    Page précédente
+                <p className="text-sm text-muted-foreground">
+                  Page <span className="font-medium">{currentPage}</span> sur{" "}
+                  <span className="font-medium">{totalPages}</span> · {totalCount} produit{totalCount > 1 ? 's' : ''}
+                  {filterStatus !== "all" && <> · filtre : <strong>{statusLabel[filterStatus]}</strong></>}
+                </p>
+                <div className="flex items-center gap-1">
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(currentPage - 1)} disabled={!hasPreviousPage} className="h-8 w-8 p-0">
+                    <ChevronLeft className="h-4 w-4" />
                   </Button>
-                  <p className="flex items-center text-sm text-muted-foreground px-2">Page {currentPage}</p>
-                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(currentPage + 1)} disabled={!hasNextPage}>
-                    Page suivante
+
+                  {/* Première page + ellipse */}
+                  {getVisiblePages()[0] > 1 && (
+                    <>
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(1)} className="h-8 w-8 p-0 text-xs">1</Button>
+                      {getVisiblePages()[0] > 2 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                    </>
+                  )}
+
+                  {getVisiblePages().map(page => (
+                    <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm"
+                      onClick={() => setCurrentPage(page)} className="h-8 w-8 p-0 text-xs">
+                      {page}
+                    </Button>
+                  ))}
+
+                  {/* Dernière page + ellipse */}
+                  {getVisiblePages()[getVisiblePages().length - 1] < totalPages && (
+                    <>
+                      {getVisiblePages()[getVisiblePages().length - 1] < totalPages - 1 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                      <Button variant="outline" size="sm" onClick={() => setCurrentPage(totalPages)} className="h-8 w-8 p-0 text-xs">{totalPages}</Button>
+                    </>
+                  )}
+
+                  <Button variant="outline" size="sm" onClick={() => setCurrentPage(currentPage + 1)} disabled={!hasNextPage} className="h-8 w-8 p-0">
+                    <ChevronRight className="h-4 w-4" />
                   </Button>
                 </div>
               </div>
@@ -536,182 +750,255 @@ export default function Products() {
           </Card>
         </TabsContent>
 
-        {/* ── Onglet Analyses ── */}
+        {/* ── Analyses ── */}
         <TabsContent value="analytics">
           <div className="space-y-6">
             <Card>
               <CardContent className="pt-6">
                 <div className="relative">
                   <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    placeholder="Rechercher dans les analyses..."
-                    value={analyticsSearchTerm}
-                    onChange={(e) => setAnalyticsSearchTerm(e.target.value)}
-                    className="pl-10"
-                  />
+                  <Input placeholder="Rechercher dans les analyses..." value={analyticsSearchTerm}
+                    onChange={(e) => setAnalyticsSearchTerm(e.target.value)} className="pl-10" />
                 </div>
               </CardContent>
             </Card>
 
             <div className="grid gap-6 lg:grid-cols-2">
-              {/* Graphique 1 : Mouvements de stock — réel ou fictif */}
+              {/* ✅ Graphique mouvements — données réelles avec sélecteur jour/mois/année */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    Tendances des mouvements boursiers
-                    {isStockMovementMock && (
-                      <span className="text-xs font-normal text-muted-foreground italic">(données fictives)</span>
-                    )}
-                  </CardTitle>
-                  <CardDescription>Mouvements mensuels des stocks entrants et sortants</CardDescription>
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        Tendances des mouvements de stock
+                        {stockMovements.length === 0 && !stockMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>
+                        )}
+                        {stockMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">Chargement...</span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>
+                        {timeRange === "day" ? "Mouvements journaliers" : timeRange === "year" ? "Mouvements annuels" : "Mouvements mensuels"} · données réelles
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-1">
+                      {(["day", "month", "year"] as const).map(r => (
+                        <Button key={r} size="sm" variant={timeRange === r ? "default" : "outline"}
+                          onClick={() => setTimeRange(r)} className="h-7 px-2 text-xs">
+                          {r === "day" ? "Jour" : r === "month" ? "Mois" : "Année"}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 </CardHeader>
                 <CardContent>
-                  <BarChart
-                    data={stockMovementChartData}
-                    xAxisKey="month"
-                    bars={[
-                      { key: "inbound", name: "Entrant", color: "rgb(67, 110, 240)" },
-                      { key: "outbound", name: "Sortant", color: "hsl(var(--destructive))" },
-                      { key: "net", name: "Changement net", color: "hsl(var(--success))" },
-                    ]}
-                    height={350}
-                  />
+                  {stockMovements.length === 0 ? (
+                    <div className="flex items-center justify-center h-[350px] text-muted-foreground text-sm">
+                      {stockMovementsLoading ? "Chargement des données..." : "Aucun mouvement pour cette période"}
+                    </div>
+                  ) : (
+                    <BarChart
+                      data={stockMovements}
+                      xAxisKey="period"
+                      bars={[
+                        { key: "inbound", name: "Entrées", color: "rgb(67, 110, 240)" },
+                        { key: "outbound", name: "Sorties", color: "hsl(var(--destructive))" },
+                        { key: "net", name: "Net", color: "hsl(var(--success))" },
+                      ]}
+                      height={350}
+                    />
+                  )}
                 </CardContent>
               </Card>
 
-              {/* Graphique 2 : Performance du produit — toujours réel */}
               <Card>
                 <CardHeader>
-                  <CardTitle>Performance du Produit</CardTitle>
-                  <CardDescription>Stock actuel vs seuil de stock par produit</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="overflow-x-auto" style={{ maxWidth: '100%' }}>
-                    <div style={{ minWidth: '800px', width: `${allFilteredProducts.length * 80}px` }}>
-                      <BarChart
-                        data={allFilteredProducts
-                          .filter(p => p.name.toLowerCase().includes(analyticsSearchTerm.toLowerCase()))
-                          .map(product => ({
-                            ...product,
-                            name: product.name,
-                            stock_threshold: product.stock_threshold,
-                            current_stock_ok: product.current_stock >= product.stock_threshold ? product.current_stock : 0,
-                            current_stock_low: product.current_stock < product.stock_threshold ? product.current_stock : 0,
-                          }))}
-                        xAxisKey="name"
-                        bars={[
-                          { key: "stock_threshold", name: "Seuil de stock", color: "rgb(67, 110, 240)" },
-                          { key: "current_stock_ok", name: "Stock actuel (OK)", color: "hsl(var(--success))" },
-                          { key: "current_stock_low", name: "Stock actuel (Faible)", color: "hsl(var(--destructive))" },
-                        ]}
-                        height={350}
-                      />
+                  <div className="flex items-center justify-between flex-wrap gap-2">
+                    <div>
+                      <CardTitle className="flex items-center gap-2">
+                        Mouvements par produit
+                        {productMovements.length === 0 && !productMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>
+                        )}
+                        {productMovementsLoading && (
+                          <span className="text-xs font-normal text-muted-foreground italic">Chargement...</span>
+                        )}
+                      </CardTitle>
+                      <CardDescription>Entrées, sorties et net par produit · données réelles</CardDescription>
                     </div>
                   </div>
+                </CardHeader>
+                <CardContent>
+                  {productMovements.length === 0 ? (
+                    <div className="flex items-center justify-center h-[350px] text-muted-foreground text-sm">
+                      {productMovementsLoading ? "Chargement des données..." : "Aucun mouvement par produit disponible"}
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <div style={{ minWidth: '800px', width: `${productMovements.length * 80}px` }}>
+                        <BarChart
+                          data={productMovements.filter((p) =>
+                            p.product.toLowerCase().includes(analyticsSearchTerm.toLowerCase())
+                          )}
+                          xAxisKey="product"
+                          bars={[
+                            { key: "inbound", name: "Entrées", color: "rgb(67, 110, 240)" },
+                            { key: "outbound", name: "Sorties", color: "hsl(var(--destructive))" },
+                            { key: "net", name: "Net", color: "hsl(var(--success))" },
+                          ]}
+                          height={350}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>
 
-            {/* Graphique 3 : Revenus par catégorie — réel ou fictif */}
+            {/* Revenus */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  Tendances des revenus
-                  {isRevenueMock && (
-                    <span className="text-xs font-normal text-muted-foreground italic">(données fictives)</span>
-                  )}
+                  Revenus par catégorie
+                  {isRevenueMock
+                    ? <span className="text-xs font-normal text-muted-foreground italic">(données fictives)</span>
+                    : <span className="text-xs font-normal text-green-600 italic">données réelles</span>
+                  }
                 </CardTitle>
-                <CardDescription>Tendances des revenus par catégorie de produits au fil du temps</CardDescription>
+                <CardDescription>Revenus mensuels par catégorie de produit</CardDescription>
               </CardHeader>
               <CardContent>
-                <LineChart
-                  data={revenueChartData}
-                  xAxisKey="month"
-                  lines={[
-                    { key: "electronics", name: "Electronique", color: "rgb(67, 110, 240)" },
-                    { key: "clothing", name: "Vêtements", color: "hsl(var(--success))" },
-                    { key: "furniture", name: "Meubles", color: "hsl(var(--warning))" },
-                  ]}
-                  height={400}
-                />
+                {revenueData.length === 0 ? (
+                  <div className="text-sm text-muted-foreground text-center py-8">Aucune donnée de revenus disponible</div>
+                ) : (
+                  <LineChart
+                    data={isRevenueMock ? MOCK_REVENUE_DATA : revenueData}
+                    xAxisKey="month"
+                    lines={
+                      isRevenueMock
+                        ? [
+                            { key: "electronics", name: "Électronique", color: "rgb(67,110,240)" },
+                            { key: "clothing", name: "Vêtements", color: "hsl(var(--success))" },
+                            { key: "furniture", name: "Meubles", color: "hsl(var(--warning))" },
+                          ]
+                        : Object.keys(revenueData[0] || {})
+                            .filter(k => k !== "month" && k !== "actual")
+                            .map((key, i) => ({
+                              key, name: key,
+                              color: ["rgb(67,110,240)", "hsl(var(--success))", "hsl(var(--warning))", "hsl(var(--destructive))"][i % 4],
+                            }))
+                    }
+                    height={400}
+                  />
+                )}
               </CardContent>
             </Card>
           </div>
         </TabsContent>
 
-        {/* ── Onglet Inventaire périodique ── */}
+        {/* ── Inventaire périodique ── */}
         <TabsContent value="metrics">
           <div className="space-y-6">
             <Card>
               <CardHeader>
                 <CardTitle>Inventaire périodique</CardTitle>
-                <CardDescription>Quantité des produits disponibles dans l'inventaire</CardDescription>
+                <CardDescription>Suivi des quantités théoriques et physiques</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex flex-col sm:flex-row items-center justify-between gap-3 py-4 border-t">
                   <div className="flex items-center gap-2 flex-1 justify-center sm:justify-start">
-                    <Button variant="outline" size="sm" onClick={handlePreviousHistorique} disabled={!hasPreviousHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">
-                      Précédente
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={handlePreviousHistorique} disabled={!hasPreviousHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">Précédente</Button>
                     <span className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-foreground bg-accent/50 rounded-md min-w-[180px] justify-center text-center">
-                      Historique - <span className="font-bold text-secondary truncate max-w-[120px] inline-block">{currentHistoriquedesc || `ID: ${currentHistoriqueId}`}</span>
+                      Historique - <span className="font-bold text-secondary truncate max-w-[120px] inline-block">{currentHistoriqueDesc || `ID: ${currentHistoriqueId}`}</span>
                     </span>
-                    <Button variant="outline" size="sm" onClick={handleNextHistorique} disabled={!hasNextHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">
-                      Suivante
-                    </Button>
+                    <Button variant="outline" size="sm" onClick={handleNextHistorique} disabled={!hasNextHistorique} className="min-w-[100px] bg-blue-100 hover:bg-blue-200 text-blue-800">Suivante</Button>
                   </div>
-
-                  <div className="flex gap-2 justify-center sm:justify-end">
-                    {redressID === currentHistoriqueId ? (
-                      <Button className="text-sm font-medium" onClick={() => Redresser_Inventaire(currentHistoriqueId)} size="sm">
-                        Redresser
-                      </Button>
-                    ) : (
-                      <span className="text-sm font-medium text-destructive flex items-center">Action impossible</span>
-                    )}
-                    <Button variant="default" size="sm" onClick={() => Telecharger_pdf(currentHistoriqueId, currentHistoriquedesc)} disabled={!currentHistoriqueId || isDownloadingPdf} className="bg-green-600 hover:bg-green-700 text-white flex items-center gap-2">
-                      {isDownloadingPdf ? <>⏳ Téléchargement...</> : <><Download className="h-4 w-4" /> PDF</>}
-                    </Button>
-                    <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId} className="bg-indigo-600 hover:bg-indigo-700 text-white flex items-center gap-2">
-                      <Upload className="h-4 w-4" /> Upload PDF
-                    </Button>
+                  <div className="flex gap-2">
+                    {(() => {
+                      const isRedressed = list_histo.find(h => h.id === currentHistoriqueId)?.etat === true;
+                      return (
+                        <>
+                          {Object.keys(localInventaire).length > 0 && (
+                            <Button variant="default" size="sm" onClick={handleSaveInventaire} disabled={isSavingInventaire || isRedressed} className="bg-orange-500 hover:bg-orange-600 text-white">
+                              {isSavingInventaire ? "💾 Sauvegarde..." : "Enregistrer les modifications"}
+                            </Button>
+                          )}
+                          <Button 
+                            size="sm" 
+onClick={() => currentHistoriqueId && Redresser_Inventaire(currentHistoriqueId)}
+                            disabled={!currentHistoriqueId || isRedressed} 
+                            className={isRedressed ? "bg-gray-400" : ""}
+                          >
+                            {isRedressed ? "Déjà redressé" : "Redresser"}
+                          </Button>
+                          <Button variant="default" size="sm" onClick={() => currentHistoriqueId && Telecharger_pdf(currentHistoriqueId, currentHistoriqueDesc)} disabled={!currentHistoriqueId || isDownloadingPdf || isRedressed} className="bg-green-600 hover:bg-green-700 text-white gap-2">
+                            {isDownloadingPdf ? "⏳ Téléchargement..." : <><Download className="h-4 w-4" /> PDF</>}
+                          </Button>
+                          <Button variant="default" size="sm" onClick={() => setShowUploadModal(true)} disabled={!currentHistoriqueId || isRedressed} className="bg-indigo-600 hover:bg-indigo-700 text-white gap-2">
+                            <Upload className="h-4 w-4" /> Upload PDF
+                          </Button>
+                          <Button variant="destructive" size="sm" onClick={() => currentHistoriqueId && Supprimer_Inventaire(currentHistoriqueId)} disabled={!currentHistoriqueId} className="gap-2">
+                            <Trash2 className="h-4 w-4" /> Supprimer
+                          </Button>
+                        </>
+                      );
+                    })()}
                   </div>
                 </div>
-
-                <p className="text-xs text-muted-foreground sm:hidden text-center mt-2">{inventaire.length} lignes dans cet inventaire</p>
-
                 <div className="rounded-md border mt-4">
                   <Table>
                     <TableHeader>
                       <TableRow>
                         <TableHead>Produit</TableHead>
-                        <TableHead>Désignation</TableHead>
-                        <TableHead>Quantité théorique/Unité</TableHead>
-                        <TableHead>Quantité physique/Unité</TableHead>
-                        <TableHead>Ecart</TableHead>
+                        <TableHead>Produit Dv</TableHead>
+                        <TableHead>Qté théorique</TableHead>
+                        <TableHead>Qté physique</TableHead>
+                        <TableHead>Écart</TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {inventaire?.length > 0 ? (
-                        inventaire.map((produit: any, index) => (
+                      {inventaire.length > 0 ? inventaire.map((item, index) => {
+                        const productName  = item.produit_info?.product_mere?.name || "Inconnu"
+                        const designDv     = item.produit_info?.designation ?? null   // null si pas de sous-produit
+                        const isRedressed  = list_histo.find(h => h.id === currentHistoriqueId)?.etat === true
+                      
+                        return (
                           <TableRow key={index}>
-                            <TableCell>{produit.produit_info?.product_mere?.name || "Inconnu"}</TableCell>
-                            <TableCell>{produit.produit_info?.designation || "N/A"}</TableCell>
-                            <TableCell>{produit.quantite_theo}</TableCell>
-                            <TableCell>{produit.quantite_phy}</TableCell>
+                            {/* Produit parent */}
+                            <TableCell>{productName}</TableCell>
+                      
+                            {/* Produit Dv — vide si pas de sous-produit */}
+                            <TableCell>{designDv ?? <span className="text-muted-foreground text-xs italic">—</span>}</TableCell>
+                      
+                            <TableCell>{item.quantite_theo}</TableCell>
+                      
+                            <TableCell className="w-[120px]">
+                              <Input
+                                type="number"
+                                value={localInventaire[item.id] !== undefined ? localInventaire[item.id] : item.quantite_phy}
+                                onChange={(e) => handleQuantityChange(item.id, e.target.value)}
+                                className="h-8"
+                                disabled={isRedressed}
+                              />
+                            </TableCell>
+                      
                             <TableCell style={{
-                              backgroundColor: produit.quantite_theo > produit.quantite_phy
-                                ? 'rgba(255, 0, 0, 0.1)'
-                                : (produit.ecart != 0 ? 'rgba(255, 221, 0, 0.1)' : 'rgba(7, 227, 62, 0.1)'),
+                              backgroundColor:
+                                item.quantite_theo > (localInventaire[item.id] ?? item.quantite_phy)
+                                  ? 'rgba(255,0,0,0.1)'
+                                  : item.quantite_theo !== (localInventaire[item.id] ?? item.quantite_phy)
+                                    ? 'rgba(255,221,0,0.1)'
+                                    : 'rgba(7,227,62,0.1)',
                             }}>
-                              {produit.ecart}
+                              {(localInventaire[item.id] ?? item.quantite_phy) - item.quantite_theo}
                             </TableCell>
                           </TableRow>
-                        ))
-                      ) : (
+                        )
+                      }) : (
                         <TableRow>
                           <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                            Aucun inventaire disponible pour cet historique.
+                            Aucune donnée. Veuillez uploader un PDF pour commencer.
                           </TableCell>
                         </TableRow>
                       )}
@@ -724,92 +1011,63 @@ export default function Products() {
         </TabsContent>
       </Tabs>
 
-      {/* ── Modales ── */}
-      {showProductForm && (
-        <ProductForm onClose={handleCloseForm} onSubmit={handleSubmitProduct} initialData={editingProduct} />
-      )}
-
+      {showProductForm && <ProductForm onClose={handleCloseForm} onSubmit={handleSubmitProduct} initialData={editingProduct || undefined} />}
       {showDeleteModal && productToDelete && (
-        <DeleteConfirmationModal
-          isOpen={showDeleteModal}
-          onClose={() => { setShowDeleteModal(false); setProductToDelete(null) }}
-          onConfirm={handleConfirmDelete}
-          productName={productToDelete.name}
-        />
+        <DeleteConfirmationModal isOpen={showDeleteModal} onClose={() => { setShowDeleteModal(false); setProductToDelete(null) }} onConfirm={handleConfirmDelete} productName={productToDelete.name} />
       )}
+      {showCategoryForm && <CategoryForm key={editingCategory?.id || "new"} onClose={handleCloseCategoryForm} onSubmit={handleSubmitCategory} initialData={editingCategory} />}
+      {showImportModal && <ImportModal isOpen={showImportModal} onClose={() => setShowImportModal(false)} onImport={() => setShowImportModal(false)} onSuccess={() => refetch()} />}
 
-      {showCategoryForm && (
-        <CategoryForm onClose={handleCloseCategoryForm} onSubmit={handleSubmitCategory} initialData={editingCategory} />
-      )}
-
-      {showImportModal && (
-        <ImportModal
-          isOpen={showImportModal}
-          onClose={() => setShowImportModal(false)}
-          onImport={() => setShowImportModal(false)}
-          onSuccess={() => refetch()}
-        />
-      )}
-
-      {/* Modal upload PDF */}
       <Dialog open={showUploadModal} onOpenChange={setShowUploadModal}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Uploader un PDF d'inventaire</DialogTitle>
-            <DialogDescription>Sélectionnez un fichier PDF à associer à l'historique actuel.</DialogDescription>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Uploader un PDF d'inventaire</DialogTitle><DialogDescription>Sélectionnez un PDF scanné pour extraire automatiquement les quantités avec l'IA (OCR).</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="flex flex-col gap-2">
               <Label htmlFor="pdf-upload">Fichier PDF</Label>
-              <Input
-                id="pdf-upload"
-                type="file"
-                accept=".pdf"
+              <Input id="pdf-upload" type="file" accept=".pdf" className="cursor-pointer" disabled={isUploading}
                 onChange={(e) => {
                   const file = e.target.files?.[0]
-                  if (file && file.type === 'application/pdf') {
-                    setSelectedPdfFile(file)
-                  } else {
-                    toast({ title: "Erreur", description: "Veuillez sélectionner un fichier PDF.", variant: "destructive" })
-                  }
-                }}
-                className="cursor-pointer"
-              />
-              {selectedPdfFile && (
-                <p className="text-sm text-muted-foreground">Fichier sélectionné : <strong>{selectedPdfFile.name}</strong></p>
+                  if (file?.type === 'application/pdf') setSelectedPdfFile(file)
+                  else toast({ title: "Erreur", description: "Fichier PDF requis.", variant: "destructive" })
+                }} />
+              {selectedPdfFile && !isUploading && <p className="text-sm text-muted-foreground">Fichier : <strong>{selectedPdfFile.name}</strong></p>}
+              
+              {isUploading && (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm font-medium text-blue-600 flex items-center gap-2">
+                    <span className="relative flex h-3 w-3">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-3 w-3 bg-blue-500"></span>
+                    </span>
+                    Extraction des données par OCR en cours... Veuillez patienter.
+                  </p>
+                  <div className="w-full bg-blue-100 rounded-full h-2.5 overflow-hidden">
+                    <div className="bg-blue-600 h-2.5 rounded-full animate-pulse w-full" style={{ width: '100%', animationDuration: '2s' }}></div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">Cette opération peut prendre jusqu'à quelques minutes selon la taille du PDF.</p>
+                </div>
               )}
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setShowUploadModal(false)}>Annuler</Button>
-            <Button onClick={handlePdfUpload} disabled={!selectedPdfFile || isUploading} className="bg-green-600 hover:bg-green-700 text-white">
-              {isUploading ? "Upload en cours..." : "Uploader"}
+            <Button variant="outline" onClick={() => setShowUploadModal(false)} disabled={isUploading}>Annuler</Button>
+            <Button onClick={handlePdfUpload} disabled={!selectedPdfFile || isUploading} className="bg-indigo-600 hover:bg-indigo-700 text-white">
+              {isUploading ? "Traitement..." : "Extraire les données"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      {/* Modal inventaire */}
       <Dialog open={showInventoryForm} onOpenChange={setShowInventoryForm}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Préparer un inventaire</DialogTitle>
-            <DialogDescription>Entrez la description de l'inventaire.</DialogDescription>
-          </DialogHeader>
+          <DialogHeader><DialogTitle>Préparer un inventaire</DialogTitle><DialogDescription>Entrez la description de l'inventaire.</DialogDescription></DialogHeader>
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="description" className="text-right">Description</Label>
-              <Input
-                id="description"
-                value={inventoryDescription}
-                onChange={(e) => setInventoryDescription(e.target.value)}
-                className="col-span-3"
-              />
+              <Input id="description" value={inventoryDescription} onChange={(e) => setInventoryDescription(e.target.value)} className="col-span-3" />
             </div>
           </div>
-          <DialogFooter>
-            <Button type="submit" onClick={handleSubmitInventory}>Soumettre</Button>
-          </DialogFooter>
+          <DialogFooter><Button onClick={handleSubmitInventory}>Soumettre</Button></DialogFooter>
         </DialogContent>
       </Dialog>
     </div>

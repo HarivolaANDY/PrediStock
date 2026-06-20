@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Activite, Alerte, Notification
+from .models import Alerte, Notification
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -10,13 +10,6 @@ class UserMinimalSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'username']
 
-
-class ActiviteSerializer(serializers.ModelSerializer):
-    user = UserMinimalSerializer(read_only=True)
-
-    class Meta:
-        model = Activite
-        fields = '__all__'
 
 
 class AlerteSerializer(serializers.ModelSerializer):

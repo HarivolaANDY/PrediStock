@@ -39,10 +39,14 @@ class Supplier(models.Model):
     lead_time = models.IntegerField(null=True, blank=True)
     min_order_quantity = models.IntegerField(null=True, blank=True)
     max_order_quantity = models.IntegerField(null=True, blank=True)
-
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)  # 🔥 bonus
+    updated_at = models.DateTimeField(auto_now=True)
+    products = models.ManyToManyField(
+        'Product',
+        blank=True,
+        related_name='suppliers'
+    )
 
     class Meta:
         verbose_name = "Fournisseur"
@@ -57,20 +61,29 @@ class Product(models.Model):
     sku = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
     price = models.DecimalField(max_digits=10, decimal_places=2, default=0, null=True, blank=True)
-    stock_threshold = models.IntegerField(default=10)
-    current_stock = models.IntegerField(default=0)
+    stock_threshold = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    current_stock = models.DecimalField(max_digits=10, decimal_places=2, default=0)
     category = models.ForeignKey(Category, on_delete=models.SET_NULL, null=True, blank=True)
     supplier = models.ForeignKey(Supplier, on_delete=models.SET_NULL, null=True, blank=True)
     is_active = models.BooleanField(default=True)
     est_perissable = models.BooleanField(default=False)
     unite_mesure = models.CharField(max_length=50, default='Kg', blank=True)
     product_img = models.ImageField(upload_to='products/', blank=True, null=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Produit"
         verbose_name_plural = "Produits"
+
+    def save(self, *args, **kwargs):
+        # Génération automatique du SKU si vide et catégorie présente
+        if not self.sku and self.category:
+            prefix = "".join(filter(str.isalnum, self.category.name)).upper()[:5]
+            count = Product.objects.filter(category=self.category).count() + 1
+            self.sku = f"{prefix}{count:03d}"
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return self.name
@@ -92,6 +105,16 @@ class Product(models.Model):
         elif ratio <= 0.75: return "low"
         elif ratio <= 1: return "ok"
         return "good"
+
+    @property
+    def unassigned_stock(self):
+        """
+        Retourne le stock non alloué à aucune variante.
+        Allocated stock = SUM(dv.nombre) sur tous les sous-produits.
+        """
+        from django.db.models import Sum
+        allocated = self.produitdv_set.aggregate(total=Sum('nombre'))['total'] or 0
+        return float(self.current_stock) - float(allocated)
 
 
 class ProductImage(models.Model):
@@ -120,8 +143,7 @@ class ProductBatch(models.Model):
 class ProduitDv(models.Model):
     product = models.ForeignKey(Product, on_delete=models.SET_NULL, null=True)
     designation = models.CharField(max_length=100, default="Aucune description")
-    quantite = models.IntegerField(default=0, blank=True)
-    nombre = models.IntegerField(default=0, blank=True)
+    nombre = models.DecimalField(max_digits=10, decimal_places=2, default=0, blank=True, verbose_name="Stock")
     date_creation = models.DateTimeField(auto_now_add=True)
 
     class Meta:

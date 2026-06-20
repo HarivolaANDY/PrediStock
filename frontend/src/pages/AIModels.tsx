@@ -25,6 +25,7 @@ import { MetricCard } from "@/components/MetricCard"
 import { LineChart } from "@/components/charts/LineChart"
 import { ModelSettingsModal } from "@/components/ModelSettingsModal"
 import { ModelSettings } from "@/types/models"
+import api from '@/config/axios'
 
 import { useToast } from "@/components/ui/use-toast"
 
@@ -55,7 +56,6 @@ export default function AIModels() {
   const toast = useToast()
   const [models, setModels] = useState<Model[]>([])
   const [loading, setLoading] = useState(true)
-  const [selectedModel, setSelectedModel] = useState<string>("")
   const [selectedModelConfig, setSelectedModelConfig] = useState({
     epochs: 100,
     batchSize: 32,
@@ -67,40 +67,12 @@ export default function AIModels() {
   const fetchData = async () => {
     setLoading(true)
     try {
-      // Charger la liste des modèles disponibles
-      const modelsRes = await fetch("http://127.0.0.1:8000/api/modele/available_models/", {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      })
-      if (!modelsRes.ok) {
-        console.error("Erreur de réponse:", await modelsRes.text())
-        throw new Error(`HTTP error! status: ${modelsRes.status}`)
-      }
-      const modelsData = await modelsRes.json()
-      console.log("Modèles reçus:", modelsData)
-      console.log("Type des données:", typeof modelsData, Array.isArray(modelsData))
-      if (Array.isArray(modelsData)) {
-        setModels(modelsData)
-      } else if (modelsData.data && Array.isArray(modelsData.data)) {
-        setModels(modelsData.data)
-      } else {
-        console.error("Format de données inattendu:", modelsData)
-        setModels([])
-      }
+      const modelsRes = await api.get('/forecasting/modeles/')
+      const items = modelsRes.data?.data ?? modelsRes.data?.results ?? modelsRes.data ?? []
+      setModels(Array.isArray(items) ? items : [])
 
-      // Charger les métriques de performance
-      const perfRes = await fetch("http://127.0.0.1:8000/api/modele/performance/", {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-        },
-      })
-      const perfData = await perfRes.json()
-      setPerformance(perfData)
+      const perfRes = await api.get('/forecasting/modeles/performance/')
+      setPerformance(perfRes.data)
     } catch (error) {
       console.error("Erreur lors du chargement des données:", error)
     } finally {
@@ -121,36 +93,20 @@ export default function AIModels() {
   const startTraining = async () => {
     try {
       setLoading(true)
-      const token = localStorage.getItem('token')
-      
-      const res = await fetch("http://127.0.0.1:8000/api/modele/run_prevision_now/", {
-        method: "POST",
-        headers: {
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Token ${token}`
-        }
-      })
-      
-      const data = await res.json()
-      
-      if (!res.ok) {
-        throw new Error(data.message || "Erreur lors de l'entraînement")
-      }
-      
+      const res = await api.post('/forecasting/predict/', {})
       toast.toast({
         title: "Succès",
-        description: data.message || "L'entraînement a démarré avec succès",
+        description: res.data?.message || "L'entraînement a démarré avec succès",
         variant: "default"
       })
-      
-      // Recharger les données après l'entraînement
       await fetchData()
-    } catch (error) {
-      console.error("Erreur:", error)
+    } catch (error: unknown) {
+      const errorMessage = error && typeof error === 'object' && 'response' in error 
+        ? (error as { response?: { data?: { message?: string } } }).response?.data?.message || "Une erreur est survenue"
+        : "Une erreur est survenue";
       toast.toast({
         title: "Erreur",
-        description: error.message || "Une erreur est survenue lors de l'entraînement",
+        description: errorMessage,
         variant: "destructive"
       })
     } finally {

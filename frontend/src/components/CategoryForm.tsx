@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { X, Plus, Minus, ChevronDown, ChevronUp } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -8,7 +8,6 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { toast } from "@/components/ui/use-toast"
-import { categoryAPI } from '@/services/api'
 import { Category as CategoryType } from '@/types/types';
 
 interface CategoryFormProps {
@@ -21,30 +20,29 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
   const [showConfirmationModal, setShowConfirmationModal] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const [formData, setFormData] = useState<CategoryType>({
-    id: "",
-    name: "",
-    description: "",
-    is_active: true,
-    product_count: 0,
-    created_at: new Date().toISOString(),
-    updated_at: new Date().toISOString(),
-    subcategories: []
-  })
-  
-  const [showSubcategories, setShowSubcategories] = useState(false)
-  const [numSubcategories, setNumSubcategories] = useState(0)
-
-  useEffect(() => {
+  const [formData, setFormData] = useState<CategoryType>(() => {
     if (initialData) {
-      setFormData({
+      return {
         ...initialData,
         id: initialData.id || "",
         name: initialData.name || "",
         description: initialData.description || "",
-      })
+      }
     }
-  }, [initialData])
+    return {
+      id: "",
+      name: "",
+      description: "",
+      is_active: true,
+      product_count: 0,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      subcategories: []
+    }
+  })
+  
+  const [showSubcategories, setShowSubcategories] = useState(false)
+  const [numSubcategories, setNumSubcategories] = useState(0)
 
   const handleInputChange = (field: keyof CategoryType, value: string) => {
     setFormData(prev => ({ ...prev, [field]: value }))
@@ -71,24 +69,22 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
         return;
       }
 
-      // Préparer les données pour l'envoi
-      const categoryData: any = {
+      // Préparer les données épurées pour l'envoi
+      const payload: {
+        name: string;
+        description: string;
+        is_active?: boolean;
+      } = {
         name: formData.name.trim(),
         description: formData.description?.trim() || "",
-        is_active: true,
-        subcategories: formData.subcategories?.filter(sub => sub.name.trim() !== "").map(sub => ({
-          name: sub.name.trim(),
-          description: sub.description?.trim() || ""
-        })) || []
       };
 
-      // Ajouter l'ID si c'est une mise à jour
-      if (initialData?.id) {
-        categoryData.id = initialData.id;
-        console.log('Mise à jour de la catégorie ID:', initialData.id);
+      // is_active n'est envoyé que lors d'une mise à jour
+      if (initialData) {
+        payload.is_active = formData.is_active;
       }
 
-      console.log("Données à envoyer:", categoryData);
+      console.log("Données à envoyer:", payload);
 
       // Faire la requête
       const baseUrl = 'http://localhost:8000/api/catalogue/categories';
@@ -105,34 +101,47 @@ export function CategoryForm({ onClose, onSubmit, initialData }: CategoryFormPro
           'Accept': 'application/json',
           'Authorization': `Token ${localStorage.getItem('token')}`,
         },
-        body: JSON.stringify(categoryData)
+        body: JSON.stringify(payload)
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.message || errorData.detail || 'Une erreur est survenue');
+        // Gérer les erreurs de validation DRF (standard ou enveloppées dans StandardResponse)
+        const errorSource = responseData.data || responseData;
+        
+        if (errorSource && typeof errorSource === 'object' && !errorSource.success) {
+          const errorItems = errorSource.data || errorSource;
+          if (typeof errorItems === 'object') {
+            const errors = Object.entries(errorItems)
+              .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
+              .join(' | ');
+            if (errors) throw new Error(errors);
+          }
+        }
+        
+        throw new Error(responseData.message || responseData.detail || 'Une erreur est survenue');
       }
 
-      const data = await response.json();
-      
-      if (data.success) {
+      if (responseData.success) {
         toast({
           title: initialData ? "Catégorie modifiée" : "Catégorie créée",
           description: `La catégorie ${formData.name} a été ${initialData ? "modifiée" : "créée"} avec succès.`,
           variant: "default",
         });
 
-        onSubmit(data.data);
+        onSubmit(responseData.data);
         setShowConfirmationModal(false);
         onClose();
       } else {
-        throw new Error(data.message || "Une erreur est survenue");
+        throw new Error(responseData.message || "Une erreur est survenue");
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Erreur:", error);
+      const errorMessage = error instanceof Error ? error.message : 'Une erreur inconnue est survenue';
       toast({
         title: "Erreur",
-        description: error.message,
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

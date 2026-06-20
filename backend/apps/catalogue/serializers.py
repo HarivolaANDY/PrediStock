@@ -20,17 +20,14 @@ class CategorySerializer(serializers.ModelSerializer):
             'description': {'required': False},
         }
 
-    # Dans CategorySerializer.validate_name
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Le nom ne peut pas être vide.")
 
         cleaned = value.strip()
 
-        # Normalisation explicite en minuscules pour gérer les accents
         qs = Category.objects.filter(name__iexact=cleaned)
         if not qs.exists():
-            # Double vérification avec lower() Python pour SQLite
             qs = Category.objects.all()
             qs = [c for c in qs if c.name.lower() == cleaned.lower()]
             if qs:
@@ -57,6 +54,7 @@ class CategoryCreateSerializer(CategorySerializer):
             'description': {'required': False, 'default': ''},
         }
 
+
 class CategoryUpdateSerializer(CategorySerializer):
     class Meta(CategorySerializer.Meta):
         fields = ['name', 'description', 'is_active']
@@ -70,11 +68,23 @@ class CategoryListSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'is_active', 'product_count', 'created_at']
 
 
-# ─── Supplier ───────────────────────────────────────────────
 class SupplierSerializer(serializers.ModelSerializer):
+    name = serializers.CharField(default="")
+    email = serializers.CharField(default="")
+    phone = serializers.CharField(default="")
+    min_order_quantity = serializers.IntegerField(default=0)
+    max_order_quantity = serializers.IntegerField(default=0)
+    lead_time = serializers.IntegerField(default=0)
+    products = serializers.SerializerMethodField()
+
+    def get_products(self, obj):
+        return list(
+            obj.products.all().values('id', 'name', 'sku', 'unite_mesure')
+        )
+
     class Meta:
         model = Supplier
-        fields = '__all__'
+        fields = "__all__"
 
 
 # ─── Product ────────────────────────────────────────────────
@@ -95,7 +105,7 @@ class ProduitDvSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ProduitDv
-        fields = '__all__'
+        fields = ['id', 'product', 'designation', 'nombre', 'date_creation', 'infos']
         read_only_fields = ('id', 'date_creation')
         extra_kwargs = {
             'product': {'required': True}
@@ -106,12 +116,35 @@ class ProductSerializer(serializers.ModelSerializer):
     product_img = serializers.ImageField(required=False, allow_null=True)
     est_perissable = serializers.BooleanField(required=False, default=False)
     image_url = serializers.SerializerMethodField()
+    category_name = serializers.SerializerMethodField()
+    
+    # ✅ Ajouter ce champ
+    extra_images = serializers.SerializerMethodField()
 
     class Meta:
         model = Product
         fields = '__all__'
-        read_only_fields = ('created_at', 'updated_at')
-        
+        read_only_fields = ('created_at', 'updated_at', 'sku')
+
+    unassigned_stock = serializers.DecimalField(max_digits=10, decimal_places=2, read_only=True)
+
+    # ✅ Ajouter cette méthode
+    def get_extra_images(self, obj):
+        request = self.context.get('request')
+        images = []
+        for img in obj.images.all():  # ✅ PAS productimage_set
+            if request:
+                images.append(request.build_absolute_uri(img.image.url))
+            else:
+                images.append(f"{settings.MEDIA_URL}{img.image}")
+        return images
+
+    def get_category_name(self, obj):
+        """Retourne le nom de la catégorie, ou 'Non catégorisé' si absente."""
+        if obj.category:
+            return obj.category.name
+        return 'Non catégorisé'
+
     def validate_name(self, value):
         if not value or not value.strip():
             raise serializers.ValidationError("Le nom est requis.")

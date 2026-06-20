@@ -1,5 +1,7 @@
 import os
+import traceback
 from datetime import date
+from django.conf import settings
 
 from django.db import transaction
 from django.db.models import Sum, F, Q
@@ -9,9 +11,9 @@ from reportlab.lib import colors
 from reportlab.lib.units import inch
 from rest_framework import filters, status
 from rest_framework.decorators import action
+from rest_framework.decorators import parser_classes as parser_classes_decorator
 from rest_framework.pagination import PageNumberPagination
-from rest_framework.parsers import MultiPartParser, FormParser
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 
@@ -38,7 +40,7 @@ class CategoryViewSet(GenericCRUDViewSet):
     model = Category
     queryset = Category.objects.all()
     serializer_class = CategorySerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_class = CategoryFilter
     search_fields = ['name', 'description']
@@ -64,60 +66,48 @@ class CategoryViewSet(GenericCRUDViewSet):
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         serializer = self.get_serializer(queryset, many=True)
-        return Response({
-            "success": True,
-            "message": "Liste des catégories récupérée avec succès",
-            "data": serializer.data,
-        })
+        return StandardResponse.render(
+            data=serializer.data,
+            message="Liste des catégories récupérée avec succès",
+            status_code=200
+        )
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        return Response({'success': True, 'data': self.get_serializer(instance).data})
+        return StandardResponse.render(
+            data=self.get_serializer(instance).data,
+            message="Catégorie récupérée",
+            status_code=200
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)  # ← laisse DRF gérer
-
-        with transaction.atomic():
-            category = serializer.save()
-
-        return Response({
-            'success': True,
-            'message': f'Catégorie "{category.name}" créée avec succès',
-            'data': CategorySerializer(category).data,
-        }, status=status.HTTP_201_CREATED)
+        if serializer.is_valid():
+            with transaction.atomic():
+                category = serializer.save()
+            return StandardResponse.render(
+                data=CategorySerializer(category).data,
+                message=f'Catégorie "{category.name}" créée avec succès',
+                status_code=status.HTTP_201_CREATED
+            )
+        return StandardResponse.render(
+            data=serializer.errors,
+            message="Données invalides",
+            status_code=status.HTTP_400_BAD_REQUEST
+        )
 
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()  # ← laisse Django gérer 404
-
-        try:
-            with transaction.atomic():
-                serializer = self.get_serializer(instance, data=request.data, partial=partial)
-                serializer.is_valid(raise_exception=True)
-                category = serializer.save()
-                return Response({
-                    'success': True,
-                    'message': f'Catégorie "{category.name}" mise à jour',
-                    'data': CategorySerializer(category).data,
-                })
-        except Exception as e:
-            return Response({
-                'success': False,
-                'message': str(e),
-                'errors': getattr(e, 'detail', str(e)),
-            }, status=status.HTTP_400_BAD_REQUEST)
+        return super().update(request, *args, **kwargs)
 
     def destroy(self, request, *args, **kwargs):
-        instance = self.get_object()  # ← important
-
+        instance = self.get_object()
         try:
             name, pk = instance.name, instance.id
             instance.delete()
-            return Response({
-                'success': True,
-                'message': f'Catégorie "{name}" (ID: {pk}) supprimée.',
-            }, status=status.HTTP_200_OK)
+            return StandardResponse.render(
+                message=f'Catégorie "{name}" (ID: {pk}) supprimée.',
+                status_code=status.HTTP_200_OK
+            )
         except Exception as e:
             return Response({'success': False, 'message': str(e)},
                             status=status.HTTP_400_BAD_REQUEST)
@@ -128,36 +118,38 @@ class CategoryViewSet(GenericCRUDViewSet):
         qs = self.get_queryset().filter(
             Q(name__icontains=query) | Q(description__icontains=query)
         ) if query else self.get_queryset()
-        return Response({
-            'success': True, 'query': query,
-            'count': qs.count(),
-            'data': CategoryListSerializer(qs, many=True).data,
-        })
+        return StandardResponse.render(
+            data=CategoryListSerializer(qs, many=True).data,
+            message=f"Recherche effectuée pour '{query}'",
+            status_code=200
+        )
 
     @action(detail=False, methods=['get'])
     def active(self, request):
         qs = self.get_queryset().filter(is_active=True)
-        return Response({
-            'success': True, 'count': qs.count(),
-            'data': CategoryListSerializer(qs, many=True).data,
-        })
+        return StandardResponse.render(
+            data=CategoryListSerializer(qs, many=True).data,
+            message="Liste des catégories actives",
+            status_code=200
+        )
 
     @action(detail=True, methods=['post'])
     def toggle_active(self, request, pk=None):
-        category = self.get_object()  # ← enlève try ici
-
+        category = self.get_object()
         try:
             category.is_active = not category.is_active
             category.save()
             etat = "activée" if category.is_active else "désactivée"
-            return Response({
-                'success': True,
-                'message': f'Catégorie "{category.name}" {etat}.',
-                'data': CategorySerializer(category).data,
-            })
+            return StandardResponse.render(
+                data=CategorySerializer(category).data,
+                message=f'Catégorie "{category.name}" {etat}.',
+                status_code=200
+            )
         except Exception as e:
-            return Response({'success': False, 'message': str(e)},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return StandardResponse.render(
+                message=str(e),
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
 
 
 # ─── Supplier ───────────────────────────────────────────────
@@ -167,6 +159,42 @@ class SupplierViewSet(GenericCRUDViewSet):
     serializer_class = SupplierSerializer
     filter_backends = [DjangoFilterBackend]
     filterset_class = SupplierFilter
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        serializer = SupplierSerializer(queryset, many=True)
+        return StandardResponse.render(
+            data=serializer.data,
+            message="Liste des objets",
+            status_code=200
+        )
+
+    def _link_products(self, supplier, products_str):
+        if products_str == '':
+            supplier.products.clear()
+            return
+        names = [n.strip() for n in products_str.split(';') if n.strip()]
+        matched = Product.objects.filter(name__in=names)
+        supplier.products.set(matched)
+
+    def create(self, request, *args, **kwargs):
+        products_str = request.data.get('products', '')
+        response = super().create(request, *args, **kwargs)
+        supplier_id = response.data.get('data', {}).get('id')
+        if supplier_id and products_str:
+            try:
+                supplier = Supplier.objects.get(id=supplier_id)
+                self._link_products(supplier, products_str)
+            except Supplier.DoesNotExist:
+                pass
+        return response
+
+    def update(self, request, *args, **kwargs):
+        products_str = request.data.get('products', '')
+        instance = self.get_object()
+        response = super().update(request, *args, **kwargs)
+        self._link_products(instance, products_str)
+        return response
 
 
 # ─── Product ────────────────────────────────────────────────
@@ -206,20 +234,68 @@ class ProductViewSet(GenericCRUDViewSet):
         return StandardResponse.render(data=serializer.data, status_code=200)
 
     def create(self, request, *args, **kwargs):
-        # Recherche rapide via POST si 'chercher' est présent
-        if request.data.get('chercher'):
-            qs = self.filter_queryset(
-                Product.objects.filter(name__icontains=request.data['chercher'])
+        # ─── Recherche combinée produits parents + dérivées ───────────────
+        if 'chercher' in request.data:
+            terme = request.data['chercher']
+
+            # Produits parents qui matchent
+            produits_qs = Product.objects.filter(name__icontains=terme).prefetch_related('suppliers')
+            produits_data = []
+            for p in produits_qs:
+                # Récupérer tous les IDs de fournisseurs (ForeignKey + ManyToMany)
+                supplier_ids = list(p.suppliers.values_list('id', flat=True))
+                if p.supplier_id:
+                    supplier_ids.append(p.supplier_id)
+                supplier_ids = list(set(supplier_ids)) # Unicité
+
+                p_data = ProductSerializer(p, context={'request': request}).data
+                p_data.update({
+                    'is_deriv': False,
+                    'parent_id': None,
+                    'parent_name': None,
+                    'supplier_ids': supplier_ids,
+                    'supplier': p.supplier_id, # Garder pour compatibilité
+                    'price': float(p.price or 0),
+                    'stock': float(p.current_stock)
+                })
+                produits_data.append(p_data)
+
+            # Dérivées qui matchent
+            derivees_qs = ProduitDv.objects.select_related('product', 'product__supplier').prefetch_related('product__suppliers').filter(
+                designation__icontains=terme
             )
+            derivees_data = []
+            for dv in derivees_qs:
+                # Récupérer tous les IDs de fournisseurs pour le parent
+                supplier_ids = []
+                if dv.product:
+                    supplier_ids = list(dv.product.suppliers.values_list('id', flat=True))
+                    if dv.product.supplier_id:
+                        supplier_ids.append(dv.product.supplier_id)
+                supplier_ids = list(set(supplier_ids))
+
+                derivees_data.append({
+                    'id': dv.id,
+                    'name': dv.designation,
+                    'price': float(dv.product.price or 0) if dv.product else 0,
+                    'is_deriv': True,
+                    'parent_name': dv.product.name if dv.product else "N/A",
+                    'parent_id': dv.product.id if dv.product else None,
+                    'supplier_ids': supplier_ids,
+                    'supplier': dv.product.supplier_id if dv.product and dv.product.supplier else None,
+                    'stock': float(dv.nombre)
+                })
+
             return StandardResponse.render(
-                data=ProductSerializer(qs, many=True, context={'request': request}).data,
+                data=produits_data + derivees_data,
                 status_code=200
             )
+
+        # ─── Création normale ─────────────────────────────────────────────
         data = request.data.copy()
         if 'est_perissable' in data:
             val = data['est_perissable']
             data['est_perissable'] = val.lower() == 'true' if isinstance(val, str) else bool(val)
-        request._full_data = data
 
         produit = super().create(request, *args, **kwargs)
         if not produit:
@@ -242,13 +318,69 @@ class ProductViewSet(GenericCRUDViewSet):
                 print(f"Erreur post-création : {e}")
         return produit
 
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        try:
+            product_id = instance.id
+            product_name = instance.name
+
+            for pi in instance.images.all():
+                try:
+                    if pi.image and hasattr(pi.image, 'path') and os.path.isfile(pi.image.path):
+                        os.remove(pi.image.path)
+                except Exception as e:
+                    print(f"[destroy] Erreur suppression image {pi.id}: {e}")
+            instance.images.all().delete()
+
+            if instance.product_img:
+                try:
+                    if hasattr(instance.product_img, 'path') and os.path.isfile(instance.product_img.path):
+                        os.remove(instance.product_img.path)
+                except Exception as e:
+                    print(f"[destroy] Erreur suppression product_img: {e}")
+                instance.product_img.delete(save=False)
+
+            instance.produitdv_set.all().delete()
+            HistoriqueSeuilStock.objects.filter(produit=instance).delete()
+            MouvementStock.objects.filter(produit=instance).update(produit=None)
+            instance.delete()
+
+            return StandardResponse.render(
+                message=f'Produit "{product_name}" supprimé.',
+                status_code=status.HTTP_200_OK
+            )
+        except Exception as e:
+            print(f"[destroy] ERREUR: {str(e)}")
+            traceback.print_exc()
+            return StandardResponse.render(
+                message=f"Erreur lors de la suppression: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
     @action(detail=False, methods=['get'])
     def stats(self, request):
+        all_products = list(Product.objects.all())
+
+        total_rupture = 0
+        total_critique = 0
+        total_stock_faible = 0
+
+        for p in all_products:
+            if p.current_stock == 0:
+                total_rupture += 1
+            elif p.stock_threshold > 0:
+                ratio = p.current_stock / p.stock_threshold
+                if ratio <= 0.25:
+                    total_critique += 1
+                elif ratio <= 0.50:
+                    total_stock_faible += 1
+
         return StandardResponse.render(data={
             'total_produits': Product.objects.count(),
             'total_perissable': Product.objects.filter(est_perissable=True).count(),
             'total_non_perissable': Product.objects.filter(est_perissable=False).count(),
-            'total_stock': sum(p.current_stock for p in Product.objects.all()),
+            'total_stock': sum(p.current_stock for p in all_products),
+            'total_stock_value': sum(p.current_stock * (p.price or 0) for p in all_products),
             'total_kg': Product.objects.filter(
                 unite_mesure__iexact='kg'
             ).aggregate(total=Sum('current_stock'))['total'],
@@ -258,137 +390,315 @@ class ProductViewSet(GenericCRUDViewSet):
             'total_litres': Product.objects.filter(
                 unite_mesure__in=['Litres', 'litres', 'L', 'l']
             ).aggregate(total=Sum('current_stock'))['total'],
-            'total_stock_faible': Product.objects.filter(
-                current_stock__lte=F('stock_threshold')
-            ).count(),
-            'total_stock_rupture': Product.objects.filter(current_stock=0).count(),
+            'total_stock_faible': total_stock_faible,
+            'total_stock_critique': total_critique,
+            'total_stock_rupture': total_rupture,
         }, message="Statistiques récupérées.", status_code=200)
 
-    @action(detail=True, methods=['post'])
+    @action(detail=True, methods=['post'], parser_classes=[MultiPartParser, FormParser])
     def upload_image(self, request, pk=None):
         product = self.get_object()
+
         if 'product_img' not in request.FILES:
             return StandardResponse.render(message="Aucune image fournie.", status_code=400)
-        if product.product_img and os.path.isfile(product.product_img.path):
-            os.remove(product.product_img.path)
-        product.product_img = request.FILES['product_img']
-        product.save()
+
+        files = request.FILES.getlist('product_img')
+        is_first_upload = not product.product_img
+
+        for index, img_file in enumerate(files):
+            if index == 0 and is_first_upload:
+                product.product_img = img_file
+                product.save()
+            else:
+                ProductImage.objects.create(product=product, image=img_file)
+
         return StandardResponse.render(
             data=ProductSerializer(product, context={'request': request}).data,
-            message="Image mise à jour.", status_code=200
+            message=f"{len(files)} image(s) ajoutée(s).",
+            status_code=200
         )
 
     @action(detail=True, methods=['delete'])
     def remove_image(self, request, pk=None):
         product = self.get_object()
-        if not product.product_img:
-            return StandardResponse.render(message="Aucune image à supprimer.", status_code=400)
-        if os.path.isfile(product.product_img.path):
-            os.remove(product.product_img.path)
-        product.product_img.delete(save=False)
-        product.save()
+
+        for pi in product.images.all():
+            try:
+                if pi.image and hasattr(pi.image, 'path') and os.path.isfile(pi.image.path):
+                    os.remove(pi.image.path)
+            except Exception as e:
+                print(f"[remove_image] Erreur suppression fichier ProductImage {pi.id}: {e}")
+
+        product.images.all().delete()
+
+        if product.product_img:
+            try:
+                if hasattr(product.product_img, 'path') and os.path.isfile(product.product_img.path):
+                    os.remove(product.product_img.path)
+            except Exception as e:
+                print(f"[remove_image] Erreur suppression product_img: {e}")
+
+            product.product_img.delete(save=False)
+            product.product_img = None
+            product.save(update_fields=['product_img'])
+
         return StandardResponse.render(
             data=ProductSerializer(product, context={'request': request}).data,
-            message="Image supprimée.", status_code=200
+            message="Toutes les images supprimées.",
+            status_code=200
         )
 
 
 # ─── ProduitDv ──────────────────────────────────────────────
 class ProduitDvViewSet(GenericCRUDViewSet):
     model = ProduitDv
-    queryset = ProduitDv.objects.select_related('product').all()
     serializer_class = ProduitDvSerializer
 
+    def get_queryset(self):
+        return ProduitDv.objects.select_related('product').all()
+
+    def create(self, request, *args, **kwargs):
+        product_id = request.data.get('product')
+        designation = request.data.get('designation')
+
+        try:
+            quantity_to_allocate = float(request.data.get('stock_initial', 0) or 0)
+        except (ValueError, TypeError):
+            quantity_to_allocate = 0
+
+        if not product_id:
+            return StandardResponse.render(message="Produit parent requis.", status_code=400)
+
+        try:
+            product = Product.objects.get(pk=product_id)
+        except Product.DoesNotExist:
+            return StandardResponse.render(message="Produit parent introuvable.", status_code=404)
+
+        if quantity_to_allocate > 0:
+            if product.unassigned_stock < quantity_to_allocate:
+                return StandardResponse.render(
+                    message=f"Stock insuffisant pour cette allocation. Disponible (non-alloué) : {product.unassigned_stock} {product.unite_mesure}.",
+                    status_code=400
+                )
+
+        try:
+            with transaction.atomic():
+                # Créer le ProduitDv avec nombre initial = 0
+                serializer = self.get_serializer(data={
+                    'product': product_id,
+                    'designation': designation or 'Sans désignation',
+                })
+                serializer.is_valid(raise_exception=True)
+                dv = serializer.save(nombre=0)
+
+                if quantity_to_allocate > 0:
+                    MouvementStock.objects.create(
+                        produit=product,
+                        produit_dv=dv,
+                        movement_type='ALLOCATION',
+                        quantity=int(quantity_to_allocate),
+                        utilisateur=request.user,
+                        notes=f"Allocation initiale de {quantity_to_allocate} {product.unite_mesure} pour '{dv.designation}'"
+                    )
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            return StandardResponse.render(
+                message=f"Erreur lors de la création du sous-produit : {str(e)}",
+                status_code=500
+            )
+
+        return StandardResponse.render(
+            data=ProduitDvSerializer(dv).data,
+            message=f"Sous-produit '{dv.designation}' créé avec une allocation de {quantity_to_allocate} {product.unite_mesure}.",
+            status_code=201
+        )
+
     def _generer_pdf_mouvement(self, mouvements, type_mouvement, request):
+        titre_type = "sorties" if type_mouvement == "OUT" else "entrees"
         data = [["Produit", "Quantité", "Date", "Référence", "Utilisateur"]] + [
             [
                 m.produit.name if m.produit else '',
                 m.quantity,
-                m.date.strftime("%Y-%m-%d") if m.date else '',
+                m.timestamp.strftime("%Y-%m-%d") if m.timestamp else '',
                 m.referrence or '',
-                m.utilisateur.username.upper() if m.utilisateur else '',
+                m.utilisateur.get_full_name().upper() if m.utilisateur else '',
             ]
             for m in mouvements
         ]
-        titre_type = "sorties" if type_mouvement == "OUT" else "entrées"
         infos = {
             "titre": f"Rapport de {titre_type} de produits",
             "sous_titre": f"Rapport des {titre_type} de produits.",
-            "auteur": request.user.username.upper(),
+            "auteur": request.user.get_full_name().upper() or request.user.username.upper(),
             "couleur": colors.lightgoldenrodyellow if type_mouvement == "OUT" else colors.lightgreen,
             "colWidths": [2*inch, inch, inch, 2*inch, 1.5*inch],
         }
         buffer = PDFGeneratorViewSet()._advanced_pdf(data=data, infos=infos)
-        return FileResponse(
-            buffer, as_attachment=True,
-            filename=f"Rapport_{titre_type}_{date.today()}.pdf"
+        filename = f"Rapport_{titre_type}_{date.today()}.pdf"
+        filepath = os.path.join(settings.MEDIA_ROOT, 'rapports', filename)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+        with open(filepath, 'wb') as f:
+            f.write(buffer.read())
+        file_url = request.build_absolute_uri(f"{settings.MEDIA_URL}rapports/{filename}")
+        return StandardResponse.render(
+            data={"url": file_url, "filename": filename},
+            message="Opération enregistrée avec succès.",
+            status_code=200
         )
-
-    @action(detail=False, methods=['post'])
-    def sortie(self, request):
-        from apps.notifications.models import Notification
-        mouvements = []
-        for pod in request.data.get('liste_sortie', []):
-            produit_mere = Product.objects.get(pk=pod['id_produit'])
-            raison = request.data.get('raison', 'Sortie via interface')
-            for item in pod['panier']:
-                try:
-                    dv = ProduitDv.objects.get(pk=item['id'])
-                    dv.nombre -= item['quantite']
-                    if dv.nombre < 0:
-                        return StandardResponse.render(
-                            message=f"Stock insuffisant pour {item['designation']}.",
-                            status_code=400
-                        )
-                    dv.save()
-                    produit_mere.current_stock -= dv.quantite * item['quantite']
-                    produit_mere.save()
-                    Notification.creer(
-                        utilisateur=request.user,
-                        data={"objet_nom": f"Produit-{produit_mere.name}",
-                              "model_name": "Product", "notif": "sortie(e)"},
-                        titre="Sortie de produit",
-                    )
-                    mouvements.append(MouvementStock.objects.create(
-                        produit=produit_mere, produit_dv=dv,
-                        movement_type="OUT", quantity=item['quantite'],
-                        unit_price=produit_mere.price, utilisateur=request.user,
-                        notes=f"Sortie de {item['quantite']} unités de {item['designation']}",
-                        referrence=item.get('ref', ''), reason=raison,
-                    ))
-                except Exception as e:
-                    return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
-        return self._generer_pdf_mouvement(mouvements, "OUT", request)
 
     @action(detail=False, methods=['post'])
     def entree(self, request):
         from apps.notifications.models import Notification
         mouvements = []
         for pod in request.data.get('liste_inserer', []):
-            produit = Product.objects.get(pk=pod['id_produit'])
+            try:
+                produit = Product.objects.get(pk=pod['id_produit'])
+            except Product.DoesNotExist:
+                return StandardResponse.render(
+                    message=f"Produit ID {pod['id_produit']} introuvable.",
+                    status_code=400
+                )
+
             for item in pod['panier']:
                 try:
-                    dv = ProduitDv.objects.get(pk=item['id'])
-                    dv.nombre += item['nombre']
-                    dv.save()
-                    produit.current_stock += dv.quantite * item['nombre']
-                    produit.save()
-                    Notification.creer(
-                        utilisateur=request.user,
-                        data={"objet_nom": f"Produit-{produit.name}",
-                              "model_name": "Product", "notif": "inséré(e)"},
-                        titre="Entrée de produit",
+                    if item.get('is_direct'):
+                        # ── Produit sans dérivée : on incrémente directement le stock parent ──
+                        nombre = item['nombre']
+                        # Suppression de la mise à jour manuelle (produit.current_stock += nombre)
+                        # car le signal 'update_stock_on_mouvement' s'en charge à la création du MouvementStock.
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit.name}",
+                                "model_name": "Product",
+                                "notif": "inséré(e)",
+                            },
+                            titre="Entrée de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit,
+                            produit_dv=None,
+                            movement_type="IN",
+                            quantity=nombre,
+                            unit_price=produit.price,
+                            utilisateur=request.user,
+                            notes=f"Entrée directe de {nombre} unités de {produit.name}",
+                            referrence=item.get('ref', ''),
+                        ))
+                    else:
+                        # ── Produit avec dérivée ──────────────────────────────────────────────
+                        dv = ProduitDv.objects.get(pk=item['id'])
+                        
+                        # Note: 'nombre' in item is the WEIGHT (kg) or parent base unit
+                        weight = item.get('nombre', 0)
+                        
+                        # Suppression de la mise à jour manuelle car gérée par signal
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit.name}",
+                                "model_name": "Product",
+                                "notif": "inséré(e)",
+                            },
+                            titre="Entrée de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit,
+                            produit_dv=dv,
+                            movement_type="IN",
+                            quantity=weight,
+                            unit_price=produit.price,
+                            utilisateur=request.user,
+                            notes=f"Entrée de {weight} {produit.unite_mesure} de {item['designation']}",
+                            referrence=item.get('ref', ''),
+                        ))
+                except ProduitDv.DoesNotExist:
+                    return StandardResponse.render(
+                        message=f"Dérivée ID {item.get('id')} introuvable.",
+                        status_code=400
                     )
-                    mouvements.append(MouvementStock.objects.create(
-                        produit=produit, produit_dv=dv,
-                        movement_type="IN", quantity=item['nombre'],
-                        unit_price=produit.price, utilisateur=request.user,
-                        notes=f"Entrée de {item['nombre']} unités de {item['designation']}",
-                        referrence=item.get('ref', ''),
-                    ))
                 except Exception as e:
                     return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
+
         return self._generer_pdf_mouvement(mouvements, "IN", request)
+
+    @action(detail=False, methods=['post'])
+    def sortie(self, request):
+        from apps.notifications.models import Notification
+        mouvements = []
+        raison = request.data.get('raison', 'Sortie via interface')
+
+        for pod in request.data.get('liste_sortie', []):
+            try:
+                produit_mere = Product.objects.get(pk=pod['id_produit'])
+            except Product.DoesNotExist:
+                return StandardResponse.render(
+                    message=f"Produit ID {pod['id_produit']} introuvable.",
+                    status_code=400
+                )
+
+            for item in pod['panier']:
+                try:
+                    if item.get('is_direct'):
+                        # ── Produit sans dérivée ──────────────────────────────────────────────
+                        weight = item.get('quantite', 0)
+                        # Le signal s'occupe de vérifier le stock et décrémenter
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit_mere.name}",
+                                "model_name": "Product",
+                                "notif": "sortie(e)",
+                            },
+                            titre="Sortie de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit_mere,
+                            produit_dv=None,
+                            movement_type="OUT",
+                            quantity=weight,
+                            unit_price=produit_mere.price,
+                            utilisateur=request.user,
+                            notes=f"Sortie directe de {weight} {produit_mere.unite_mesure} de {produit_mere.name}",
+                            referrence=item.get('ref', ''),
+                            reason=raison,
+                        ))
+                    else:
+                        # ── Produit avec dérivée ──────────────────────────────────────────────
+                        dv = ProduitDv.objects.get(pk=item['id'])
+                        
+                        weight = item.get('quantite', 0)
+
+                        # Suppression des calculs manuels
+                        Notification.creer(
+                            utilisateur=request.user,
+                            data={
+                                "objet_nom": f"Produit-{produit_mere.name}",
+                                "model_name": "Product",
+                                "notif": "sortie(e)",
+                            },
+                            titre="Sortie de produit",
+                        )
+                        mouvements.append(MouvementStock.objects.create(
+                            produit=produit_mere,
+                            produit_dv=dv,
+                            movement_type="OUT",
+                            quantity=weight,
+                            unit_price=produit_mere.price,
+                            utilisateur=request.user,
+                            notes=f"Sortie de {weight} {produit_mere.unite_mesure} de {item['designation']}",
+                            referrence=item.get('ref', ''),
+                            reason=raison,
+                        ))
+                except ProduitDv.DoesNotExist:
+                    return StandardResponse.render(
+                        message=f"Dérivée ID {item.get('id')} introuvable.",
+                        status_code=400
+                    )
+                except Exception as e:
+                    return StandardResponse.render(message=f"Erreur : {e}", status_code=500)
+
+        return self._generer_pdf_mouvement(mouvements, "OUT", request)
 
     @action(detail=False, methods=['get'])
     def par_produit(self, request):
@@ -399,3 +709,54 @@ class ProduitDvViewSet(GenericCRUDViewSet):
         return StandardResponse.render(
             data=ProduitDvSerializer(qs, many=True).data, status_code=200
         )
+
+
+# ─── Revenues ───────────────────────────────────────────────
+class RevenueViewSet(GenericCRUDViewSet):
+    permission_classes = [IsAuthenticated]
+
+    @action(detail=False, methods=['get'])
+    def mensuel(self, request):
+        from django.db.models.functions import ExtractMonth
+        from collections import defaultdict
+
+        month_names = {
+            1: 'Jan', 2: 'Fév', 3: 'Mar', 4: 'Avr', 5: 'Mai', 6: 'Juin',
+            7: 'Juil', 8: 'Août', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Déc'
+        }
+
+        sorties = (
+            MouvementStock.objects
+            .filter(movement_type='OUT', timestamp__isnull=False)
+            .annotate(month=ExtractMonth('timestamp'))
+            .select_related('produit', 'produit__category')
+        )
+
+        data_by_month = defaultdict(lambda: defaultdict(float))
+        all_categories = set()
+
+        for s in sorties:
+            m_name = month_names.get(s.month, 'Inconnu')
+            cat_name = (
+                s.produit.category.name
+                if s.produit and s.produit.category
+                else 'Non catégorisé'
+            )
+            all_categories.add(cat_name)
+            amount = float(s.quantity) * float(s.unit_price or 0)
+            data_by_month[m_name][cat_name] += amount
+
+        result = []
+        sorted_months = ['Jan', 'Fév', 'Mar', 'Avr', 'Mai', 'Juin',
+                         'Juil', 'Août', 'Sep', 'Oct', 'Nov', 'Déc']
+        for m in sorted_months:
+            if m in data_by_month:
+                row = {'month': m}
+                row.update(data_by_month[m])
+                row['actual'] = sum(data_by_month[m].values())
+                for cat in all_categories:
+                    if cat not in row:
+                        row[cat] = 0
+                result.append(row)
+
+        return StandardResponse.render(data=result, message='Revenus mensuels.', status_code=200)

@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import PDFHistorique
+from .models import PDFHistorique, GeneratedReport
 
 
 class DynamicModelSerializer(serializers.ModelSerializer):
@@ -21,4 +21,9 @@ class DynamicModelSerializer(serializers.ModelSerializer):
 class PDFHistoriqueSerializer(serializers.ModelSerializer):
     class Meta:
         model = PDFHistorique
+        fields = '__all__'
+
+class GeneratedReportSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GeneratedReport
         fields = '__all__'

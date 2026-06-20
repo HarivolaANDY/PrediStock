@@ -1,34 +1,60 @@
 import api from '@/config/axios';
-import { AxiosResponse } from 'axios';
+import { Recommendation, Prediction } from '@/types/types';
 
-export interface Recommendation {
-  id: number;
-  product: number;
-  date_prediction: string;
-  type_recommandation: string;
-  quantite_suggeree: number;
-  prix_estime: number;
-  priority: string;
-  raisonnement: string;
-  est_applique: boolean;
-  creer_le: string;
-  appliquee_le: string;
-  product_details?: {
-    name: string;
-    current_stock: number;
-  };
+interface RawDataWithArray {
+  data?: unknown[];
+  results?: unknown[];
 }
 
-interface ApiResponse {
-  data: Recommendation[];
-  message: string;
-  status_code: number;
+interface RawDataWithArray {
+  data?: unknown[];
+  results?: unknown[];
 }
+
+// Extrait le tableau de données quelle que soit la structure de la réponse
+const extractArray = (raw: unknown): unknown[] => {
+  if (Array.isArray(raw)) return raw;
+  const obj = raw as RawDataWithArray;
+  if (Array.isArray(obj?.data)) return obj.data;
+  if (Array.isArray(obj?.results)) return obj.results;
+  return [];
+};
 
 const recommendationService = {
-  getAll: (): Promise<AxiosResponse<ApiResponse>> => {
-    return api.get('/recommandation/');
-  }
+
+  // ── Recommandations ────────────────────────────────────────────────────────
+  getAll: async (): Promise<Recommendation[]> => {
+    const response = await api.get('/forecasting/recommandations/');
+    return extractArray(response.data) as Recommendation[];
+  },
+
+  apply: async (id: number): Promise<boolean> => {
+    try {
+      await api.post(`/forecasting/recommandations/${id}/apply/`);
+      return true;
+    } catch {
+      return false;
+    }
+  },
+
+  // ── Prédictions ────────────────────────────────────────────────────────────
+  getPredictions: async (): Promise<Prediction[]> => {
+    const response = await api.get('/forecasting/predictions/');
+    return extractArray(response.data) as Prediction[];
+  },
+
+  // Lance le pipeline de prévision immédiatement
+  runPrediction: async (): Promise<{ message: string }> => {
+    const response = await api.post('/forecasting/predict/', {});
+    return response.data;
+  },
+
+  // ── Chatbot IA ─────────────────────────────────────────────────────────────
+  chat: async (message: string): Promise<unknown> => {
+    const response = await api.post('/forecasting/chat/', { message });
+    const raw = response.data;
+    return raw?.data ?? raw;
+  },
 };
 
 export default recommendationService;

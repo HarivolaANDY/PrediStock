@@ -1,6 +1,5 @@
-import { useState, useEffect, useMemo } from "react"
-import { useNavigate } from "react-router-dom"
-import { Package, TrendingDown, TrendingUp, AlertTriangle, Filter, Search, Calendar, Clock, DollarSign, RefreshCw } from "lucide-react"
+import { useState, useEffect, useMemo, useCallback } from "react"
+import { Package, TrendingDown, AlertTriangle, Search, DollarSign, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Download } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -12,145 +11,284 @@ import { LineChart } from "@/components/charts/LineChart"
 import { BarChart } from "@/components/charts/BarChart"
 import { useProducts } from "@/hooks/useProducts"
 import { MetricCard } from "@/components/MetricCard"
-import { saveProduct } from "@/components/productApi"
 import { StockMouvementForm } from "@/components/StockMouvementForm"
 import ImportModalGenerer from "@/components/ImportModalGenerer"
 import API from "@/services/axios"
-import { parseAxiosBlobResponse, downloadAll } from "@/utils/blobUtils"
+import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/utils/blobUtils"
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { exportToCSV } from "@/utils/csvUtils"
+import { toast } from "@/hooks/use-toast"
+import { Category, StockMouvement, PDV, StockTrendPoint } from "@/types/types"
 
-type Product = {
-  id: number
-  product_img: string | null
-  name: string
-  sku: string
-  description: string
-  price: string
-  stock_threshold: number
-  current_stock: number
-  is_active: boolean
-  created_at: string
-  updated_at: string
-  category: number | null
-  supplier: number | null
+
+function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
+  // 1. Champ unifié calculé côté backend (couvre tous les cas : dv seul, parent seul, les deux)
+  if ((mouvement as any).produit_display_name) return (mouvement as any).produit_display_name
+  // 2. Nom du sous-produit (variante)
+  if ((mouvement as any).produit_dv_name) return (mouvement as any).produit_dv_name
+  // 3. Détails embarqués
+  const details = mouvement.product_details
+  if (details) {
+    if (details.designation) return details.designation
+    if (details.name) return details.name
+    if (details.nom) return details.nom
+  }
+  if (mouvement.product_name) return mouvement.product_name
+  if (mouvement.produit_nom) return mouvement.produit_nom
+  // 4. Résolution par ID via liste PDV
+  const produitId = mouvement.produit ?? mouvement.product ?? null
+  if (produitId !== null) {
+    const match = PDVs.find((p) => p.product === produitId || p.id === produitId)
+    if (match) return match.designation || match.infos?.name || ""
+  }
+  return "Produit inconnu"
 }
 
-type Category = {
-  id: number
-  name: string
+// ── Statut stock aligné sur filter_stock_status (filters.py) ─────────────
+// rupture     : stock = 0
+// critical    : 0 < stock <= 25% du seuil
+// warning     : 25% < stock <= 50% du seuil
+// low         : 50% < stock <= seuil (ok dans la logique du tableau)
+function getAlertStatus(current_stock: number, stock_threshold: number): "rupture" | "critical" | "warning" | "low" {
+  if (current_stock === 0) return "rupture"
+  if (stock_threshold <= 0) return "low"
+  const ratio = current_stock / stock_threshold
+  if (ratio <= 0.25) return "critical"
+  if (ratio <= 0.50) return "warning"
+  return "low"
 }
+
+interface ProductStats {
+  total_produits: number
+  total_stock: number
+  total_stock_faible: number    // 25% < stock <= 50% du seuil
+  total_stock_critique: number  // 0 < stock <= 25% du seuil
+  total_stock_rupture: number   // stock = 0
+  total_stock_value?: number    // valeur totale du stock
+}
+
+const ITEMS_PER_PAGE = 10
+const HISTORY_PER_PAGE = 20
 
 export default function Stock() {
-  const navigate = useNavigate()
   const [categories, setCategories] = useState<Category[]>([])
-  const { products, loading, error, refetch } = useProducts()
+  // ✅ Tous les produits pour alertItems et valeurTotaleStock
+  const { products, refetch } = useProducts({ page: 1, status: "all" })
+  const [alertProducts, setAlertProducts] = useState<any[]>([])
+  const [alertLoading, setAlertLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [alertSearchTerm, setAlertSearchTerm] = useState("")
-  const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
-  const [stockMouvements, setStockMouvements] = useState<any[]>([])
+  const [stockMouvements, setStockMouvements] = useState<StockMouvement[]>([])
   const [stockMouvementsLoading, setStockMouvementsLoading] = useState(false)
   const [stockMouvementsError, setStockMouvementsError] = useState<string | null>(null)
   const [showImportModal, setShowImportModal] = useState(false)
-  const [downloadedFiles, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
   const [isloadingexport, setIsloadingexport] = useState(false)
   const [isLoadingPDVs, setIsLoadingPDVs] = useState(false)
-  const [PDVs, setPDVs] = useState<any[]>([])
-  const [seuilHistorique, setSeuilHistorique] = useState<any[]>([])
+  const [PDVs, setPDVs] = useState<PDV[]>([])
+  const [seuilHistorique, setSeuilHistorique] = useState<StockTrendPoint[]>([])
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set())
+  const [showStockMouvementForm, setShowStockMouvementForm] = useState(false)
+  const [selectedProduct] = useState<PDV | null>(null)
+  const [, setDownloadedFiles] = useState<{ blob: Blob; filename: string }[]>([])
+  const [mouvementSearchTerm, setMouvementSearchTerm] = useState("")
+  const [stats, setStats] = useState<ProductStats | null>(null)
 
-  // ── Métriques calculées depuis les données réelles ─────────────────────────
+  // ── Pagination Alertes ───────────────────────────────────────────────────
+  const [currentPage, setCurrentPage] = useState(1)
 
-  // Valeur totale du stock = sum(price * current_stock)
+  // ── Pagination Historique ────────────────────────────────────────────────
+  const [historyPage, setHistoryPage] = useState(1)
+
+  const toggleRow = (id: number) => {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) { next.delete(id) } else { next.add(id) }
+      return next
+    })
+  }
+
+  // ✅ Valeur totale : depuis stats.total_stock_value si disponible, sinon calcul local
   const valeurTotaleStock = useMemo(() => {
-    return products.reduce((sum, p) => {
-      const price = parseFloat(p.price) || 0
-      return sum + price * p.current_stock
-    }, 0)
-  }, [products])
+    if (stats?.total_stock_value != null) return stats.total_stock_value
+    return products.reduce((sum, p) => sum + (parseFloat(p.price as unknown as string) || 0) * p.current_stock, 0)
+  }, [stats, products])
 
-  // Articles en stock bas (entre seuil critique et seuil normal)
-  const articlesStockBas = useMemo(() =>
-    products.filter(p => p.current_stock > 0 && p.current_stock <= ((p.stock_threshold * 15) / 100)),
-    [products]
+  // ✅ alertItems : depuis alertProducts (API paginée avec page_size=1000)
+  const alertItems = useMemo(() =>
+    alertProducts.filter(p =>
+      (p.name || '').toLowerCase().includes(alertSearchTerm.toLowerCase())
+    ),
+    [alertProducts, alertSearchTerm]
   )
 
-  // Articles en rupture
-  const articlesRupture = useMemo(() =>
-    products.filter(p => p.current_stock === 0),
-    [products]
+  const totalPages = useMemo(
+    () => Math.ceil(alertItems.length / ITEMS_PER_PAGE),
+    [alertItems.length]
   )
 
-  // Données pour le graphique "Tendance des niveaux de stock" depuis l'historique des seuils
+  const pagedAlertItems = useMemo(() => {
+    const start = (currentPage - 1) * ITEMS_PER_PAGE
+    return alertItems.slice(start, start + ITEMS_PER_PAGE)
+  }, [alertItems, currentPage])
+
+  const goToPage = useCallback((page: number) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)))
+  }, [totalPages])
+
+  // Reset page quand les données ou la recherche changent
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [alertItems.length])
+
+  const getVisiblePages = () => {
+    if (totalPages <= 5) return Array.from({ length: totalPages }, (_, i) => i + 1)
+    const half = 2
+    let start = Math.max(1, currentPage - half)
+    let end = Math.min(totalPages, currentPage + half)
+    if (currentPage <= half + 1) end = Math.min(totalPages, 5)
+    if (currentPage >= totalPages - half) start = Math.max(1, totalPages - 4)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }
+
   const stockTrendData = useMemo(() => {
     if (seuilHistorique.length === 0) return []
-    return seuilHistorique.map((entry: any) => ({
-      month: entry.date ? new Date(entry.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' }) : entry.periode || "—",
+    return seuilHistorique.map((entry) => ({
+      month: entry.date
+        ? new Date(entry.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' })
+        : entry.periode || "—",
       stock: entry.total_stock ?? entry.quantite ?? entry.valeur ?? 0,
     }))
   }, [seuilHistorique])
 
-  // Données pour le graphique "Répartition par catégorie" depuis les produits réels
-  const categoryStockData = useMemo(() => {
-    if (products.length === 0 || categories.length === 0) return []
-    const map: Record<string, number> = {}
-    products.forEach(p => {
-      const catName = categories.find(c => c.id === p.category)?.name || "Sans catégorie"
-      map[catName] = (map[catName] || 0) + p.current_stock
-    })
-    return Object.entries(map).map(([name, stock]) => ({ name, stock }))
-  }, [products, categories])
+  const [categoryStockData, setCategoryStockData] = useState<{ name: string; stock: number }[]>([])
 
-  // Alertes stock bas depuis les produits réels
-  const alertItems = useMemo(() => {
-    return products
-      .filter(p => p.current_stock <= p.stock_threshold)
-      .filter(p =>
-        p.name.toLowerCase().includes(alertSearchTerm.toLowerCase())
+  const fetchCategoryChart = async () => {
+    try {
+      const res = await API.get('stock/mouvements/chart_by_category/')
+      const data = res.data?.data || res.data?.results || res.data || []
+      setCategoryStockData(
+        (Array.isArray(data) ? data : []).map((item: any) => ({
+          name: item.category,
+          stock: item.stock ?? item.net ?? 0,
+        }))
       )
-      .map(p => {
-        const pct = p.stock_threshold > 0 ? (p.current_stock / p.stock_threshold) * 100 : 0
-        const status = p.current_stock === 0 ? "rupture" : pct <= 15 ? "critical" : "low"
-        return { ...p, status }
-      })
-  }, [products, alertSearchTerm])
+    } catch (e) {
+      console.error('Erreur chart catégorie:', e)
+      setCategoryStockData([])
+    }
+  }
 
-  // ── Formatage ──────────────────────────────────────────────────────────────
+  const mouvementsByProduct = useMemo(() => {
+    const map: Record<number, any[]> = {}
+    stockMouvements.forEach((mvt: any) => {
+      const pid: number | null = mvt.produit ?? mvt.product ?? mvt.product_details?.id ?? null
+      if (pid === null) return
+      if (!map[pid]) map[pid] = []
+      map[pid].push(mvt)
+    })
+    Object.values(map).forEach(list =>
+      list.sort((a, b) => (b.timestamp ?? "").localeCompare(a.timestamp ?? ""))
+    )
+    return map
+  }, [stockMouvements])
+
+  const mouvementStatsByProduct = useMemo(() => {
+    const s: Record<number, { nbEntree: number; nbSortie: number; dernierMvt: string | null; dateDernierMvt: string | null }> = {}
+    stockMouvements.forEach((mvt: any) => {
+      const pid: number | null = mvt.produit ?? mvt.product ?? mvt.product_details?.id ?? null
+      if (pid === null) return
+      if (!s[pid]) s[pid] = { nbEntree: 0, nbSortie: 0, dernierMvt: null, dateDernierMvt: null }
+      if (mvt.movement_type === 'IN' || mvt.movement_type === 'RETURN') {
+        s[pid].nbEntree += Number(mvt.quantity) || 0
+      } else if (mvt.movement_type === 'OUT' || mvt.movement_type === 'SCRAP') {
+        s[pid].nbSortie += Number(mvt.quantity) || 0
+      }
+      if (!s[pid].dateDernierMvt || mvt.timestamp > s[pid].dateDernierMvt!) {
+        s[pid].dernierMvt = mvt.movement_type
+        s[pid].dateDernierMvt = mvt.timestamp
+      }
+    })
+    return s
+  }, [stockMouvements])
+
   const formatCustomDate = (dateString: string) => {
     if (!dateString) return "—"
-    const date = new Date(dateString)
-    const day = String(date.getDate()).padStart(2, '0')
-    const month = String(date.getMonth() + 1).padStart(2, '0')
-    const year = date.getFullYear()
-    const hours = String(date.getHours()).padStart(2, '0')
-    const minutes = String(date.getMinutes()).padStart(2, '0')
-    return `${day}/${month}/${year} ${hours}:${minutes}`
+    const d = new Date(dateString)
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
   }
 
   const formatCurrency = (value: number) =>
     value.toLocaleString('fr-MG', { maximumFractionDigits: 0 }) + ' Ar'
 
+  const formatMvtType = (type: string | null) => {
+    if (!type) return "—"
+    const map: Record<string, string> = { IN: "Entrée", OUT: "Sortie", ADJUSTMENT: "Ajustement", RETURN: "Retour", SCRAP: "Rebut" }
+    return map[type] ?? type
+  }
+
   const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "rupture": return <Badge variant="destructive">Rupture</Badge>
-      case "critical": return <Badge variant="destructive">Critique</Badge>
-      case "low": return <Badge className="bg-warning text-warning-foreground">Stock bas</Badge>
-      default: return <Badge variant="secondary">Normal</Badge>
+    if (status === "rupture") return <Badge variant="destructive">Rupture</Badge>
+    if (status === "critical") return <Badge variant="destructive">Critique</Badge>
+    if (status === "warning") return <Badge className="bg-orange-500 hover:bg-orange-500 text-white">Stock Faible</Badge>
+    if (status === "low") return <Badge className="bg-warning text-warning-foreground">À surveiller</Badge>
+    return <Badge variant="secondary">Normal</Badge>
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────────
+  const exportMouvementPDF = async () => {
+    setIsloadingexport(true)
+    try {
+      const res = (await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })) as AxiosResponseWithBlob
+      const parsed = await parseAxiosBlobResponse(res, "Rapport_mouvement.pdf")
+      if (parsed.files?.length) { setDownloadedFiles(prev => [...prev, ...parsed.files]); downloadAll(parsed.files) }
+    } catch (err) { console.error(err) }
+    finally { setIsloadingexport(false) }
+  }
+
+  const exportProductsCSV = () => {
+    try {
+      if (filteredPDVs.length === 0) {
+        toast({ variant: "destructive", title: "Erreur", description: "Aucune donnée à exporter" }); return
+      }
+      const headers = ["Produit", "Quantité", "Date", "Produit parent"]
+      const dataToExport = filteredPDVs.map(p => ({
+        designation: p.designation || "",
+        quantite: p.nombre ?? "0",
+        date: formatCustomDate(p.date_creation),
+        parent: p.infos?.name || "—"
+      }))
+      const now = new Date()
+      const filename = `products_stock_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
+      exportToCSV(dataToExport, filename, headers, ["designation", "quantite", "date", "parent"])
+    } catch (error) {
+      toast({ variant: "destructive", title: "Erreur d'exportation", description: "Erreur lors de l'exportation CSV." })
     }
   }
 
-  // ── Export PDF ─────────────────────────────────────────────────────────────
-  const Export_mouvement = async () => {
+  const exportMovementsCSV = () => {
     try {
-      const res = await API.post("core/pdf/PDF_mouvementStock/", {}, { responseType: 'blob' })
-      const parsed = await parseAxiosBlobResponse(res, "Rapport_mouvement.pdf")
-      if (parsed.files?.length) {
-        setDownloadedFiles(prev => [...prev, ...parsed.files])
-        downloadAll(parsed.files)
+      if (filteredMovements.length === 0) {
+        toast({ variant: "destructive", title: "Erreur", description: "Aucune donnée à exporter." }); return
       }
-    } catch (err) {
-      console.error(err)
-    } finally {
-      setIsloadingexport(false)
+      const headers = ["Date", "Produit", "Type", "Quantité", "Référence", "Raison", "Auteur"]
+      const dataToExport = filteredMovements.map(m => {
+        const date = new Date(m.timestamp)
+        const author = m.utilisateur_nom ? `${m.utilisateur_nom.first_name} ${m.utilisateur_nom.last_name}`.trim() : "—"
+        return {
+          date: `${date.toLocaleDateString()} ${date.toLocaleTimeString()}`,
+          produit: resolveProductName(m, PDVs),
+          type: formatMvtType(m.movement_type),
+          quantite: `${m.movement_type === "OUT" || m.movement_type === "SCRAP" ? "-" : "+"}${m.quantity}`,
+          reference: m.reference || "—",
+          raison: m.reason || "—",
+          auteur: author
+        }
+      })
+      const now = new Date()
+      const filename = `mouvement_stock_${String(now.getDate()).padStart(2,'0')}${String(now.getMonth()+1).padStart(2,'0')}${now.getFullYear()}.csv`
+      exportToCSV(dataToExport, filename, headers, ["date", "produit", "type", "quantite", "reference", "raison", "auteur"], ';')
+    } catch (error) {
+      toast({ variant: "destructive", title: "Erreur d'exportation", description: "Erreur lors de l'exportation CSV." })
     }
   }
 
@@ -159,38 +297,78 @@ export default function Stock() {
     try {
       const res = await API.get('catalogue/categories/')
       setCategories(res.data?.data || res.data?.results || res.data || [])
-    } catch (error) {
-      console.error('Erreur catégories:', error)
-    }
+    } catch (e) { console.error(e) }
+  }
+
+  // ✅ Stats depuis /catalogue/products/stats/ — même endpoint que Dashboard et Products
+  const fetchStats = async () => {
+    try {
+      const res = await API.get('catalogue/products/stats/')
+      setStats(res.data?.data || null)
+    } catch (e) { console.error('Erreur stats:', e) }
   }
 
   const getListePDV = async () => {
+    setIsLoadingPDVs(true)
     try {
-      const response = await API.get('catalogue/produits-dv/')
-      setPDVs(response.data?.data || response.data?.results || response.data || [])
-      setIsLoadingPDVs(true)
-    } catch (error) {
-      console.error('Erreur produits DV:', error)
+      // Récupérer les ProduitDv (variantes)
+      const resDV = await API.get('catalogue/produits-dv/')
+      const dvs = resDV.data?.data || resDV.data?.results || resDV.data || []
+      
+      // Récupérer les produits parents sans variantes
+      const resProducts = await API.get('catalogue/products/?page_size=1000')
+      const allProducts = resProducts.data?.data?.results || resProducts.data?.results || resProducts.data?.data || resProducts.data || []
+      
+      // Extraire les IDs des produits parents qui ont des variantes
+      const productsWithDV = new Set(
+        (Array.isArray(dvs) ? dvs : []).map((dv: any) => dv.product || dv.product_id)
+      )
+      
+      // Ajouter les produits parents sans variantes
+      const productsWithoutDV = (Array.isArray(allProducts) ? allProducts : []).filter(
+        (p: any) => !productsWithDV.has(p.id)
+      )
+      
+      // Transformer les produits parents pour qu'ils aient le même format que les PDVs
+      const formattedProducts = productsWithoutDV.map((p: any) => ({
+        id: p.id,
+        product: p.id,  // Pour la compatibilité avec filteredPDVs
+        designation: p.name,
+        nombre: p.current_stock,
+        infos: {
+          name: p.name,
+          category: p.category,
+          unite_mesure: p.unite_mesure,
+        }
+      }))
+      
+      // Combiner les deux listes
+      const combined = [
+        ...(Array.isArray(dvs) ? dvs : []),
+        ...formattedProducts
+      ]
+      
+      setPDVs(combined)
+    } catch (e) { 
+      console.error('Erreur getListePDV:', e)
+      setPDVs([]) 
     }
+    finally { setIsLoadingPDVs(false) }
   }
 
-  // Historique des seuils de stock → sert au graphique de tendance
   const fetchSeuilHistorique = async () => {
     try {
-      const response = await API.get('stock/historique-seuil-stock/')
-      const data = response.data?.data || response.data?.results || response.data || []
+      const res = await API.get('stock/historique-seuil-stock/')
+      const data = res.data?.data || res.data?.results || res.data || []
       setSeuilHistorique(Array.isArray(data) ? data : [])
-    } catch (error) {
-      console.error('Erreur historique seuil:', error)
-      setSeuilHistorique([]) // fallback → graphique vide
-    }
+    } catch (e) { console.error(e); setSeuilHistorique([]) }
   }
 
   const fetchStockMouvements = async (type?: string) => {
     setStockMouvementsLoading(true)
     setStockMouvementsError(null)
-    const params: any = {}
     try {
+      const params: Record<string, string> = {}
       if (type && type !== "tout") params.movement_type = type
       const response = await stockMouvementService.getStockMouvements(params)
       if (response.status === 'success') {
@@ -199,71 +377,166 @@ export default function Stock() {
         const data = response.data || response.results || response
         setStockMouvements(Array.isArray(data) ? data : [])
       }
-    } catch (error) {
-      console.error("Erreur mouvements:", error)
-      setStockMouvementsError("Erreur lors de la récupération des mouvements : " + (error instanceof Error ? error.message : "Erreur inconnue"))
+    } catch (e) {
+      console.error(e)
+      setStockMouvementsError("Erreur lors de la récupération des mouvements : " + (e instanceof Error ? e.message : "Erreur inconnue"))
+    } finally { setStockMouvementsLoading(false) }
+  }
+
+  // ✅ Récupération des alertes par statut (page_size=1000 pour tout avoir)
+  const fetchAlertProducts = async () => {
+    setAlertLoading(true)
+    try {
+      const [rupture, critique, faible] = await Promise.all([
+        API.get('catalogue/products/?stock_status=rupture&page_size=1000'),
+        API.get('catalogue/products/?stock_status=critique&page_size=1000'),
+        API.get('catalogue/products/?stock_status=stock_faible&page_size=1000'),
+      ])
+
+      const merge = (res: any) =>
+        res.data?.data?.results ?? res.data?.results ?? res.data?.data ?? []
+
+      const all = [
+        ...merge(rupture).map((p: any) => ({ ...p, status: 'rupture' })),
+        ...merge(critique).map((p: any) => ({ ...p, status: 'critical' })),
+        ...merge(faible).map((p: any) => ({ ...p, status: 'warning' })),
+      ]
+
+      setAlertProducts(all)
+    } catch (e) {
+      console.error('Erreur fetch alertes:', e)
+      setAlertProducts([])
     } finally {
-      setStockMouvementsLoading(false)
+      setAlertLoading(false)
     }
   }
 
   useEffect(() => {
-    fetchCategories()
-    fetchStockMouvements()
-    getListePDV()
-    fetchSeuilHistorique()
+    fetchCategories(); fetchStats(); fetchStockMouvements()
+    getListePDV(); fetchSeuilHistorique(); fetchCategoryChart(); fetchAlertProducts()
   }, [])
 
-  // Filtre PDVs par searchTerm
-  const filteredPDVs = useMemo(() =>
-    PDVs.filter(p =>
-      (p.designation || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (p.infos?.name || '').toLowerCase().includes(searchTerm.toLowerCase())
-    ),
-    [PDVs, searchTerm]
+  // Produits ayant au moins un mouvement enregistré
+  const filteredPDVs = useMemo(() => {
+    const movedProductIds = new Set(Object.keys(mouvementsByProduct).map(Number))
+    return PDVs.filter(p => {
+      const produitId: number | null = (p as any).product ?? (p as any).id ?? null
+      const hasMovement = produitId !== null && movedProductIds.has(produitId)
+      if (!hasMovement) return false
+      const term = searchTerm.toLowerCase()
+      return (
+        (p.designation || '').toLowerCase().includes(term) ||
+        (p.infos?.name || '').toLowerCase().includes(term)
+      )
+    })
+  }, [PDVs, mouvementsByProduct, searchTerm])
+
+  const filteredMovements = useMemo(() =>
+    stockMouvements.filter(m => {
+      const productName = resolveProductName(m, PDVs).toLowerCase()
+      const search = mouvementSearchTerm.toLowerCase()
+      const ref = (m.reference || '').toString().toLowerCase()
+      const reason = (m.reason || '').toLowerCase()
+      return productName.includes(search) || ref.includes(search) || reason.includes(search)
+    }),
+    [stockMouvements, mouvementSearchTerm, PDVs]
   )
+
+  // ── Pagination Historique ─────────────────────────────────────────────────
+  const historyTotalPages = useMemo(
+    () => Math.ceil(filteredMovements.length / HISTORY_PER_PAGE),
+    [filteredMovements.length]
+  )
+
+  const pagedMovements = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PER_PAGE
+    return filteredMovements.slice(start, start + HISTORY_PER_PAGE)
+  }, [filteredMovements, historyPage])
+
+  const goToHistoryPage = useCallback((page: number) => {
+    setHistoryPage(Math.max(1, Math.min(page, historyTotalPages)))
+  }, [historyTotalPages])
+
+  // Reset page historique quand filtre ou données changent
+  useEffect(() => {
+    setHistoryPage(1)
+  }, [filteredMovements.length])
+
+  const getHistoryVisiblePages = () => {
+    if (historyTotalPages <= 5) return Array.from({ length: historyTotalPages }, (_, i) => i + 1)
+    const half = 2
+    let start = Math.max(1, historyPage - half)
+    let end = Math.min(historyTotalPages, historyPage + half)
+    if (historyPage <= half + 1) end = Math.min(historyTotalPages, 5)
+    if (historyPage >= historyTotalPages - half) start = Math.max(1, historyTotalPages - 4)
+    return Array.from({ length: end - start + 1 }, (_, i) => start + i)
+  }
 
   return (
     <div className="space-y-6">
-      {/* En-tête */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Analyse du Stock</h1>
-          <p className="text-muted-foreground">
-            Surveillez les niveaux de stock et les mouvements en temps réel
-          </p>
+          <p className="text-muted-foreground">Surveillez les niveaux de stock et les mouvements en temps réel</p>
         </div>
-        <Button variant="outline" className="gap-2" onClick={() => { refetch(); fetchStockMouvements(); getListePDV() }}>
-          <RefreshCw className="h-4 w-4" />
-          Actualiser
+        <Button variant="outline" className="gap-2"
+          onClick={() => { refetch(); fetchStats(); fetchStockMouvements(); getListePDV(); fetchAlertProducts() }}>
+          <RefreshCw className="h-4 w-4" /> Actualiser
         </Button>
       </div>
 
-      {/* ── Indicateurs clés — tous calculés depuis données réelles ── */}
+      {/* ── Métriques — toutes depuis le backend ── */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Catégories */}
         <MetricCard
-          title="Produits Totaux"
-          value={products.length.toString()}
+          title="Catégories"
+          value={categories.length.toString()}
+          description={`${stats?.total_produits ?? products.length} produits au catalogue`}
           icon={<Package className="h-4 w-4" />}
         />
-        <MetricCard
-          title="Articles en Stock Bas"
-          value={articlesStockBas.length.toString()}
-          description={`${products.length > 0 ? ((articlesStockBas.length / products.length) * 100).toFixed(1) : 0}% du catalogue`}
-          icon={<AlertTriangle className="h-4 w-4" />}
-          variant="warning"
-        />
+
+        {/* ✅ Carte Alertes splitée — stats viennent du backend (seuils 25%/50%) */}
+        <div className="rounded-2xl border bg-white p-6 shadow-lg hover:shadow-xl transition-all duration-300 flex flex-col justify-between">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-sm text-muted-foreground font-medium">Alertes Stock</p>
+              <p className="text-xs text-muted-foreground">Produits sous seuil</p>
+            </div>
+            <AlertTriangle className="h-5 w-5 text-amber-500" />
+          </div>
+          <div className="grid grid-cols-2 gap-3 mt-2">
+            <div className="rounded-lg border p-3 text-center">
+              <p className="text-xs text-muted-foreground">Faible (25–50%)</p>
+              <p className="text-xl font-bold text-orange-500">{stats?.total_stock_faible ?? "—"}</p>
+            </div>
+            <div className="rounded-lg border p-3 text-center">
+              <p className="text-xs text-muted-foreground">Critique (&lt;25%)</p>
+              <p className="text-xl font-bold text-red-500">{stats?.total_stock_critique ?? "—"}</p>
+            </div>
+          </div>
+          <div className="mt-4 text-xs text-muted-foreground">
+            {stats
+              ? `${stats.total_stock_rupture} en rupture · ${(((stats.total_stock_faible + stats.total_stock_critique + stats.total_stock_rupture) / Math.max(stats.total_produits, 1)) * 100).toFixed(1)}% sous seuil`
+              : "Surveillance des stocks critiques"}
+          </div>
+        </div>
+
+        {/* ✅ Articles en Rupture — depuis stats.total_stock_rupture */}
         <MetricCard
           title="Articles en Rupture"
-          value={articlesRupture.length.toString()}
-          description={`${products.length > 0 ? ((articlesRupture.length / products.length) * 100).toFixed(1) : 0}% du catalogue`}
+          value={stats?.total_stock_rupture?.toString() ?? "—"}
+          description={stats
+            ? `${((stats.total_stock_rupture / Math.max(stats.total_produits, 1)) * 100).toFixed(1)}% du catalogue`
+            : "stock = 0"}
           icon={<TrendingDown className="h-4 w-4" />}
           variant="destructive"
         />
+
+        {/* ✅ Valeur totale — depuis stats.total_stock_value si dispo, sinon calcul local */}
         <MetricCard
           title="Valeur Totale du Stock"
           value={formatCurrency(valeurTotaleStock)}
-          description="Calculé sur le stock actuel"
+          description={stats?.total_stock_value != null ? "" : "Calculé en local"}
           icon={<DollarSign className="h-4 w-4" />}
           variant="success"
         />
@@ -284,31 +557,156 @@ export default function Stock() {
               <TabsTrigger value="historique">Historique des mouvements</TabsTrigger>
             </TabsList>
 
-            {/* Liste des produits DV */}
+            {/* Liste PDV */}
             <TabsContent value="list">
               <Card>
                 <CardHeader>
                   <CardTitle>Tous les produits</CardTitle>
-                  <CardDescription>
-                    Vue complète du catalogue avec les niveaux de stock en temps réel
-                  </CardDescription>
+                  <CardDescription>Cliquez sur une ligne pour afficher les mouvements associés.</CardDescription>
                 </CardHeader>
                 <CardContent>
                   <div className="flex items-center gap-4 mb-6">
                     <div className="relative flex-1">
                       <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                      <Input
-                        placeholder="Rechercher des produits par nom..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
-                        className="pl-10"
-                      />
+                      <Input placeholder="Rechercher des produits par nom..." value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)} className="pl-10" />
                     </div>
-                    <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>
-                      Importer
-                    </Button>
-                    <Button variant="outline" className="gap-2">
-                      Exporter
+                    <Button variant="outline" className="gap-2" onClick={() => setShowImportModal(true)}>Importer</Button>
+                    <Button variant="outline" className="gap-2" onClick={exportProductsCSV}>Exporter</Button>
+                  </div>
+
+                  <div className="rounded-md border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8" />
+                          <TableHead>Produit</TableHead>
+                          <TableHead>Nb Entrée</TableHead>
+                          <TableHead>Nb Sortie</TableHead>
+                          <TableHead>Dernier mvt</TableHead>
+                          <TableHead>Date (dernier mvt)</TableHead>
+                          <TableHead>Produit parent</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {isLoadingPDVs ? (
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Chargement des produits...</TableCell></TableRow>
+                        ) : filteredPDVs.length === 0 ? (
+                          <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell></TableRow>
+                        ) : (
+                          filteredPDVs.map((produit: any) => {
+                            const produitId: number | null = produit.product ?? produit.id ?? null
+                            const mvtStats = produitId !== null ? mouvementStatsByProduct[produitId] : null
+                            const mouvements = produitId !== null ? (mouvementsByProduct[produitId] ?? []) : []
+                            const isExpanded = produit.id !== null && expandedRows.has(produit.id)
+
+                            return (
+                              <>
+                                <TableRow key={`row-${produit.id}`}
+                                  className="cursor-pointer hover:bg-muted/50 transition-colors"
+                                  onClick={() => toggleRow(produit.id)}>
+                                  <TableCell className="w-8 pr-0">
+                                    {isExpanded
+                                      ? <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                                      : <ChevronRight className="h-4 w-4 text-muted-foreground" />}
+                                  </TableCell>
+                                  <TableCell><p className="font-medium">{produit.designation}</p></TableCell>
+                                  <TableCell>
+                                    {mvtStats ? <span className="text-green-600 font-medium">+{mvtStats.nbEntree}</span> : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {mvtStats ? <span className="text-red-500 font-medium">-{mvtStats.nbSortie}</span> : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {mvtStats?.dernierMvt
+                                      ? <Badge variant={mvtStats.dernierMvt === "IN" || mvtStats.dernierMvt === "RETURN" ? "success" : mvtStats.dernierMvt === "OUT" || mvtStats.dernierMvt === "SCRAP" ? "destructive" : "secondary"}>
+                                          {formatMvtType(mvtStats.dernierMvt)}
+                                        </Badge>
+                                      : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>
+                                    {mvtStats?.dateDernierMvt ? formatCustomDate(mvtStats.dateDernierMvt) : <span className="text-muted-foreground">—</span>}
+                                  </TableCell>
+                                  <TableCell>{produit.infos?.name || <span className="text-muted-foreground">—</span>}</TableCell>
+                                </TableRow>
+
+                                {isExpanded && (
+                                  mouvements.length === 0 ? (
+                                    <TableRow key={`empty-${produit.id}`} className="bg-muted/20">
+                                      <TableCell /><TableCell /><TableCell />
+                                      <TableCell colSpan={5} className="py-2 text-sm text-muted-foreground italic">
+                                        Aucun mouvement enregistré pour ce produit.
+                                      </TableCell>
+                                    </TableRow>
+                                  ) : mouvements.map((mvt: any, idx: number) => {
+                                    const isIN  = mvt.movement_type === "IN"  || mvt.movement_type === "RETURN"
+                                    const isOUT = mvt.movement_type === "OUT" || mvt.movement_type === "SCRAP"
+                                    const qty   = Number(mvt.quantity) || 0
+                                    const auteur = mvt.utilisateur_nom ? `${mvt.utilisateur_nom.first_name} ${mvt.utilisateur_nom.last_name}`.trim() : null
+                                    const raison = mvt.reason || auteur || "—"
+                                    return (
+                                      <TableRow key={`mvt-${produit.id}-${mvt.id_movement ?? idx}`} className="bg-muted/20 hover:bg-muted/30">
+                                        <TableCell /><TableCell /><TableCell />
+                                        <TableCell>{isIN ? <span className="text-green-600 font-medium text-sm">+{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
+                                        <TableCell>{isOUT ? <span className="text-red-500 font-medium text-sm">-{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
+                                        <TableCell>
+                                          <Badge variant={isIN ? "success" : isOUT ? "destructive" : "secondary"}>
+                                            {formatMvtType(mvt.movement_type)}
+                                          </Badge>
+                                        </TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{formatCustomDate(mvt.timestamp)}</TableCell>
+                                        <TableCell className="text-sm text-muted-foreground">{raison}</TableCell>
+                                      </TableRow>
+                                    )
+                                  })
+                                )}
+                              </>
+                            )
+                          })
+                        )}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <div className="mt-4">
+                    <p className="text-sm text-muted-foreground">{filteredPDVs.length} produit(s) avec mouvement(s) affiché(s)</p>
+                  </div>
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {/* Historique mouvements */}
+            <TabsContent value="historique">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Historique des Mouvements de Stock</CardTitle>
+                  <CardDescription>Historique complet des entrées et sorties de stock</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-6">
+                    <div className="flex flex-1 flex-col md:flex-row items-center gap-4 w-full">
+                      <div className="relative flex-1 w-full max-w-md">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input placeholder="Rechercher dans l'historique..." className="pl-10 bg-muted/30 border-muted"
+                          value={mouvementSearchTerm} onChange={(e) => setMouvementSearchTerm(e.target.value)} />
+                      </div>
+                      <Select onValueChange={(value: string) => fetchStockMouvements(value)}>
+                        <SelectTrigger className="w-full md:w-[200px] bg-muted/30 border-muted">
+                          <SelectValue placeholder="Type de mouvement" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="tout">Tous les mouvements</SelectItem>
+                          <SelectItem value="IN">Entrées de stock</SelectItem>
+                          <SelectItem value="OUT">Sorties de stock</SelectItem>
+                          <SelectItem value="ADJUSTMENT">Ajustements</SelectItem>
+                          <SelectItem value="RETURN">Retours</SelectItem>
+                          <SelectItem value="SCRAP">Rebuts</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                    <Button variant="outline"
+                      className="gap-2 text-white bg-primary hover:bg-primary/90 border-none transition-all duration-300 shadow-sm"
+                      onClick={exportMovementsCSV} disabled={isloadingexport}>
+                      <Download className="h-4 w-4" />Exporter
                     </Button>
                   </div>
 
@@ -316,242 +714,156 @@ export default function Stock() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Produit</TableHead>
-                          <TableHead>Capacité</TableHead>
-                          <TableHead>Quantité</TableHead>
-                          <TableHead>Date</TableHead>
-                          <TableHead>Produit parent</TableHead>
+                          <TableHead>Date</TableHead><TableHead>Produit</TableHead><TableHead>Type</TableHead>
+                          <TableHead>Quantité</TableHead><TableHead>Référence</TableHead><TableHead>Raison</TableHead><TableHead>Auteur</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
-                        {!isLoadingPDVs ? (
+                        {stockMouvementsLoading ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                              Chargement des produits...
+                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                              <div className="flex flex-col items-center gap-2">
+                                <RefreshCw className="h-8 w-8 animate-spin opacity-20" />
+                                <p>Chargement des mouvements...</p>
+                              </div>
                             </TableCell>
                           </TableRow>
-                        ) : filteredPDVs.length === 0 ? (
+                        ) : stockMouvementsError ? (
                           <TableRow>
-                            <TableCell colSpan={5} className="text-center py-8 text-muted-foreground">
-                              Aucun produit disponible
+                            <TableCell colSpan={7} className="text-center py-12 text-muted-foreground">
+                              <div className="flex flex-col items-center gap-2">
+                                <AlertTriangle className="h-8 w-8 text-destructive opacity-50" />
+                                <p>Aucun mouvement de stock trouvé</p>
+                                <p className="text-xs opacity-50">({stockMouvementsError})</p>
+                              </div>
                             </TableCell>
                           </TableRow>
-                        ) : (
-                          filteredPDVs.map((produit: any) => (
-                            <TableRow key={produit.id} className="cursor-pointer hover:bg-muted/50 transition-colors">
-                              <TableCell>
-                                <p className="font-medium">{produit.designation}</p>
-                              </TableCell>
-                              <TableCell>{produit.quantite} {produit.infos?.unite_mesure || ""}</TableCell>
-                              <TableCell>{produit.nombre ?? "—"}</TableCell>
-                              <TableCell>{formatCustomDate(produit.date_creation)}</TableCell>
-                              <TableCell>{produit.infos?.name || "—"}</TableCell>
-                            </TableRow>
-                          ))
-                        )}
+                        ) : filteredMovements.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={7} className="text-center text-muted-foreground py-12">
+                              <div className="flex flex-col items-center gap-2">
+                                <Search className="h-8 w-8 opacity-20" />
+                                <p>Aucun mouvement de stock trouvé</p>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        ) : pagedMovements.map((mouvement, index) => (
+                          <TableRow key={mouvement.id ?? `mouvement-${index}`}>
+                            <TableCell className="text-sm">
+                              {new Date(mouvement.timestamp).toLocaleDateString()} {new Date(mouvement.timestamp).toLocaleTimeString()}
+                            </TableCell>
+                            <TableCell><div className="font-medium">{resolveProductName(mouvement, PDVs)}</div></TableCell>
+                            <TableCell>
+                              <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
+                                {formatMvtType(mouvement.movement_type)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell>
+                              <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500 font-medium" : "text-green-600 font-medium"}>
+                                {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
+                              </span>
+                            </TableCell>
+                            <TableCell className="text-sm">{mouvement.reference || "—"}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">{mouvement.reason || "—"}</TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}
+                            </TableCell>
+                          </TableRow>
+                        ))}
                       </TableBody>
                     </Table>
                   </div>
 
-                  <div className="flex items-center justify-between mt-4">
+                  {/* ── Pagination Historique ── */}
+                  <div className="flex items-center justify-between pt-4 border-t mt-2">
                     <p className="text-sm text-muted-foreground">
-                      {filteredPDVs.length} produit(s) affiché(s) sur {PDVs.length}
+                      Page <span className="font-medium text-foreground">{historyPage}</span> sur{" "}
+                      <span className="font-medium text-foreground">{Math.max(historyTotalPages, 1)}</span>
+                      {" "}· {filteredMovements.length} mouvement(s)
                     </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
+                    {historyTotalPages > 1 && (
+                      <div className="flex items-center gap-1">
+                        <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyPage - 1)}
+                          disabled={historyPage === 1} className="h-8 w-8 p-0" aria-label="Page précédente">
+                          <ChevronLeft className="h-4 w-4" />
+                        </Button>
 
-            {/* Historique des mouvements */}
-            <TabsContent value="historique">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Historique des Mouvements de Stock</CardTitle>
-                  <CardDescription>
-                    Historique complet des entrées et sorties de stock
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {stockMouvementsLoading ? (
-                    <div className="flex justify-center items-center h-32">
-                      <p>Chargement...</p>
-                    </div>
-                  ) : stockMouvementsError ? (
-                    <div className="flex justify-center items-center h-32">
-                      <p className="text-red-500">{stockMouvementsError}</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="flex items-center gap-4 mb-6">
-                        <div className="relative flex-1">
-                          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                          <Input placeholder="Rechercher dans l'historique..." className="pl-10" />
-                        </div>
-                        <div className="w-64">
-                          <Select onValueChange={(value: string) => fetchStockMouvements(value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Type de mouvement" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="IN">Entrées</SelectItem>
-                              <SelectItem value="OUT">Sorties</SelectItem>
-                              <SelectItem value="tout">Tout</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-                        {isloadingexport ? (
-                          <p className="text-gray-600 animate-pulse">Téléchargement en cours...</p>
-                        ) : (
-                          <Button variant="outline" className="gap-2" onClick={() => { setIsloadingexport(true); Export_mouvement() }}>
-                            Exporter
-                          </Button>
+                        {getHistoryVisiblePages()[0] > 1 && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => goToHistoryPage(1)} className="h-8 w-8 p-0 text-xs">1</Button>
+                            {getHistoryVisiblePages()[0] > 2 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                          </>
                         )}
-                      </div>
 
-                      <div className="rounded-md border">
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Date</TableHead>
-                              <TableHead>Produit</TableHead>
-                              <TableHead>Type</TableHead>
-                              <TableHead>Quantité</TableHead>
-                              <TableHead>Référence</TableHead>
-                              <TableHead>Raison</TableHead>
-                              <TableHead>Auteur</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {stockMouvements.length === 0 ? (
-                              <TableRow>
-                                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
-                                  Aucun mouvement de stock trouvé
-                                </TableCell>
-                              </TableRow>
-                            ) : (
-                              stockMouvements.map((mouvement) => (
-                                <TableRow key={mouvement.id_movement}>
-                                  <TableCell>
-                                    <div className="flex items-center gap-2">
-                                      <Calendar className="h-4 w-4 text-muted-foreground" />
-                                      <span>{new Date(mouvement.timestamp).toLocaleDateString()}</span>
-                                      <Clock className="h-4 w-4 text-muted-foreground ml-2" />
-                                      <span>{new Date(mouvement.timestamp).toLocaleTimeString()}</span>
-                                    </div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <div className="font-medium">{mouvement.product_details?.designation || "Produit inconnu"}</div>
-                                  </TableCell>
-                                  <TableCell>
-                                    <Badge
-                                      variant={
-                                        mouvement.movement_type === "IN" ? "success" :
-                                        mouvement.movement_type === "OUT" ? "destructive" :
-                                        mouvement.movement_type === "ADJUSTMENT" ? "warning" :
-                                        "secondary"
-                                      }
-                                    >
-                                      {mouvement.movement_type === "IN" ? "Entrée" :
-                                       mouvement.movement_type === "OUT" ? "Sortie" :
-                                       mouvement.movement_type === "ADJUSTMENT" ? "Ajustement" :
-                                       mouvement.movement_type === "RETURN" ? "Retour" : "Rebut"}
-                                    </Badge>
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500" : "text-green-500"}>
-                                      {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}
-                                      {mouvement.quantity}
-                                    </span>
-                                  </TableCell>
-                                  <TableCell>{mouvement.referrence?.toLocaleString() || "—"}</TableCell>
-                                  <TableCell>
-                                    <span className="text-sm text-muted-foreground">{mouvement.reason || "—"}</span>
-                                  </TableCell>
-                                  <TableCell>
-                                    <span className="text-sm text-muted-foreground">
-                                      {mouvement.utilisateur_nom
-                                        ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}`
-                                        : "—"}
-                                    </span>
-                                  </TableCell>
-                                </TableRow>
-                              ))
+                        {getHistoryVisiblePages().map(page => (
+                          <Button key={page} variant={page === historyPage ? "default" : "outline"} size="sm"
+                            onClick={() => goToHistoryPage(page)} className="h-8 w-8 p-0 text-xs"
+                            aria-current={page === historyPage ? "page" : undefined}>
+                            {page}
+                          </Button>
+                        ))}
+
+                        {getHistoryVisiblePages()[getHistoryVisiblePages().length - 1] < historyTotalPages && (
+                          <>
+                            {getHistoryVisiblePages()[getHistoryVisiblePages().length - 1] < historyTotalPages - 1 && (
+                              <span className="px-1 text-muted-foreground text-sm">…</span>
                             )}
-                          </TableBody>
-                        </Table>
+                            <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyTotalPages)} className="h-8 w-8 p-0 text-xs">{historyTotalPages}</Button>
+                          </>
+                        )}
+
+                        <Button variant="outline" size="sm" onClick={() => goToHistoryPage(historyPage + 1)}
+                          disabled={historyPage === historyTotalPages} className="h-8 w-8 p-0" aria-label="Page suivante">
+                          <ChevronRight className="h-4 w-4" />
+                        </Button>
                       </div>
-                    </>
-                  )}
+                    )}
+                  </div>
                 </CardContent>
               </Card>
             </TabsContent>
           </Tabs>
         </TabsContent>
 
-        {/* ── Onglet Niveaux de stock ── */}
+        {/* ── Onglet Niveaux ── */}
         <TabsContent value="levels">
           <div className="grid gap-6 lg:grid-cols-2">
-
-            {/* Graphique tendance — données réelles depuis historique-seuil-stock */}
             <Card>
               <CardHeader>
                 <CardTitle>
                   Tendance des Niveaux de Stock
-                  {stockTrendData.length === 0 && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>
-                  )}
+                  {stockTrendData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}
                 </CardTitle>
                 <CardDescription>Vue historique des niveaux de stock dans le temps</CardDescription>
               </CardHeader>
               <CardContent>
-                {stockTrendData.length > 0 ? (
-                  <LineChart
-                    data={stockTrendData}
-                    xAxisKey="month"
-                    lines={[{ key: "stock", name: "Niveau de Stock", color: "rgb(67, 110, 240)" }]}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-                    Aucun historique de seuil disponible
-                  </div>
-                )}
+                {stockTrendData.length > 0
+                  ? <LineChart data={stockTrendData} xAxisKey="month" lines={[{ key: "stock", name: "Niveau de Stock", color: "rgb(67, 110, 240)" }]} />
+                  : <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Aucun historique de seuil disponible</div>}
               </CardContent>
             </Card>
 
-            {/* Répartition par catégorie — données réelles depuis products + categories */}
             <Card>
               <CardHeader>
                 <CardTitle>
                   Répartition du Stock par Catégorie
-                  {categoryStockData.length === 0 && (
-                    <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>
-                  )}
+                  {categoryStockData.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground italic">(aucune donnée)</span>}
                 </CardTitle>
-                <CardDescription>Stock actuel regroupé par catégorie de produit</CardDescription>
+                <CardDescription>Stock actuel (quantité) regroupé par catégorie de produit</CardDescription>
               </CardHeader>
               <CardContent>
-                {categoryStockData.length > 0 ? (
-                  <BarChart
-                    data={categoryStockData}
-                    xAxisKey="name"
-                    bars={[{ key: "stock", name: "Stock", color: "rgb(67, 110, 240)" }]}
-                    height={300}
-                  />
-                ) : (
-                  <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
-                    Aucune donnée de stock disponible
-                  </div>
-                )}
+                {categoryStockData.length > 0
+                  ? <BarChart data={categoryStockData} xAxisKey="name" bars={[{ key: "stock", name: "Stock (quantité)", color: "rgb(67, 110, 240)" }]} height={300} />
+                  : <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">Aucune donnée de stock disponible</div>}
               </CardContent>
             </Card>
           </div>
 
-          {/* Tableau récapitulatif par catégorie */}
           {categoryStockData.length > 0 && (
             <Card className="mt-6">
               <CardHeader>
                 <CardTitle>Détail par Catégorie</CardTitle>
-                <CardDescription>Stock total par catégorie de produit</CardDescription>
+                <CardDescription>Stock total (quantité) par catégorie de produit</CardDescription>
               </CardHeader>
               <CardContent>
                 <Table>
@@ -559,21 +871,28 @@ export default function Stock() {
                     <TableRow>
                       <TableHead>Catégorie</TableHead>
                       <TableHead>Stock total</TableHead>
-                      <TableHead>Nb produits</TableHead>
+                      <TableHead>Nb produits DV</TableHead>
                       <TableHead>Valeur estimée</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {categoryStockData.map((cat) => {
-                      const catProducts = products.filter(p =>
-                        (categories.find(c => c.id === p.category)?.name || "Sans catégorie") === cat.name
-                      )
-                      const valeur = catProducts.reduce((sum, p) => sum + (parseFloat(p.price) || 0) * p.current_stock, 0)
+                    {categoryStockData.map((cat, index) => {
+                      const catPDVs = PDVs.filter((pdv: any) => {
+                        const cid = pdv.infos?.category ?? null
+                        const catName = cid !== null
+                          ? (categories.find(c => String(c.id) === String(cid))?.name || "Sans catégorie")
+                          : "Sans catégorie"
+                        return catName === cat.name
+                      })
+                      const valeur = catPDVs.reduce((sum: number, pdv: any) => {
+                        const product = products.find(p => p.id === pdv.infos?.id)
+                        return sum + (product ? parseFloat(product.price) || 0 : 0) * (Number(pdv.quantite) || 0)
+                      }, 0)
                       return (
-                        <TableRow key={cat.name}>
+                        <TableRow key={`cat-${cat.name}-${index}`}>
                           <TableCell className="font-medium">{cat.name}</TableCell>
                           <TableCell>{cat.stock.toLocaleString()} unités</TableCell>
-                          <TableCell>{catProducts.length} produits</TableCell>
+                          <TableCell>{catPDVs.length} produits</TableCell>
                           <TableCell>{formatCurrency(valeur)}</TableCell>
                         </TableRow>
                       )
@@ -585,26 +904,21 @@ export default function Stock() {
           )}
         </TabsContent>
 
-        {/* ── Onglet Alertes — données réelles depuis products ── */}
+        {/* ── Onglet Alertes ── */}
         <TabsContent value="alerts">
           <Card>
             <CardHeader>
               <CardTitle>Alertes de Stock Bas</CardTitle>
               <CardDescription>
-                Produits dont le stock actuel est inférieur ou égal au seuil défini
+                Produits dont le stock est inférieur ou égal au seuil — seuils : Critique ≤25%, Faible 25–50%, À surveiller 50–100%
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="relative mb-4 max-w-sm">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Rechercher un produit..."
-                  value={alertSearchTerm}
-                  onChange={(e) => setAlertSearchTerm(e.target.value)}
-                  className="pl-10"
-                />
+                <Input placeholder="Rechercher un produit..." value={alertSearchTerm}
+                  onChange={(e) => setAlertSearchTerm(e.target.value)} className="pl-10" />
               </div>
-
               <div className="rounded-md border">
                 <Table>
                   <TableHeader>
@@ -612,44 +926,104 @@ export default function Stock() {
                       <TableHead>Produit</TableHead>
                       <TableHead>Stock Actuel</TableHead>
                       <TableHead>Seuil</TableHead>
+                      <TableHead>% du seuil</TableHead>
                       <TableHead>Statut</TableHead>
                       <TableHead>Action suggérée</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {alertItems.length === 0 ? (
+                    {alertLoading ? (
                       <TableRow>
-                        <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                          {products.length === 0 ? "Chargement..." : "Aucune alerte de stock — tout est en ordre ✓"}
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          <div className="flex flex-col items-center gap-2">
+                            <RefreshCw className="h-6 w-6 animate-spin opacity-30" />
+                            <p>Chargement des alertes...</p>
+                          </div>
                         </TableCell>
                       </TableRow>
-                    ) : (
-                      alertItems.map((item) => (
+                    ) : alertItems.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-8">
+                          Aucune alerte de stock — tout est en ordre ✓
+                        </TableCell>
+                      </TableRow>
+                    ) : pagedAlertItems.map((item) => {
+                      const threshold = Number(item.stock_threshold) || 0
+                      const pct = threshold > 0 ? ((item.current_stock / threshold) * 100).toFixed(0) : "—"
+                      return (
                         <TableRow key={item.id}>
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>{item.current_stock} unités</TableCell>
-                          <TableCell>{item.stock_threshold} unités</TableCell>
+                          <TableCell>{threshold} unités</TableCell>
+                          <TableCell>
+                            <span className={item.status === "critical" || item.status === "rupture" ? "text-red-500 font-medium" : item.status === "warning" ? "text-orange-500 font-medium" : "text-yellow-600 font-medium"}>
+                              {pct}%
+                            </span>
+                          </TableCell>
                           <TableCell>{getStatusBadge(item.status)}</TableCell>
                           <TableCell>
                             <span className="text-sm text-muted-foreground">
                               {item.current_stock === 0
-                                ? `Commander au moins ${item.stock_threshold} unités`
-                                : `Commander ${item.stock_threshold - item.current_stock + Math.ceil(item.stock_threshold * 0.5)} unités`}
+                                ? `Commander au moins ${threshold} unités`
+                                : `Commander ${threshold - item.current_stock + Math.ceil(threshold * 0.5)} unités`}
                             </span>
                           </TableCell>
                         </TableRow>
-                      ))
-                    )}
+                      )
+                    })}
                   </TableBody>
                 </Table>
               </div>
 
+              {/* ── Pagination ── */}
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between pt-4 border-t mt-2">
+                  <p className="text-sm text-muted-foreground">
+                    Page <span className="font-medium text-foreground">{currentPage}</span> sur{" "}
+                    <span className="font-medium text-foreground">{totalPages}</span>
+                    {" "}· {alertItems.length} produits
+                  </p>
+                  <div className="flex items-center gap-1">
+                    <Button variant="outline" size="sm" onClick={() => goToPage(currentPage - 1)}
+                      disabled={currentPage === 1} className="h-8 w-8 p-0" aria-label="Page précédente">
+                      <ChevronLeft className="h-4 w-4" />
+                    </Button>
+
+                    {getVisiblePages()[0] > 1 && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => goToPage(1)} className="h-8 w-8 p-0 text-xs">1</Button>
+                        {getVisiblePages()[0] > 2 && <span className="px-1 text-muted-foreground text-sm">…</span>}
+                      </>
+                    )}
+
+                    {getVisiblePages().map(page => (
+                      <Button key={page} variant={page === currentPage ? "default" : "outline"} size="sm"
+                        onClick={() => goToPage(page)} className="h-8 w-8 p-0 text-xs"
+                        aria-current={page === currentPage ? "page" : undefined}>
+                        {page}
+                      </Button>
+                    ))}
+
+                    {getVisiblePages()[getVisiblePages().length - 1] < totalPages && (
+                      <>
+                        {getVisiblePages()[getVisiblePages().length - 1] < totalPages - 1 && (
+                          <span className="px-1 text-muted-foreground text-sm">…</span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => goToPage(totalPages)} className="h-8 w-8 p-0 text-xs">{totalPages}</Button>
+                      </>
+                    )}
+
+                    <Button variant="outline" size="sm" onClick={() => goToPage(currentPage + 1)}
+                      disabled={currentPage === totalPages} className="h-8 w-8 p-0" aria-label="Page suivante">
+                      <ChevronRight className="h-4 w-4" />
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {alertItems.length > 0 && (
                 <p className="text-sm text-muted-foreground mt-3">
-                  {alertItems.length} produit(s) nécessitent une attention —{" "}
-                  {alertItems.filter(i => i.status === "rupture").length} en rupture,{" "}
-                  {alertItems.filter(i => i.status === "critical").length} critiques,{" "}
-                  {alertItems.filter(i => i.status === "low").length} en stock bas
+                  {alertItems.length} produit(s) — {alertItems.filter(i => i.status === "rupture").length} rupture · {alertItems.filter(i => i.status === "critical").length} critique · {alertItems.filter(i => i.status === "warning").length} faible · {alertItems.filter(i => i.status === "low").length} à surveiller
                 </p>
               )}
             </CardContent>
@@ -657,31 +1031,23 @@ export default function Stock() {
         </TabsContent>
       </Tabs>
 
-      {/* Modal mouvement de stock */}
       {showStockMouvementForm && selectedProduct && (
         <StockMouvementForm
           onClose={() => setShowStockMouvementForm(false)}
-          onSubmit={() => { setShowStockMouvementForm(false); refetch() }}
+          onSubmit={() => { setShowStockMouvementForm(false); refetch(); getListePDV(); fetchStockMouvements() }}
           initialData={{
-            id_product: selectedProduct.id,
-            product_name: selectedProduct.name,
-            quantity: 0,
-            movement_type: 'IN',
-            reason: '',
-            notes: ''
+            produit: selectedProduct.id,
+            product_name: selectedProduct.designation || selectedProduct.infos?.name || "",
+            quantity: 0, movement_type: 'IN', reason: '', notes: ''
           }}
         />
       )}
 
-      {/* Modal import */}
       {showImportModal && (
         <ImportModalGenerer
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onImport={(data: any) => {
-            console.log('Données importées:', data)
-            setShowImportModal(false)
-          }}
+          onImport={(data: any) => { console.log('Données importées:', data); setShowImportModal(false) }}
         />
       )}
     </div>

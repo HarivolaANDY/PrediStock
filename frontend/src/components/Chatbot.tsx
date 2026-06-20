@@ -12,7 +12,7 @@ const Chatbot = () => {
   const [messages, setMessages] = useState<Message[]>([
     {
       id: '1',
-      content: 'Bonjour ! Bienvenue sur StockTalk AI. Je peux vous aider avec les prédictions boursières et l\'analyse de marché. Que voulez-vous savoir ?',
+      content: "Bonjour ! Je suis l'assistant IA de prévision. Demandez-moi une recommandation pour un produit à une date donnée. Ex : \"Que faire pour la Banane le 15 mai ?\"",
       sender: 'bot',
       timestamp: new Date(),
     },
@@ -50,16 +50,9 @@ const Chatbot = () => {
       console.log('Chat response:', response); // Pour le débogage
       
       if (response.success) {
-        let displayContent = response.data;
-        
-        // Si la réponse est un objet JSON, on le formate proprement
-        if (typeof response.data === 'object') {
-          displayContent = JSON.stringify(response.data, null, 2);
-        }
-
         const botMessage: Message = {
           id: (Date.now() + 1).toString(),
-          content: displayContent,
+          content: response.data,
           sender: 'bot',
           timestamp: new Date(),
         };
@@ -104,7 +97,7 @@ const Chatbot = () => {
 
       {/* Chatbot window */}
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-50 flex flex-col h-[500px] w-80 bg-purple-200 border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300">
+        <div className="fixed bottom-24 right-4 sm:right-6 z-50 flex flex-col h-[600px] max-h-[calc(100vh-120px)] w-[calc(100vw-2rem)] sm:w-[500px] bg-purple-200 border rounded-2xl shadow-2xl overflow-hidden animate-in slide-in-from-bottom-5 fade-in duration-300">
           <ChatHeader onClose={() => setIsOpen(false)} />
           
           <ScrollArea ref={scrollAreaRef} className="flex-1 p-4">

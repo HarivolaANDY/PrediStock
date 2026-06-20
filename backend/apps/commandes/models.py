@@ -5,9 +5,22 @@ from django.conf import settings
 class BonCommande(models.Model):
     class Status(models.TextChoices):
         EN_ATTENTE = 'En attente',  'En attente'
-        CONFIRME   = 'Confirmé',    'Confirmé'
         LIVRE      = 'Livré',       'Livré'
         ANNULE     = 'Annulé',      'Annulé'
+
+    class PaymentStatus(models.TextChoices):
+        NON_PAYE = 'Non payé', 'Non payé'
+        PARTIEL  = 'Partiel', 'Partiel'
+        PAYE     = 'Payé', 'Payé'
+
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
 
     fournisseur = models.ForeignKey(
         'catalogue.Supplier', on_delete=models.SET_NULL, null=True, blank=True
@@ -19,8 +32,19 @@ class BonCommande(models.Model):
     )
     numero_commande = models.CharField(max_length=128, default='BC-000000000')
     status = models.CharField(max_length=32, default=Status.EN_ATTENTE)
-    montant_total = models.FloatField(default=0)
-    date_commande = models.DateTimeField(auto_now_add=True)
+    statut_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentStatus.choices, 
+        default=PaymentStatus.NON_PAYE
+    )
+    mode_paiement = models.CharField(
+        max_length=32,
+        choices=PaymentMethod.choices,
+        default=PaymentMethod.ESPECES
+    )
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    date_commande = models.DateTimeField(null=True, blank=True)
     livraison_prevue = models.DateTimeField(null=True, blank=True)
     livraison_actuelle = models.DateTimeField(null=True, blank=True)
     creer_le = models.DateTimeField(auto_now_add=True)
@@ -31,89 +55,232 @@ class BonCommande(models.Model):
         verbose_name_plural = "Bons de commande"
         ordering = ['-creer_le']
 
+    def save(self, *args, **kwargs):
+        # Suppression de l'automatisation du paiement pour laisser le déclencheur sur 'Payé'
+        from django.utils import timezone
+        if not self.date_commande:
+            self.date_commande = timezone.now()
+
+        if not self.id and (not self.numero_commande or self.numero_commande == 'BC-000000000'):
+            # Get the highest ID or count to determine the next number
+            last_bc = BonCommande.objects.exclude(numero_commande='BC-000000000').order_by('-id').first()
+            if last_bc and last_bc.numero_commande.startswith('BC-'):
+                try:
+                    # Extract the number part: BC-0001 -> 0001 -> 1
+                    parts = last_bc.numero_commande.split('-')
+                    if len(parts) > 1:
+                        last_number = int(parts[1])
+                        new_number = last_number + 1
+                    else:
+                        new_number = 1
+                except (ValueError, IndexError):
+                    new_number = 1
+            else:
+                # If no previous BC, check the count
+                new_number = BonCommande.objects.count() + 1
+            
+            self.numero_commande = f"BC-{new_number:05d}"
+            
+        super().save(*args, **kwargs)
+
     def __str__(self):
+
         return f"Commande {self.numero_commande} — {self.utilisateur}"
 
 
 class ContenuDans(models.Model):
-    """Ligne de commande : relie une recommandation IA à un produit commandé."""
-    recommandation = models.ForeignKey(
-        'forecasting.Recommandation', on_delete=models.SET_NULL, null=True
+    """Ligne de commande : détaille les produits d'un bon de commande."""
+    bon_commande = models.ForeignKey(
+        BonCommande, on_delete=models.CASCADE, related_name='lignes', null=True
     )
     produit = models.ForeignKey(
         'catalogue.Product', on_delete=models.SET_NULL, null=True
     )
+    produit_dv = models.ForeignKey(
+        'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     creer_le = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Ligne de commande"
         verbose_name_plural = "Lignes de commande"
 
+    @property
+    def montant_ligne(self):
+        return self.quantite * self.prix_unitaire
+
     def __str__(self):
-        return f"{self.recommandation} — {self.produit}"
+        return f"{self.bon_commande.numero_commande if self.bon_commande else 'Orphelin'} — {self.produit} ({self.quantite})"
 
 
 class DonneeVente(models.Model):
+    """Entête de vente : regroupe plusieurs produits vendus en une transaction."""
+    class PaymentStatus(models.TextChoices):
+        NON_PAYE = 'Non payé', 'Non payé'
+        PARTIEL  = 'Partiel', 'Partiel'
+        PAYE     = 'Payé', 'Payé'
+        ANNULE   = 'Annulé', 'Annulé'
+
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
+    class Status(models.TextChoices):
+        EN_ATTENTE = 'En attente', 'En attente'
+        VALIDE     = 'Livré', 'Livré'
+        ANNULE     = 'Annulé', 'Annulé'
+
+    class TypeVente(models.TextChoices):
+        NORMAL = 'Normal', 'Normal'
+        CREDIT = 'Crédit', 'Crédit'
+
     utilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL, null=True, blank=True,
         related_name='donnee_ventes'
     )
-    quantite_vendu = models.IntegerField(default=0)
-    prix_unitaire = models.DecimalField(max_digits=10, decimal_places=2)
-    montant_total = models.DecimalField(max_digits=10, decimal_places=2)
-    remise_applique = models.DecimalField(max_digits=10, decimal_places=2, default=0)
-    canal_vente = models.CharField(max_length=128, blank=True, default="")
+    numero_vente = models.CharField(max_length=64, unique=True, null=True, blank=True)
+    montant_total = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    montant_paye = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    remise_globale = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    statut_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentStatus.choices, 
+        default=PaymentStatus.NON_PAYE
+    )
+    mode_paiement = models.CharField(
+        max_length=32, 
+        choices=PaymentMethod.choices, 
+        default=PaymentMethod.ESPECES
+    )
+    # canal_vente = models.CharField(max_length=128, blank=True, default="") # Supprimé
     segment_clientele = models.CharField(max_length=128, blank=True, default="")
-    donne_supplementaire = models.FileField(upload_to='donnee_vente/', blank=True, null=True)
+    status = models.CharField(max_length=32, choices=Status.choices, default=Status.EN_ATTENTE)
+    type_vente = models.CharField(max_length=32, choices=TypeVente.choices, default=TypeVente.NORMAL)
     date_vente = models.DateTimeField(auto_now_add=True)
+    delai_paiement = models.DateTimeField(null=True, blank=True)
     creer_le = models.DateTimeField(auto_now_add=True)
     update_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        verbose_name = "Donnée de vente"
-        verbose_name_plural = "Données de vente"
+        verbose_name = "Vente"
+        verbose_name_plural = "Ventes"
         ordering = ['-date_vente']
 
+    def save(self, *args, **kwargs):
+        # Force payment status to Non payé if type is Credit
+        if self.type_vente == self.TypeVente.CREDIT:
+            self.statut_paiement = self.PaymentStatus.NON_PAYE
+        
+        # Check deadline for cancellation
+        from django.utils import timezone
+        if self.delai_paiement and timezone.now() > self.delai_paiement and self.statut_paiement != self.PaymentStatus.PAYE:
+            self.status = self.Status.ANNULE
+            self.statut_paiement = self.PaymentStatus.ANNULE
+
+        super().save(*args, **kwargs)
+
     def __str__(self):
-        return f"Vente {self.id} — {self.date_vente:%Y-%m-%d}"
+        return f"Vente {self.numero_vente or self.id} — {self.date_vente:%Y-%m-%d}"
 
 
 class ProduitDonneeVente(models.Model):
-    """Liaison Product ↔ DonneeVente — remplace apps/produit_donneevente."""
+    """Ligne de vente : détaille chaque produit d'une transaction."""
+    donnee_vente = models.ForeignKey(
+        DonneeVente, on_delete=models.CASCADE, related_name='lignes'
+    )
     produit = models.ForeignKey(
-        'catalogue.Product', on_delete=models.CASCADE, null=True, blank=True
+        'catalogue.Product', on_delete=models.CASCADE
+    )
+    produit_dv = models.ForeignKey(
+        'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2)
+    remise_applique = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+
+    class Meta:
+        verbose_name = "Ligne de vente"
+        verbose_name_plural = "Lignes de vente"
+        unique_together = ('produit', 'produit_dv', 'donnee_vente')
+
+    @property
+    def montant_ligne(self):
+        return (self.quantite * self.prix_unitaire) - self.remise_applique
+
+    def __str__(self):
+        return f"{self.donnee_vente} : {self.produit} (x{self.quantite})"
+
+
+class Remboursement(models.Model):
+    class TypeSource(models.TextChoices):
+        ACHAT = 'Achat', 'Achat'
+        VENTE = 'Vente', 'Vente'
+        RETOUR = 'Retour', 'Retour'
+    
+    class StatusReglement(models.TextChoices):
+        REGLE = 'Réglé', 'Réglé'
+        NON_REGLE = 'Non réglé', 'Non réglé'
+
+    source_type = models.CharField(max_length=20, choices=TypeSource.choices, default=TypeSource.RETOUR)
+    source_id = models.IntegerField(null=True, blank=True) # ID of BC or DV
+    numero_transaction = models.CharField(max_length=128, blank=True, default="")
+    produit = models.ForeignKey(
+        'catalogue.Product', on_delete=models.SET_NULL, null=True, blank=True
+    )
+    quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
+    montant = models.DecimalField(max_digits=12, decimal_places=2, default=0)
+    raison = models.CharField(max_length=255, default="")
+    date_remboursement = models.DateTimeField(auto_now_add=True)
+    statut_reglement = models.CharField(
+        max_length=32, 
+        choices=StatusReglement.choices, 
+        default=StatusReglement.NON_REGLE
+    )
+    notes = models.TextField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Remboursement"
+        verbose_name_plural = "Remboursements"
+        ordering = ['-date_remboursement']
+
+    def __str__(self):
+        return f"Remboursement {self.id} ({self.source_type})"
+class TransactionPaiement(models.Model):
+    class PaymentMethod(models.TextChoices):
+        ESPECES = 'Espèces', 'Espèces'
+        VIREMENT = 'Virement', 'Virement'
+        CHEQUE = 'Chèque', 'Chèque'
+        ORANGE = 'Orange Money', 'Orange Money'
+        YAS = 'YAS', 'YAS'
+        AIRTEL = 'Airtel Money', 'Airtel Money'
+        AUTRE = 'Autre', 'Autre'
+
+    bon_commande = models.ForeignKey(
+        'BonCommande', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
     )
     donnee_vente = models.ForeignKey(
-        DonneeVente, on_delete=models.CASCADE, null=True, blank=True
+        'DonneeVente', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
     )
+    remboursement = models.ForeignKey(
+        'Remboursement', on_delete=models.CASCADE, related_name='paiements', null=True, blank=True
+    )
+    montant = models.DecimalField(max_digits=12, decimal_places=2)
+    mode_paiement = models.CharField(max_length=32, choices=PaymentMethod.choices)
+    date_paiement = models.DateTimeField(auto_now_add=True)
+    notes = models.TextField(blank=True, default="")
 
     class Meta:
-        verbose_name = "Produit — donnée de vente"
-        verbose_name_plural = "Produits — données de vente"
-        unique_together = ('produit', 'donnee_vente')
+        verbose_name = "Transaction de paiement"
+        verbose_name_plural = "Transactions de paiement"
+        ordering = ['-date_paiement']
 
     def __str__(self):
-        return f"{self.produit} — {self.donnee_vente}"
-
-
-class ProduitRenvoie(models.Model):
-    produit = models.ForeignKey(
-        'catalogue.Product', on_delete=models.SET_NULL, null=True
-    )
-    quantite_retourner = models.IntegerField(default=0)
-    raison_retour = models.CharField(max_length=128, default="")
-    condition_retour = models.CharField(max_length=32, default="")
-    montant_remise = models.FloatField(null=True, blank=True)
-    est_reapprovisionnnable = models.BooleanField(default=False)
-    notes = models.TextField(null=True, blank=True)
-    date_retour = models.DateTimeField(auto_now_add=True)
-    creer_le = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        verbose_name = "Produit renvoyé"
-        verbose_name_plural = "Produits renvoyés"
-        ordering = ['-date_retour']
-
-    def __str__(self):
-        return self.produit.name if self.produit else "Produit renvoyé"
+        return f"Paiement de {self.montant} Ar ({self.mode_paiement})"
