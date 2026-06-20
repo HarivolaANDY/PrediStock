@@ -16,8 +16,6 @@ from django_q.models import Schedule
 from django_q.tasks import async_task
 from django_filters.rest_framework import DjangoFilterBackend
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
-from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
