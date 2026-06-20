@@ -19,6 +19,7 @@ cryptography==46.0.7
 datadispatch==1.0.0
 distro==1.9.0
 Django==6.0.5
+dj-database-url>=2.3.0
 django-cors-headers==4.9.0
 django-filter==25.2
 django-picklefield==3.4.0
@@ -32,6 +33,7 @@ filetype==1.2.0
 fsspec==2026.3.0
 google-auth==2.49.1
 google-genai==1.68.0
+gunicorn>=23.0.0
 h11==0.16.0
 httpcore==1.0.9
 httpx==0.28.1
@@ -68,6 +70,7 @@ pandas==3.0.1
 pillow==12.2.0
 pipreqs==0.4.13
 prompt_toolkit==3.0.52
+psycopg2-binary>=2.9.10
 pyasn1==0.6.3
 pyasn1_modules==0.4.2
 pyclipper==1.4.0
@@ -108,6 +111,7 @@ uuid_utils==0.14.1
 vine==5.1.0
 wcwidth==0.6.0
 websockets==16.0
+whitenoise>=6.8.0
 xgboost==3.2.0
 xxhash==3.6.0
 yarg==0.1.10
