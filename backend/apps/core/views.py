@@ -426,8 +426,10 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
         # 1. Sauvegarder le fichier temporairement pour l'OCR
         upload_dir = os.path.join(settings.MEDIA_ROOT, 'pdf_uploads')
         os.makedirs(upload_dir, exist_ok=True)
-        filename = f"inventaire_h{historique_id or 'unknown'}_{file.name}"
-        file_path = os.path.join(upload_dir, filename)
+
+        # Securing filename against path traversal
+        safe_filename = os.path.basename(file.name)
+        filename = f"inventaire_h{historique_id or 'unknown'}_{safe_filename}"
         
         # On utilise default_storage pour la persistance si besoin, 
         # mais ici on veut surtout le traiter immédiatement.
@@ -473,7 +475,9 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
 
         temp_dir  = os.path.join(settings.MEDIA_ROOT, 'temp_pdf')
         os.makedirs(temp_dir, exist_ok=True)
-        file_path = os.path.join(temp_dir, f"pdf_{historique_id}_{file.name}")
+
+        safe_filename = os.path.basename(file.name)
+        file_path = os.path.join(temp_dir, f"pdf_{historique_id}_{safe_filename}")
 
         with open(file_path, 'wb') as f:
             for chunk in file.chunks():
