@@ -105,7 +105,10 @@ FROM catalogue_product
 WHERE current_stock < stock_threshold;
 """
 
-_FORBIDDEN = {"DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE", "GRANT"}
+_FORBIDDEN = {
+    "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "CREATE", "GRANT",
+    "RENAME", "EXEC", "EXECUTE", "REPLACE", "MERGE", "COMMIT", "ROLLBACK", "UNION"
+}
 
 # ─────────────────────────────────────────────
 # MODEL
@@ -230,8 +233,17 @@ class PredistockSQLModel:
         if not sql or "SELECT" not in sql.upper():
             return {"success": False, "error": "SQL invalide", "sql": sql}
 
-        if any(word in sql.upper() for word in _FORBIDDEN):
-            return {"success": False, "error": "Requête interdite", "sql": sql}
+        # Protection anti-multi-requêtes et injection
+        sql_upper = sql.upper().strip()
+
+        if not sql_upper.startswith("SELECT"):
+             return {"success": False, "error": "Seulement les requêtes SELECT sont autorisées", "sql": sql}
+
+        if ";" in sql_upper and sql_upper.find(";") < len(sql_upper) - 1:
+            return {"success": False, "error": "Multi-requêtes interdites", "sql": sql}
+
+        if any(word in sql_upper for word in _FORBIDDEN):
+            return {"success": False, "error": "Requête interdite (mot-clé banni)", "sql": sql}
 
         try:
             with connection.cursor() as cursor:
