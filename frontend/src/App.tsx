@@ -46,14 +46,16 @@ const PageLoading = () => (
   </div>
 );
 
-const App = () => {
+const AppContent = () => {
   const location = useLocation();
   const showChatbot = !["/", "/login", "/register"].includes(location.pathname);
-  
+
   useSettings();
 
   return (
     <>
+      <Toaster />
+      <Sonner />
       <Routes>
         <Route path="/" element={<Login />} />
         <Route path="/login" element={<Login />} />
@@ -85,6 +87,22 @@ const App = () => {
       </Routes>
       {showChatbot && <Suspense fallback={null}><Chatbot /></Suspense>}
     </>
+  );
+};
+
+const App = () => {
+  return (
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <SupplierProvider>
+              <AppContent />
+            </SupplierProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
   );
 };
 
