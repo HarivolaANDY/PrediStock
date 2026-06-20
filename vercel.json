@@ -4,12 +4,7 @@
   "buildCommand": "cd frontend && npm run build",
   "installCommand": "cd frontend && npm install",
   "outputDirectory": "frontend/dist",
-  "rewrites": [
-    {
-      "source": "/(.*)",
-      "destination": "/index.html"
-    }
-  ],
+
   "headers": [
     {
       "source": "/(.*)\\.(js|css|svg|png|jpg|jpeg|gif|ico|woff2?|ttf|eot)$",
