@@ -46,7 +46,7 @@ const PageLoading = () => (
   </div>
 );
 
-const AppRoutes = () => {
+const App = () => {
   const location = useLocation();
   const showChatbot = !["/", "/login", "/register"].includes(location.pathname);
   
@@ -89,3 +89,4 @@ const AppRoutes = () => {
 };
 
 export default App;
+
