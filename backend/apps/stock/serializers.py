@@ -114,6 +114,17 @@ class MouvementStockSerializer(serializers.ModelSerializer):
     produit_name      = serializers.ReadOnlyField(source='produit.name')
     produit_dv_name   = serializers.ReadOnlyField(source='produit_dv.designation')
     produit_display_name = serializers.SerializerMethodField()
+    annule_par = serializers.SerializerMethodField()
+    lot_numero = serializers.SerializerMethodField()
+
+    def get_lot_numero(self, obj):
+        """Numéro du lot de la livraison à l'origine du mouvement (None si le mouvement n'en a pas)."""
+        return obj.batch.numero_lot if obj.batch_id else None
+
+    def get_annule_par(self, obj):
+        """Id du mouvement inverse qui annule celui-ci (None s'il n'est pas annulé)."""
+        annulation = getattr(obj, 'annulation', None)
+        return annulation.id if annulation else None
 
     def get_produit_display_name(self, obj):
         """Retourne toujours un nom lisible, qu'il y ait une variante ou non."""
@@ -151,4 +162,5 @@ class MouvementStockSerializer(serializers.ModelSerializer):
     class Meta:
         model  = MouvementStock
         fields = '__all__'
-        read_only_fields = ['id', 'timestamp']
+        # `annule` n'est posé que par le système (annulation d'achat/vente, action `annuler`)
+        read_only_fields = ['id', 'timestamp', 'annule']

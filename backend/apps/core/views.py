@@ -2,6 +2,7 @@ import io
 import os
 from datetime import date
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -25,6 +26,16 @@ from .serializers import DynamicModelSerializer, PDFHistoriqueSerializer, Genera
 from apps.core.utils import StandardResponse
 from .utils import process_pdf_async
 # from .tasks import process_pdf_async
+
+
+_STYLE_CELLULE = ParagraphStyle(
+    'CelluleRapport', parent=getSampleStyleSheet()['Normal'], fontSize=7, leading=8.5,
+)
+
+
+def _cellule(texte):
+    """Cellule de tableau avec retour à la ligne (un texte simple déborderait sur les colonnes voisines)."""
+    return Paragraph(escape(str(texte or '')), _STYLE_CELLULE)
 
 
 TABLE_STYLES = [
@@ -232,15 +243,18 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
     @action(detail=False, methods=['post'])
     def mouvements_stock(self, request):
         from apps.stock.models import MouvementStock
+        # Historique complet : l'original ET son annulation y figurent, la colonne « Motif »
+        # (ex. « Annulation de la livraison BC … ») permet de les distinguer.
         qs = MouvementStock.objects.select_related('produit', 'utilisateur').all()
-        data = [["Produit", "Quantité", "Date", "Action", "Référence", "Utilisateur"]] + [
+        data = [["Produit", "Quantité", "Date", "Action", "Référence", "Motif", "Utilisateur"]] + [
             [
-                m.produit.name if m.produit else '',
+                _cellule(m.produit.name if m.produit else ''),
                 m.quantity,
                 m.date.strftime("%Y-%m-%d") if m.date else '',
                 "entrée" if m.movement_type == 'IN' else "sortie",
-                m.referrence or '',
-                str(m.utilisateur) if m.utilisateur else '',
+                _cellule(m.referrence),
+                _cellule(m.reason),
+                _cellule(str(m.utilisateur) if m.utilisateur else ''),
             ]
             for m in qs
         ]
@@ -249,7 +263,7 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
             "sous_titre": "Rapport des mouvements.",
             "auteur": request.user.username.upper(),
             "couleur": colors.lightgreen,
-            "colWidths": [1.8*inch, 0.8*inch, 0.9*inch, 0.5*inch, 1.5*inch, inch],
+            "colWidths": [1.3*inch, 0.6*inch, 0.8*inch, 0.6*inch, 0.9*inch, 1.6*inch, 0.7*inch],
         }
         buffer = self._advanced_pdf(data, infos, style_index=1)
         PDFHistorique.objects.create(
@@ -270,16 +284,21 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
         if table_type == "MouvementStock":
             qs = MouvementStock.objects.all().order_by('-date', '-timestamp')
             if spec in ("IN", "OUT"):
-                qs = qs.filter(movement_type=spec)
-            data = [["Produit", "Quantité", "Date", "Action", "Référence", "Utilisateur", "Notes"]] + [
+                # Rapports « entrées » / « sorties » : flux RÉELS uniquement. L'annulation d'un achat
+                # est une sortie de stock mais pas une vente (et celle d'une vente pas un achat) :
+                # sans ce filtre, ces rapports listeraient des mouvements fantômes.
+                qs = qs.effectifs().filter(movement_type=spec)
+            # Sans filtre : historique complet, original ET annulation, distingués par le « Motif ».
+            data = [["Produit", "Quantité", "Date", "Action", "Référence", "Motif", "Utilisateur", "Notes"]] + [
                 [
-                    m.produit.name if m.produit else (m.produit_dv.designation if m.produit_dv else ''),
+                    _cellule(m.produit.name if m.produit else (m.produit_dv.designation if m.produit_dv else '')),
                     m.quantity,
                     m.date.strftime("%Y-%m-%d") if m.date else '',
                     "entrée" if m.movement_type == 'IN' else "sortie",
-                    m.referrence or '',
-                    str(m.utilisateur) if m.utilisateur else '',
-                    m.notes or ''
+                    _cellule(m.referrence),
+                    _cellule(m.reason),
+                    _cellule(str(m.utilisateur) if m.utilisateur else ''),
+                    _cellule(m.notes)
                 ]
                 for m in qs
             ]
@@ -288,7 +307,7 @@ class PDFGeneratorViewSet(viewsets.ViewSet):
                 "sous_titre": f"Rapport des mouvements ({spec or 'Tous'}).",
                 "auteur": request.user.username.upper(),
                 "couleur": colors.lightgreen,
-                "colWidths": [1.5*inch, 0.7*inch, 0.8*inch, 0.5*inch, 1.2*inch, 0.8*inch, 1.5*inch],
+                "colWidths": [1.2*inch, 0.55*inch, 0.75*inch, 0.55*inch, 0.85*inch, 1.4*inch, 0.6*inch, 0.6*inch],
             }
 
         elif table_type == "Inventaire":

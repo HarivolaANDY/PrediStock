@@ -97,6 +97,21 @@ python manage.py runserver
 ```
 Le serveur sera accessible sur `http://localhost:8000`.
 
+## 🧪 Tests
+
+Les tests s'exécutent depuis le dossier `backend/`, environnement virtuel activé.
+
+```powershell
+python manage.py test apps.commandes.tests   # achats, ventes, remboursements, analyse, mouvements inverses
+python manage.py test apps.stock.tests       # statistiques de flux du module Stock
+```
+
+- **Indiquez le module de tests** (`apps.commandes.tests`) : `python manage.py test apps.commandes` seul échoue à la découverte automatique.
+- **Une classe ou un test** : `python manage.py test apps.commandes.tests.SuppressionSansTraceTests` ou `...SuppressionSansTraceTests.test_achat_paye_n_est_pas_supprimable`.
+- **Votre base n'est jamais touchée** : Django crée une base de test SQLite en mémoire, la remplit puis la détruit. `db.sqlite3` n'est ni lue ni modifiée.
+- **« expected failures=N »** : chaque échec attendu (`@unittest.expectedFailure`) documente une anomalie connue, avec un commentaire `ANOMALIE CONNUE` au-dessus du test. Quand l'anomalie est corrigée, le test devient « unexpected success » : retirez alors le décorateur.
+- Appliquez les migrations (`python manage.py migrate`) avant de lancer le serveur ; les tests, eux, les appliquent d'eux-mêmes sur la base temporaire.
+
 ## 🧠 Pipeline de Prévision (Machine Learning)
 
 Le backend inclut une commande personnalisée pour entraîner les modèles et générer des prédictions :

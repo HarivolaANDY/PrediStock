@@ -127,8 +127,18 @@ class ProductImage(models.Model):
 
 
 class ProductBatch(models.Model):
+    """
+    Lot de marchandise reçue. Créé automatiquement à la livraison d'une ligne d'achat
+    (voir commandes/signals.py) ; les mouvements de stock de cette livraison, et ceux qui
+    l'annulent, y sont rattachés via `MouvementStock.batch`. La traçabilité se fait PAR LOT
+    (et non par unité) : on sait quelle livraison fournit quelle marchandise.
+    """
     product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name='batches')
-    quantity = models.IntegerField()
+    numero_lot = models.CharField(
+        max_length=100, blank=True, default="", verbose_name="Numéro de lot",
+        help_text="Numéro interne généré à la livraison ; remplaçable par le numéro de lot du fournisseur.",
+    )
+    quantity = models.DecimalField(max_digits=12, decimal_places=3, verbose_name="Quantité reçue")
     expiration_date = models.DateField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
@@ -137,7 +147,7 @@ class ProductBatch(models.Model):
         verbose_name_plural = "Lots produits"
 
     def __str__(self):
-        return f"{self.product.name} — Lot {self.id}"
+        return f"{self.product.name} — {self.numero_lot or f'Lot {self.id}'}"
 
 
 class ProduitDv(models.Model):

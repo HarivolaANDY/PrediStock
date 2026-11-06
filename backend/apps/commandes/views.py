@@ -1,14 +1,19 @@
+from decimal import Decimal, InvalidOperation
+
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
+from django.db import transaction
 from django.db.models import Sum, Count
 from django_filters.rest_framework import DjangoFilterBackend
 
 from apps.core.views import GenericCRUDViewSet
 from apps.core.utils import StandardResponse
-from .models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement
+from .models import (
+    BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente, Remboursement, TransactionPaiement,
+)
 from .serializers import (
     BonCommandeSerializer, ContenuDansSerializer,
     DonneeVenteSerializer, ProduitDonneeVenteSerializer,
@@ -17,12 +22,88 @@ from .serializers import (
 from .filters import BCfilter, ContenuDansFilter, DonneeVenteFilter, RemboursementFilter
 
 
+def _refus_suppression(instance, nom):
+    """
+    Réponse 400 si `instance` (achat ou vente) a laissé des traces et ne peut donc pas être
+    supprimée ; None sinon. Le message est lu par le frontend (champ « message »).
+    """
+    motif = instance.motif_non_supprimable()
+    if motif is None:
+        return None
+    conseil = (
+        f"{nom.capitalize()} est déjà annulée : elle reste conservée dans l'historique."
+        if instance.status == 'Annulé'
+        else "Annulez-la plutôt : l'annulation conserve l'historique et restitue le stock."
+    )
+    return StandardResponse.render(
+        message=f"Suppression impossible : {motif}. {conseil}", status_code=400
+    )
+
+
+def _argent(valeur):
+    """Montant lisible : « 5 000 Ar »."""
+    return f"{Decimal(valeur):,.0f}".replace(",", " ") + " Ar"
+
+
+def _enregistrer_paiement(instance, request, serializer_class, champ, nom):
+    """
+    POST .../payer/ {montant, mode_paiement?, notes?} : enregistre UN versement sur un achat ou une
+    vente (paiement partiel possible). Crée la ligne de l'historique des paiements, met à jour
+    `montant_paye`, le statut de paiement (Partiel / Payé) et le mode, puis renvoie le document.
+    """
+    if instance.status == 'Annulé':
+        return StandardResponse.render(
+            message=f"Impossible d'enregistrer un paiement : {nom} est annulée.", status_code=400)
+    try:
+        montant = Decimal(str(request.data.get('montant')))
+        valide = montant.is_finite() and montant > 0
+    except (InvalidOperation, TypeError, ValueError):
+        valide = False
+    if not valide:
+        return StandardResponse.render(message="Le montant doit être un nombre supérieur à 0.", status_code=400)
+
+    mode = request.data.get('mode_paiement') or instance.mode_paiement
+    if mode not in instance.PaymentMethod.values:
+        return StandardResponse.render(message=f"Mode de paiement inconnu : {mode}.", status_code=400)
+
+    with transaction.atomic():
+        # Verrou + relecture : deux versements simultanés ne peuvent pas dépasser le total
+        instance = type(instance).objects.select_for_update().get(pk=instance.pk)
+        reste = instance.montant_total - instance.montant_paye
+        if montant > reste:
+            return StandardResponse.render(
+                message=f"Le montant ({_argent(montant)}) dépasse le reste à payer ({_argent(reste)}).",
+                status_code=400)
+        TransactionPaiement.objects.create(
+            **{champ: instance}, montant=montant, mode_paiement=mode,
+            notes=str(request.data.get('notes') or ''),
+        )
+        instance.montant_paye = instance.montant_paye + montant
+        instance.mode_paiement = mode
+        instance.statut_paiement = (
+            instance.PaymentStatus.PAYE if instance.montant_paye >= instance.montant_total
+            else instance.PaymentStatus.PARTIEL
+        )
+        instance.save()  # l'historique est déjà à jour : le signal ne crée pas de doublon
+    return Response(serializer_class(instance).data)
+
+
 class BCViewSet(viewsets.ModelViewSet):
-    queryset = BonCommande.objects.all()
+    queryset = BonCommande.objects.all().prefetch_related('lignes__lot', 'paiements')
     serializer_class = BonCommandeSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = BCfilter
+
+    def destroy(self, request, *args, **kwargs):
+        refus = _refus_suppression(self.get_object(), "la commande")
+        if refus is not None:
+            return refus
+        return super().destroy(request, *args, **kwargs)
+
+    @action(detail=True, methods=['post'])
+    def payer(self, request, pk=None):
+        return _enregistrer_paiement(self.get_object(), request, BonCommandeSerializer, 'bon_commande', "la commande")
 
 
 class ContenuDansViewSet(GenericCRUDViewSet):
@@ -34,35 +115,21 @@ class ContenuDansViewSet(GenericCRUDViewSet):
 
 
 class DonneeVenteViewSet(viewsets.ModelViewSet):
-    queryset = DonneeVente.objects.all().order_by('-date_vente')
+    queryset = DonneeVente.objects.all().order_by('-date_vente').prefetch_related('lignes', 'paiements')
     serializer_class = DonneeVenteSerializer
     permission_classes = [IsAuthenticated]
     filter_backends = [DjangoFilterBackend]
     filterset_class = DonneeVenteFilter
 
-    @action(detail=False, methods=['delete'])
-    def bulk_delete(self, request):
-        qs = self.filter_queryset(self.get_queryset())
-        qs.delete()
-        return StandardResponse.render(message="Données de vente supprimées.", status_code=200)
+    def destroy(self, request, *args, **kwargs):
+        refus = _refus_suppression(self.get_object(), "la vente")
+        if refus is not None:
+            return refus
+        return super().destroy(request, *args, **kwargs)
 
-    @action(detail=True, methods=['patch'])
-    def update_fichier(self, request, pk=None):
-        instance = self.get_object()
-        if 'donne_supplementaire' not in request.FILES:
-            return StandardResponse.render(message="Aucun fichier fourni.", status_code=400)
-        if instance.donne_supplementaire:
-            try:
-                instance.donne_supplementaire.delete(save=False)
-            except Exception as e:
-                print(f"Erreur suppression ancien fichier : {e}")
-        instance.donne_supplementaire = request.FILES['donne_supplementaire']
-        instance.save()
-        return StandardResponse.render(
-            data=DonneeVenteSerializer(instance).data,
-            message="Fichier mis à jour.",
-            status_code=200
-        )
+    @action(detail=True, methods=['post'])
+    def payer(self, request, pk=None):
+        return _enregistrer_paiement(self.get_object(), request, DonneeVenteSerializer, 'donnee_vente', "la vente")
 
 
 class ProduitDonneeVenteViewSet(GenericCRUDViewSet):

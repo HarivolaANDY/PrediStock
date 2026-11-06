@@ -83,6 +83,25 @@ class BonCommande(models.Model):
             
         super().save(*args, **kwargs)
 
+    def motif_non_supprimable(self):
+        """
+        Règle « supprimable seulement sans trace » : une commande qui a eu des conséquences
+        (argent versé, marchandise livrée, remboursement) ne se supprime pas, elle s'ANNULE —
+        l'annulation conserve l'historique et restitue le stock. Retourne le motif du refus,
+        ou None si la suppression est permise.
+        """
+        if (self.montant_paye and self.montant_paye > 0) or self.paiements.exists():
+            return "un paiement a été enregistré"
+        if Remboursement.objects.filter(
+            source_type=Remboursement.TypeSource.ACHAT, source_id=self.id
+        ).exists():
+            return "un remboursement lui est associé"
+        from apps.stock.models import MouvementStock  # import local : évite une dépendance circulaire
+        refs = [f"BC-LINE-{ligne.id}" for ligne in self.lignes.all()]
+        if refs and MouvementStock.objects.filter(referrence__in=refs).exists():
+            return "des mouvements de stock lui sont associés (livraison)"
+        return None
+
     def __str__(self):
 
         return f"Commande {self.numero_commande} — {self.utilisateur}"
@@ -102,6 +121,11 @@ class ContenuDans(models.Model):
     quantite = models.DecimalField(max_digits=12, decimal_places=3, default=0)
     prix_unitaire = models.DecimalField(max_digits=12, decimal_places=2, default=0)
     creer_le = models.DateTimeField(auto_now_add=True)
+    # Lot créé à la livraison de cette ligne (un lot par ligne d'achat livrée)
+    lot = models.OneToOneField(
+        'catalogue.ProductBatch', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='ligne_achat', verbose_name="Lot reçu",
+    )
 
     class Meta:
         verbose_name = "Ligne de commande"
@@ -141,6 +165,9 @@ class DonneeVente(models.Model):
         NORMAL = 'Normal', 'Normal'
         CREDIT = 'Crédit', 'Crédit'
 
+    # Seul segment de clientèle autorisé à acheter à crédit (même libellé que le frontend)
+    SEGMENT_CREDIT = 'VIP/Fidélisé'
+
     utilisateur = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.SET_NULL, null=True, blank=True,
@@ -175,10 +202,19 @@ class DonneeVente(models.Model):
         ordering = ['-date_vente']
 
     def save(self, *args, **kwargs):
-        # Force payment status to Non payé if type is Credit
+        # Vente à crédit : elle démarre « Non payé », puis son statut suit les montants réellement
+        # encaissés. (Forcer « Non payé » à chaque sauvegarde laissait une vente intégralement payée
+        # « Non payé », donc annulée automatiquement à l'échéance.)
         if self.type_vente == self.TypeVente.CREDIT:
-            self.statut_paiement = self.PaymentStatus.NON_PAYE
-        
+            paye = self.montant_paye or 0
+            total = self.montant_total or 0
+            if paye <= 0:
+                self.statut_paiement = self.PaymentStatus.NON_PAYE
+            elif total > 0 and paye >= total:
+                self.statut_paiement = self.PaymentStatus.PAYE
+            else:
+                self.statut_paiement = self.PaymentStatus.PARTIEL
+
         # Check deadline for cancellation
         from django.utils import timezone
         if self.delai_paiement and timezone.now() > self.delai_paiement and self.statut_paiement != self.PaymentStatus.PAYE:
@@ -186,6 +222,25 @@ class DonneeVente(models.Model):
             self.statut_paiement = self.PaymentStatus.ANNULE
 
         super().save(*args, **kwargs)
+
+    def motif_non_supprimable(self):
+        """
+        Règle « supprimable seulement sans trace » : une vente qui a eu des conséquences
+        (argent encaissé, marchandise sortie, remboursement) ne se supprime pas, elle s'ANNULE —
+        l'annulation conserve l'historique et restitue le stock. Retourne le motif du refus,
+        ou None si la suppression est permise.
+        """
+        if (self.montant_paye and self.montant_paye > 0) or self.paiements.exists():
+            return "un paiement a été enregistré"
+        if Remboursement.objects.filter(
+            source_type=Remboursement.TypeSource.VENTE, source_id=self.id
+        ).exists():
+            return "un remboursement lui est associé"
+        from apps.stock.models import MouvementStock  # import local : évite une dépendance circulaire
+        refs = [f"SALE-{self.id}-{ligne.id}" for ligne in self.lignes.all()]
+        if refs and MouvementStock.objects.filter(referrence__in=refs).exists():
+            return "des mouvements de stock lui sont associés (livraison)"
+        return None
 
     def __str__(self):
         return f"Vente {self.numero_vente or self.id} — {self.date_vente:%Y-%m-%d}"

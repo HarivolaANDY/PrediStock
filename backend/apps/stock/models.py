@@ -112,7 +112,23 @@ class HistoriqueSeuilStock(models.Model):
         return f"{self.produit} : {self.ancien_seuil} → {self.nouveau_seuil} ({self.changer_le:%Y-%m-%d})"
 
 
+class MouvementStockQuerySet(models.QuerySet):
+    def effectifs(self):
+        """
+        Mouvements qui comptent réellement : ni annulés, ni mouvements d'annulation.
+
+        Une annulation (ex. achat livré puis annulé) laisse deux mouvements — l'original et son
+        inverse — qui se compensent sur le stock. Pour toute analyse de FLUX RÉELS (demande, ventes,
+        achats, entrées/sorties), il faut les ignorer tous les deux, sinon une vente annulée
+        compterait comme une vente et l'inverse d'un achat comme une « vente ».
+        Chaînable : `qs.filter(...).effectifs()`.
+        """
+        return self.filter(annule__isnull=True, annulation__isnull=True)
+
+
 class MouvementStock(models.Model):
+    objects = MouvementStockQuerySet.as_manager()
+
     class TypeMouvement(models.TextChoices):
         IN         = 'IN',         'Entrée'
         OUT        = 'OUT',        'Sortie'
@@ -178,6 +194,17 @@ class MouvementStock(models.Model):
         related_name='mouvements'
     )
 
+    # Mouvement inverse : renseigné sur le mouvement D'ANNULATION, il pointe vers le mouvement qu'il
+    # annule (l'original reste en base, l'historique est conservé). `original.annulation` donne
+    # l'annulation ; un mouvement ne peut être annulé qu'une seule fois (OneToOne).
+    # CASCADE : supprimer l'original supprime aussi son annulation (la paire disparaît ensemble).
+    annule = models.OneToOneField(
+        'self',
+        null=True, blank=True,
+        on_delete=models.CASCADE,
+        related_name='annulation',
+        verbose_name="Mouvement annulé",
+    )
 
     class Meta:
         db_table = 'MOVEMENT_STOCK'
@@ -187,7 +214,12 @@ class MouvementStock(models.Model):
 
     def __str__(self):
         return f"{self.movement_type} — {self.quantity} ({self.timestamp:%Y-%m-%d %H:%M})"
-    
+
+    @classmethod
+    def effectifs(cls):
+        """Raccourci pour `MouvementStock.objects.effectifs()` (voir MouvementStockQuerySet)."""
+        return cls.objects.effectifs()
+
 
     def save(self, *args, **kwargs):
         # Hérite le prix unitaire du produit si non renseigné

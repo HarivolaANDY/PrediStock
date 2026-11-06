@@ -726,7 +726,8 @@ class RevenueViewSet(GenericCRUDViewSet):
         }
 
         sorties = (
-            MouvementStock.objects
+            # effectifs() : les ventes annulées (et l'inverse d'un achat annulé) ne sont pas des ventes
+            MouvementStock.effectifs()
             .filter(movement_type='OUT', timestamp__isnull=False)
             .annotate(month=ExtractMonth('timestamp'))
             .select_related('produit', 'produit__category')

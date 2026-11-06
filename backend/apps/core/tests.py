@@ -1,3 +1,4 @@
+import io
 from unittest.mock import patch, MagicMock
 from django.urls import reverse
 from django.test import TestCase
@@ -6,9 +7,14 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 
 from apps.accounts.models import User
+from apps.catalogue.models import Product
+from apps.commandes.models import BonCommande, ContenuDans, DonneeVente, ProduitDonneeVente
+from apps.stock.models import MouvementStock
+from reportlab.lib.units import inch
 from .models import PDFHistorique
 from .utils import StandardResponse
 from .middleware import RoleRequiredMiddleware
+from .views import PDFGeneratorViewSet
 from .serializers import DynamicModelSerializer, PDFHistoriqueSerializer
 
 
@@ -417,3 +423,157 @@ class ProcessPdfAsyncTests(TestCase):
             'pdf_file': pdf_file, 'historique_id': 1
         }, format='multipart')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ════════════════════════════════════════════════════════════
+#  RAPPORTS PDF DES MOUVEMENTS DE STOCK  (PDFGeneratorViewSet.mouvements_stock / dynamic)
+#
+#  Un achat ou une vente annulé(e) laisse deux mouvements : l'original et son inverse.
+#   • rapport complet           → les deux apparaissent, distingués par la colonne « Motif » ;
+#   • rapports « entrées » / « sorties » → flux RÉELS uniquement (sinon une « sortie » qui n'est
+#     pas une vente, ou une « entrée » qui n'est pas un achat, y figurerait).
+# ════════════════════════════════════════════════════════════
+
+class RapportsMouvementsPdfTests(TestCase):
+    def setUp(self):
+        self.user = create_user(email="pdf@predistock.com", username="pdfuser")
+        self.client = auth_client(self.user)
+        self.produit = Product.objects.create(
+            name="Eau 1.5L", sku="EAU", price=1000, current_stock=0, stock_threshold=1)
+
+    # ── Aides ────────────────────────────────────────────────────────────────────────────
+
+    def _achat_livre_puis_annule(self, numero="BC-ANNULE"):
+        bc = BonCommande.objects.create(utilisateur=self.user, numero_commande=numero, montant_total=5000)
+        ContenuDans.objects.create(bon_commande=bc, produit=self.produit, quantite=5, prix_unitaire=1000)
+        bc.status = "Livré"
+        bc.save()
+        bc.status = "Annulé"
+        bc.save()
+        return bc
+
+    def _achat_livre(self, numero="BC-REEL", qte=7):
+        bc = BonCommande.objects.create(utilisateur=self.user, numero_commande=numero, montant_total=1000)
+        ContenuDans.objects.create(bon_commande=bc, produit=self.produit, quantite=qte, prix_unitaire=1000)
+        bc.status = "Livré"
+        bc.save()
+        return bc
+
+    def _vente_livree(self, numero="VT-REEL", qte=2):
+        dv = DonneeVente.objects.create(utilisateur=self.user, numero_vente=numero, montant_total=1000)
+        ProduitDonneeVente.objects.create(donnee_vente=dv, produit=self.produit, quantite=qte, prix_unitaire=500)
+        dv.status = "Livré"
+        dv.save()
+        return dv
+
+    def _rapport(self, nom_url, **payload):
+        """Appelle le rapport en interceptant les lignes envoyées au générateur PDF."""
+        capture = {}
+
+        def faux_pdf(vue, data, infos=None, style_index=0):
+            capture['data'], capture['infos'] = data, infos
+            return io.BytesIO(b"%PDF-faux")
+
+        with patch.object(PDFGeneratorViewSet, '_advanced_pdf', faux_pdf):
+            response = self.client.post(reverse(nom_url), payload, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        entete, *corps = capture['data']
+        texte = lambda cellule: getattr(cellule, 'text', cellule)  # les cellules à retour à la ligne sont des Paragraph
+        return entete, [[texte(c) for c in ligne] for ligne in corps], capture['infos']
+
+    @staticmethod
+    def _colonne(entete, lignes, nom):
+        i = entete.index(nom)
+        return [ligne[i] for ligne in lignes]
+
+    # ── Rapport « Mouvements de stock » (historique complet) ─────────────────────────────
+
+    def test_le_rapport_complet_garde_l_original_et_l_annulation_avec_leur_motif(self):
+        self._achat_livre_puis_annule()
+        entete, lignes, _ = self._rapport('pdf-mouvements-stock')
+        self.assertIn("Motif", entete)
+        self.assertEqual(len(lignes), 2)
+        self.assertEqual(sorted(self._colonne(entete, lignes, "Action")), ["entrée", "sortie"])
+        self.assertEqual(set(self._colonne(entete, lignes, "Référence")), {lignes[0][entete.index("Référence")]})  # même référence
+        motifs = self._colonne(entete, lignes, "Motif")
+        self.assertTrue(any(m.startswith("Livraison BC BC-ANNULE") for m in motifs))
+        self.assertTrue(any(m.startswith("Annulation de la livraison BC BC-ANNULE") for m in motifs))
+
+    def test_le_rapport_complet_est_aussi_rempli_pour_un_mouvement_sans_motif(self):
+        MouvementStock.objects.create(produit=self.produit, movement_type='IN', quantity=3)
+        entete, lignes, _ = self._rapport('pdf-mouvements-stock')
+        self.assertEqual(self._colonne(entete, lignes, "Motif"), [""])
+
+    def test_largeurs_de_colonnes_du_rapport_complet_tiennent_dans_la_page(self):
+        self._achat_livre_puis_annule()
+        entete, _, infos = self._rapport('pdf-mouvements-stock')
+        self.assertEqual(len(infos['colWidths']), len(entete))
+        self.assertLessEqual(sum(infos['colWidths']), 6.5 * inch + 0.01)  # largeur utile d'une page « letter »
+
+    def test_le_rapport_complet_est_historise(self):
+        self._rapport('pdf-mouvements-stock')
+        self.assertEqual(PDFHistorique.objects.filter(utilisateur=self.user).count(), 1)
+
+    # ── Rapport « dynamique » ────────────────────────────────────────────────────────────
+
+    def test_rapport_dynamique_sans_filtre_montre_tout_l_historique_avec_le_motif(self):
+        self._achat_livre_puis_annule()
+        entete, lignes, _ = self._rapport('pdf-dynamic', table='MouvementStock')
+        self.assertIn("Motif", entete)
+        self.assertEqual(len(lignes), 2)
+        self.assertTrue(any("Annulation" in m for m in self._colonne(entete, lignes, "Motif")))
+
+    def test_rapport_des_entrees_ne_contient_que_les_achats_reels(self):
+        self._achat_livre_puis_annule()
+        self._achat_livre()
+        self._vente_livree()
+        entete, lignes, _ = self._rapport('pdf-dynamic', table='MouvementStock', specific='IN')
+        self.assertEqual(len(lignes), 1)
+        self.assertTrue(lignes[0][entete.index("Motif")].startswith("Livraison BC BC-REEL"))
+        self.assertEqual(self._colonne(entete, lignes, "Action"), ["entrée"])
+
+    def test_rapport_des_sorties_ne_contient_aucune_sortie_fantome(self):
+        """L'annulation d'un achat est une sortie de stock, mais pas une vente."""
+        self._achat_livre_puis_annule()
+        self._vente_livree()
+        entete, lignes, _ = self._rapport('pdf-dynamic', table='MouvementStock', specific='OUT')
+        self.assertEqual(len(lignes), 1)
+        self.assertTrue(lignes[0][entete.index("Motif")].startswith("Vente VT-REEL"))
+
+    def test_rapport_des_sorties_ignore_aussi_l_annulation_d_une_vente(self):
+        dv = self._vente_livree("VT-ANNULEE")
+        dv.status = "Annulé"
+        dv.save()
+        self._vente_livree("VT-REEL")
+        entete, lignes, _ = self._rapport('pdf-dynamic', table='MouvementStock', specific='OUT')
+        self.assertEqual([m for m in self._colonne(entete, lignes, "Motif")], ["Vente VT-REEL"])
+
+    def test_rapport_dynamique_sans_annulation_est_inchange(self):
+        self._achat_livre("BC-A", qte=4)
+        self._achat_livre("BC-B", qte=6)
+        entete, lignes, _ = self._rapport('pdf-dynamic', table='MouvementStock', specific='IN')
+        self.assertEqual(len(lignes), 2)
+
+    def test_largeurs_de_colonnes_du_rapport_dynamique_tiennent_dans_la_page(self):
+        self._achat_livre()
+        entete, _, infos = self._rapport('pdf-dynamic', table='MouvementStock')
+        self.assertEqual(len(infos['colWidths']), len(entete))
+        self.assertLessEqual(sum(infos['colWidths']), 6.5 * inch + 0.01)
+
+    # ── Génération réelle du PDF ─────────────────────────────────────────────────────────
+
+    def test_un_pdf_est_reellement_genere_meme_avec_des_motifs_longs_et_des_caracteres_speciaux(self):
+        MouvementStock.objects.create(
+            produit=self.produit, movement_type='IN', quantity=1,
+            reason="Livraison <b>spéciale</b> & « urgente » " + "très longue " * 20, referrence="REF&<1>")
+        for nom, payload in (('pdf-mouvements-stock', {}), ('pdf-dynamic', {'table': 'MouvementStock'})):
+            with self.subTest(rapport=nom):
+                response = self.client.post(reverse(nom), payload, format='json')
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                self.assertTrue(b"".join(response.streaming_content).startswith(b"%PDF"))
+
+    def test_les_rapports_exigent_une_authentification(self):
+        for nom, payload in (('pdf-mouvements-stock', {}), ('pdf-dynamic', {'table': 'MouvementStock'})):
+            with self.subTest(rapport=nom):
+                response = anon_client().post(reverse(nom), payload, format='json')
+                self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)

@@ -6,15 +6,13 @@ import pandas as pd
 
 from django.core.management.base import BaseCommand
 from django.utils import timezone
-from django.db.models import Sum, Count
-
 from sklearn.linear_model import LinearRegression, Ridge
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 
 from apps.catalogue.models import Product
-from apps.stock.models import MouvementStock
 from apps.forecasting.models import Prediction, Recommandation, Modele
+from apps.forecasting.services import historique_journalier, taux_journaliers
 
 # ── Modèles ML disponibles ────────────────────────────────────────────────────
 MODELES_ML = {
@@ -93,27 +91,15 @@ class Command(BaseCommand):
                 # ── 1. Construire l'historique journalier ─────────────────
                 date_debut = today - timedelta(days=180)
 
-                mouvements = MouvementStock.objects.filter(
-                    produit=produit,
-                    timestamp__date__gte=date_debut,
-                ).values("timestamp__date", "movement_type", "quantity")
+                # Mouvements EFFECTIFS agrégés par jour (une vente/un achat annulé ne compte pas :
+                # voir apps/forecasting/services.py)
+                records = historique_journalier(produit, date_debut)
 
-                if not mouvements.exists():
+                if not records:
                     self.stdout.write(f"  ⚠ Pas d'historique pour {produit.name}, fallback heuristique.")
                     self._heuristique(produit, today, horizon)
                     predictions_crees += horizon
                     continue
-
-                # Agréger par jour
-                records = {}
-                for m in mouvements:
-                    d = m["timestamp__date"]
-                    if d not in records:
-                        records[d] = {"entree": 0, "sortie": 0}
-                    if m["movement_type"] == "IN":
-                        records[d]["entree"] += m["quantity"]
-                    else:
-                        records[d]["sortie"] += m["quantity"]
 
                 # Créer DataFrame complet (jours manquants = 0)
                 date_range = pd.date_range(date_debut, today - timedelta(days=1))
@@ -250,17 +236,7 @@ class Command(BaseCommand):
 
     # ── Fallback heuristique ──────────────────────────────────────────────────
     def _heuristique(self, produit, today, horizon):
-        from django.db.models import Avg
-        date_debut = today - timedelta(days=90)
-        entrees = MouvementStock.objects.filter(
-            produit=produit, movement_type='IN', timestamp__date__gte=date_debut
-        ).aggregate(total=Sum('quantity'))
-        sorties = MouvementStock.objects.filter(
-            produit=produit, movement_type='OUT', timestamp__date__gte=date_debut
-        ).aggregate(total=Sum('quantity'))
-
-        taux_e = (entrees['total'] or 0) / 90
-        taux_s = (sorties['total'] or 0) / 90
+        taux_e, taux_s = taux_journaliers(produit, today, jours=90)
         stock  = float(produit.current_stock)
 
         for j in range(1, horizon + 1):

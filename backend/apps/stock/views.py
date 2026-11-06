@@ -128,7 +128,7 @@ class HistoriqueSeuilStockViewSet(GenericCRUDViewSet):
 class MouvementStockViewSet(GenericCRUDViewSet):
     model = MouvementStock
     queryset = MouvementStock.objects.select_related(
-        'produit', 'produit_dv', 'produit_dv__product', 'utilisateur'
+        'produit', 'produit_dv', 'produit_dv__product', 'utilisateur', 'annulation', 'batch'
     ).all()
     serializer_class = MouvementStockSerializer
     permission_classes = [IsAuthenticated]
@@ -185,10 +185,12 @@ class MouvementStockViewSet(GenericCRUDViewSet):
 
     @action(detail=False, methods=['get'])
     def stats(self, request):
-        total = MouvementStock.objects.count()
-        entrees = MouvementStock.objects.filter(movement_type='IN').count()
-        sorties = MouvementStock.objects.filter(movement_type='OUT').count()
-        ajustements = MouvementStock.objects.filter(movement_type='ADJUSTMENT').count()
+        # Flux réels uniquement : une paire « original annulé + mouvement inverse » ne compte pas
+        effectifs = MouvementStock.effectifs()
+        total = effectifs.count()
+        entrees = effectifs.filter(movement_type='IN').count()
+        sorties = effectifs.filter(movement_type='OUT').count()
+        ajustements = effectifs.filter(movement_type='ADJUSTMENT').count()
         return StandardResponse.render(
             data={
                 'total': total,
@@ -212,7 +214,8 @@ class MouvementStockViewSet(GenericCRUDViewSet):
         else:
             trunc = TruncMonth("timestamp")
 
-        qs = self.get_queryset().filter(timestamp__isnull=False)
+        # effectifs() : un achat/une vente annulé(e) ne gonfle ni les entrées ni les sorties
+        qs = self.get_queryset().effectifs().filter(timestamp__isnull=False)
 
         data = (
             qs.annotate(period=trunc)
@@ -259,6 +262,7 @@ class MouvementStockViewSet(GenericCRUDViewSet):
         """
         qs = (
             self.get_queryset()
+            .effectifs()  # hors paires annulées (original + inverse)
             .filter(produit__isnull=False, produit__category__isnull=False)
             .values("produit__category__id", "produit__category__name", "movement_type")
             .annotate(total=Sum("quantity"))
@@ -303,6 +307,7 @@ class MouvementStockViewSet(GenericCRUDViewSet):
 
         qs = (
             self.get_queryset()
+            .effectifs()  # hors paires annulées (original + inverse)
             .filter(produit__isnull=False)
             .values("produit__id", "produit__name", "movement_type")
             .annotate(total=Sum("quantity"))
@@ -346,7 +351,11 @@ class MouvementStockViewSet(GenericCRUDViewSet):
             return StandardResponse.render(
                 message="Ce mouvement est déjà annulé.", status_code=400
             )
-        
+        if mouvement.annule_id is not None:
+            return StandardResponse.render(
+                message="Ce mouvement est lui-même une annulation.", status_code=400
+            )
+
         # Créer le mouvement inverse
         inverse_type = {
             "IN": "OUT", "OUT": "IN",
@@ -362,6 +371,7 @@ class MouvementStockViewSet(GenericCRUDViewSet):
             utilisateur=request.user,
             reason=f"Annulation du mouvement #{mouvement.id}",
             referrence=mouvement.referrence,
+            annule=mouvement,
         )
         
         return StandardResponse.render(
