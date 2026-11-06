@@ -1240,6 +1240,146 @@ class VenteCreationApiTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class AnalyticsEndpointTests(TestCase):
+    """
+    GET /api/commandes/analytics/ — synthèse financière globale (PurchaseSalesAnalyticsView).
+
+    Contrat aligné sur l'écran « Analyse » du frontend (mémoire §3.4) :
+      • seuls les achats et ventes LIVRÉS comptent ;
+      • marge = ventes − achats − remboursements de VENTES non réglés ;
+      • les remboursements d'achats (à encaisser) et les remboursements réglés n'entrent pas dans la marge.
+    """
+
+    def setUp(self):
+        self.user = create_user()
+        self.client = auth_client(self.user)
+        self.url = reverse('purchase-sales-analytics')
+        self.product = create_product("Riz 25kg", stock=100)
+
+    def _data(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data['success'])
+        return response.data['data']
+
+    def _achat(self, montant, **fields):
+        return make_bc(self.user, self.product, qte=1, prix=montant, **fields)[0]
+
+    def _vente(self, montant, **fields):
+        return make_vente(self.user, self.product, qte=1, prix=montant, **fields)[0]
+
+    def _remb(self, source_type, montant, reglement=Remboursement.StatusReglement.NON_REGLE, source_id=1):
+        return Remboursement.objects.create(
+            source_type=source_type, source_id=source_id, montant=montant,
+            statut_reglement=reglement, numero_transaction="X",
+        )
+
+    def test_requiert_une_authentification(self):
+        self.assertEqual(anon_client().get(self.url).status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_sans_donnees_tout_est_a_zero(self):
+        self.assertEqual(self._data(), {
+            'total_purchases': 0.0, 'total_sales': 0.0, 'margin': 0.0,
+            'purchase_count': 0, 'sale_count': 0,
+        })
+
+    def test_la_reponse_expose_exactement_les_cinq_cles_attendues_par_le_frontend(self):
+        self.assertEqual(
+            set(self._data()),
+            {'total_purchases', 'total_sales', 'margin', 'purchase_count', 'sale_count'},
+        )
+
+    def test_seuls_les_achats_livres_sont_comptes(self):
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        self._achat(500000, status=BonCommande.Status.EN_ATTENTE)
+        self._achat(70000, status=BonCommande.Status.ANNULE)
+        data = self._data()
+        self.assertEqual(data['total_purchases'], 100000.0)
+        self.assertEqual(data['purchase_count'], 1)
+
+    def test_seules_les_ventes_livrees_sont_comptees(self):
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self._vente(999999, status=DonneeVente.Status.EN_ATTENTE)
+        self._vente(30000, status=DonneeVente.Status.ANNULE)
+        data = self._data()
+        self.assertEqual(data['total_sales'], 250000.0)
+        self.assertEqual(data['sale_count'], 1)
+
+    def test_marge_sans_remboursement_est_ventes_moins_achats(self):
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self.assertEqual(self._data()['margin'], 150000.0)
+
+    def test_marge_deduit_les_remboursements_de_ventes_non_regles(self):
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self._remb(Remboursement.TypeSource.VENTE, 30000)
+        self._remb(Remboursement.TypeSource.VENTE, 5000)
+        self.assertEqual(self._data()['margin'], 115000.0)  # 250 000 − 100 000 − 35 000
+
+    def test_les_remboursements_regles_ne_sont_plus_deduits(self):
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self._remb(Remboursement.TypeSource.VENTE, 99999, reglement=Remboursement.StatusReglement.REGLE)
+        self.assertEqual(self._data()['margin'], 250000.0)
+
+    def test_les_remboursements_d_achats_a_encaisser_n_entrent_pas_dans_la_marge(self):
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self._remb(Remboursement.TypeSource.ACHAT, 20000)
+        self.assertEqual(self._data()['margin'], 250000.0)
+
+    def test_la_marge_peut_etre_negative(self):
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        self._vente(10000, status=DonneeVente.Status.VALIDE)
+        self._remb(Remboursement.TypeSource.VENTE, 30000)
+        self.assertEqual(self._data()['margin'], -120000.0)
+
+    def test_contrat_identique_au_scenario_de_l_ecran_analyse_du_frontend(self):
+        """Mêmes données et mêmes résultats que AnalysePage.test.tsx (profit de 120 000 Ar)."""
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        self._achat(500000, status=BonCommande.Status.EN_ATTENTE)
+        self._vente(250000, status=DonneeVente.Status.VALIDE)
+        self._vente(999999, status=DonneeVente.Status.EN_ATTENTE)
+        self._remb(Remboursement.TypeSource.ACHAT, 20000)
+        self._remb(Remboursement.TypeSource.VENTE, 30000)
+        self._remb(Remboursement.TypeSource.VENTE, 99999, reglement=Remboursement.StatusReglement.REGLE)
+        self.assertEqual(self._data(), {
+            'total_purchases': 100000.0, 'total_sales': 250000.0, 'margin': 120000.0,
+            'purchase_count': 1, 'sale_count': 1,
+        })
+
+    def test_vente_livree_payee_puis_annulee_sort_des_totaux_et_son_remboursement_pese_sur_la_marge(self):
+        """Même parcours que le test d'intégration frontend : marge −50 000 puis −150 000."""
+        self._achat(100000, status=BonCommande.Status.LIVRE)
+        vente = self._vente(50000, status=DonneeVente.Status.VALIDE,
+                            statut_paiement=DonneeVente.PaymentStatus.PAYE, montant_paye=50000)
+        self.assertEqual(self._data()['margin'], -50000.0)
+
+        update(vente, status=DonneeVente.Status.ANNULE)  # le signal crée le remboursement à verser
+
+        data = self._data()
+        self.assertEqual(data['total_sales'], 0.0)
+        self.assertEqual(data['sale_count'], 0)
+        self.assertEqual(data['margin'], -150000.0)  # 0 − 100 000 − 50 000
+
+        remb = Remboursement.objects.get()
+        update(remb, statut_reglement=Remboursement.StatusReglement.REGLE)
+        self.assertEqual(self._data()['margin'], -100000.0)  # le remboursement réglé n'est plus déduit
+
+    def test_achat_livre_payee_puis_annule_sort_des_totaux_sans_affecter_la_marge(self):
+        achat = self._achat(80000, status=BonCommande.Status.LIVRE,
+                            statut_paiement=BonCommande.PaymentStatus.PAYE, montant_paye=80000)
+        self.assertEqual(self._data()['total_purchases'], 80000.0)
+        update(achat, status=BonCommande.Status.ANNULE)  # remboursement d'achat : à encaisser
+        data = self._data()
+        self.assertEqual(data['total_purchases'], 0.0)
+        self.assertEqual(data['purchase_count'], 0)
+        self.assertEqual(data['margin'], 0.0)
+
+
+# ════════════════════════════════════════════════════════════════════════════════════════
+#  MOUVEMENTS INVERSES : API stock et consommateurs (historique conservé, flux réels corrects)
+# ════════════════════════════════════════════════════════════════════════════════════════
+
 class MouvementsInversesApiTests(TestCase):
     """Exposition du lien d'annulation par l'API, action `annuler` du stock, chiffre d'affaires."""
 

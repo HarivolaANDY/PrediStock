@@ -164,26 +164,42 @@ class RemboursementViewSet(viewsets.ModelViewSet):
 
 
 class PurchaseSalesAnalyticsView(APIView):
-    """Aggregated analytics: purchases vs sales with estimated margin."""
+    """
+    Synthèse financière globale : achats vs ventes, avec marge estimée.
+
+    Mêmes règles que l'écran « Analyse » du frontend (sans les filtres de période/produit/flux) :
+      • seuls les achats et ventes LIVRÉS sont comptés (ni « En attente », ni « Annulé ») ;
+      • marge = ventes − achats − remboursements de ventes encore à verser (« Non réglé »).
+        Les remboursements d'achats (à encaisser) n'entrent pas dans la marge.
+    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        purchase_agg = BonCommande.objects.aggregate(
+        purchase_agg = BonCommande.objects.filter(
+            status=BonCommande.Status.LIVRE
+        ).aggregate(
             total=Sum('montant_total'),
             count=Count('id')
         )
-        sales_agg = DonneeVente.objects.aggregate(
+        sales_agg = DonneeVente.objects.filter(
+            status=DonneeVente.Status.VALIDE
+        ).aggregate(
             total=Sum('montant_total'),
             count=Count('id')
         )
+        refunds_to_pay = Remboursement.objects.filter(
+            source_type=Remboursement.TypeSource.VENTE,
+            statut_reglement=Remboursement.StatusReglement.NON_REGLE,
+        ).aggregate(total=Sum('montant'))['total']
 
         total_purchases = float(purchase_agg['total'] or 0)
         total_sales = float(sales_agg['total'] or 0)
+        refunds_to_pay = float(refunds_to_pay or 0)
 
         data = {
             'total_purchases': round(total_purchases, 2),
             'total_sales': round(total_sales, 2),
-            'margin': round(total_sales - total_purchases, 2),
+            'margin': round(total_sales - total_purchases - refunds_to_pay, 2),
             'purchase_count': purchase_agg['count'] or 0,
             'sale_count': sales_agg['count'] or 0,
         }
