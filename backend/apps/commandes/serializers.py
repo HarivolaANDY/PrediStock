@@ -17,6 +17,39 @@ class RegleMetierError(exceptions.APIException):
     default_code = 'regle_metier'
 
 
+def verifier_lignes_a_la_creation(lignes_data, message_vide):
+    """
+    Règle « pas de document vide », imposée par le serveur (l'écran la contrôle déjà) : un achat
+    ou une vente créé sans aucune ligne n'a ni total ni sens métier.
+    """
+    if not isinstance(lignes_data, list) or not lignes_data:
+        raise RegleMetierError(message_vide)
+    if not all(isinstance(ligne, dict) for ligne in lignes_data):
+        raise RegleMetierError("Les lignes sont mal formées.")
+
+
+def verifier_lignes_uniques(lignes_data):
+    """
+    Règle « une seule ligne par produit » : un produit simple ne figure qu'une fois dans le
+    document (on modifie la quantité de la ligne existante). Un produit à variantes peut figurer
+    plusieurs fois, mais une même variante une seule fois.
+    """
+    vues = set()
+    for ligne in lignes_data:
+        if ligne.get('produit_dv'):
+            cle = ('dv', str(ligne['produit_dv']))
+        elif ligne.get('produit'):
+            cle = ('produit', str(ligne['produit']))
+        else:
+            continue
+        if cle in vues:
+            raise RegleMetierError(
+                "Un même produit ne peut figurer qu'une seule fois : "
+                "augmentez la quantité de la ligne existante plutôt que d'en ajouter une autre."
+            )
+        vues.add(cle)
+
+
 class TransactionPaiementSerializer(serializers.ModelSerializer):
     """Une ligne de l'historique des paiements (lecture seule)."""
     class Meta:
@@ -82,6 +115,13 @@ class BonCommandeSerializer(serializers.ModelSerializer):
             'paiements', 'creer_le', 'update_at', 'supprimable'
         ]
 
+    def validate(self, attrs):
+        if self.instance is None:
+            verifier_lignes_a_la_creation(
+                attrs.get('lignes_data'), "Une commande doit contenir au moins une ligne."
+            )
+        return attrs
+
     def create(self, validated_data):
         lignes_data = validated_data.pop('lignes_data', [])
         
@@ -141,6 +181,29 @@ class ProduitDonneeVenteSerializer(serializers.ModelSerializer):
             'produit_dv_name', 'quantite', 'prix_unitaire', 'remise_applique', 'montant_ligne'
         ]
 
+    def validate(self, attrs):
+        """
+        Un produit simple ne figure qu'une fois dans une vente. Pour une variante, la contrainte
+        d'unicité du modèle suffit ; sans variante, elle ne s'applique pas (en SQL, deux NULL
+        sont toujours « différents »), d'où ce contrôle.
+        """
+        instance = self.instance
+        vente = attrs.get('donnee_vente', getattr(instance, 'donnee_vente', None))
+        produit = attrs.get('produit', getattr(instance, 'produit', None))
+        variante = attrs.get('produit_dv', getattr(instance, 'produit_dv', None))
+        if vente is not None and produit is not None and variante is None:
+            doublons = ProduitDonneeVente.objects.filter(
+                donnee_vente=vente, produit=produit, produit_dv__isnull=True
+            )
+            if instance is not None:
+                doublons = doublons.exclude(pk=instance.pk)
+            if doublons.exists():
+                raise RegleMetierError(
+                    f"« {produit.name} » figure déjà dans cette vente : "
+                    "augmentez la quantité de la ligne existante plutôt que d'en ajouter une autre."
+                )
+        return attrs
+
 
 class RemboursementSerializer(serializers.ModelSerializer):
     produit_name = serializers.ReadOnlyField(source='produit.name')
@@ -190,6 +253,10 @@ class DonneeVenteSerializer(serializers.ModelSerializer):
         ou de paiement sur une vente à crédit déjà enregistrée n'est pas bloqué.
         """
         instance = self.instance
+        if instance is None:
+            lignes_data = attrs.get('lignes_data')
+            verifier_lignes_a_la_creation(lignes_data, "Une vente doit contenir au moins une ligne.")
+            verifier_lignes_uniques(lignes_data)
         definition_modifiee = instance is None or any(
             champ in attrs for champ in ('type_vente', 'segment_clientele', 'delai_paiement')
         )

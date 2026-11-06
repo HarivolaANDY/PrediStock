@@ -1,4 +1,3 @@
-import unittest
 from datetime import timedelta
 from decimal import Decimal
 
@@ -112,23 +111,50 @@ class BonCommandeCreateTests(TestCase):
         self.url = reverse('bon-commande-list')
         self.supplier = create_supplier()
 
+    def _lignes(self, prix=15000, quantite=5):
+        produit = create_product("Produit achat")
+        return [{"produit": produit.pk, "quantite": quantite, "prix_unitaire": prix}]
+
     def test_create_success(self):
         response = self.client.post(self.url, {
             "numero_commande": "BC-TEST-001",
             "status": "En attente",
-            "montant_total": 75000,
             "fournisseur": self.supplier.pk,
             "utilisateur": self.user.pk,
+            "lignes_data": self._lignes(),
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertTrue(BonCommande.objects.filter(numero_commande="BC-TEST-001").exists())
+        bon = BonCommande.objects.get(numero_commande="BC-TEST-001")
+        self.assertEqual(bon.montant_total, Decimal('75000.00'))  # 5 × 15 000
 
     def test_create_without_fournisseur(self):
         response = self.client.post(self.url, {
             "numero_commande": "BC-SANS-FOURN",
-            "montant_total": 10000,
+            "lignes_data": self._lignes(prix=10000, quantite=1),
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_create_sans_aucune_ligne_est_refuse(self):
+        response = self.client.post(self.url, {
+            "numero_commande": "BC-VIDE", "fournisseur": self.supplier.pk,
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], "Une commande doit contenir au moins une ligne.")
+        self.assertFalse(BonCommande.objects.filter(numero_commande="BC-VIDE").exists())
+
+    def test_create_avec_liste_de_lignes_vide_est_refuse(self):
+        response = self.client.post(self.url, {
+            "numero_commande": "BC-VIDE", "lignes_data": [],
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(BonCommande.objects.count(), 0)
+
+    def test_modifier_une_commande_existante_n_exige_pas_de_lignes(self):
+        bon = BonCommande.objects.create(numero_commande="BC-EXISTANT", fournisseur=self.supplier)
+        response = self.client.patch(
+            reverse('bon-commande-detail', kwargs={'pk': bon.pk}), {"status": "Annulé"}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_create_unauthenticated_returns_401(self):
         response = anon_client().post(self.url, {
@@ -245,13 +271,12 @@ class DonneeVenteCreateTests(TestCase):
         self.assertEqual(ligne.donnee_vente_id, response.data['id'])
         self.assertEqual((ligne.quantite, ligne.prix_unitaire), (2, Decimal('1500.00')))
 
-    # ANOMALIE CONNUE : une vente sans aucune ligne est acceptée (201, total 0) ; l'ancien test
-    # attendait un 400 pour un corps incomplet. Seul le frontend impose au moins une ligne.
-    # `expectedFailure` : à retirer une fois la validation serveur ajoutée.
-    @unittest.expectedFailure
     def test_create_sans_aucune_ligne_est_refuse(self):
+        """Règle serveur (en plus de l'écran) : une vente contient au moins une ligne."""
         response = self.client.post(self.url, {'segment_clientele': 'Test'}, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], "Une vente doit contenir au moins une ligne.")
+        self.assertEqual(DonneeVente.objects.count(), 0)
 
     def test_create_unauthenticated_returns_401(self):
         response = anon_client().post(self.url, self._payload(), format='json')
@@ -424,13 +449,9 @@ class ProduitDonneeVenteTests(TestCase):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertEqual(ProduitDonneeVente.objects.filter(donnee_vente=self.dv, produit_dv=variante).count(), 1)
 
-    # ANOMALIE CONNUE : sans variante (produit_dv vide), la contrainte d'unicité ne s'applique pas
-    # (en SQL, deux NULL sont toujours « différents ») : un même produit peut figurer plusieurs fois
-    # dans une vente (201). L'ancien test attendait un 400. Selon la règle métier voulue (ligne
-    # unique par produit, ou lignes multiples à prix/remises différents), à trancher.
-    # `expectedFailure` : à retirer une fois la règle décidée et appliquée.
-    @unittest.expectedFailure
     def test_unique_together_constraint_sans_variante(self):
+        """Règle « une ligne par produit simple » : en SQL deux NULL sont « différents », donc le
+        serveur contrôle lui-même le doublon d'un produit sans variante."""
         response = self.client.post(self.url, {
             "produit": self.product.pk,
             "donnee_vente": self.dv.pk,
@@ -438,6 +459,31 @@ class ProduitDonneeVenteTests(TestCase):
             "prix_unitaire": "1000.00",
         }, format='json')
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("figure déjà dans cette vente", response.data['detail'])
+        self.assertEqual(ProduitDonneeVente.objects.filter(donnee_vente=self.dv, produit=self.product).count(), 1)
+
+    def test_modifier_la_ligne_existante_n_est_pas_un_doublon(self):
+        url = reverse('produit-donnee-vente-detail', kwargs={'pk': self.liaison.pk})
+        response = self.client.patch(url, {"quantite": 5}, format='json')
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.liaison.refresh_from_db()
+        self.assertEqual(self.liaison.quantite, 5)
+
+    def test_le_produit_simple_et_l_une_de_ses_variantes_peuvent_coexister(self):
+        variante = ProduitDv.objects.create(product=self.product, designation="Variante DV", nombre=10)
+        response = self.client.post(self.url, {
+            "produit": self.product.pk, "produit_dv": variante.pk,
+            "donnee_vente": self.dv.pk, "quantite": 1, "prix_unitaire": "500.00",
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_un_meme_produit_peut_figurer_dans_deux_ventes_differentes(self):
+        autre_vente = create_donnee_vente(self.user, prix=1000, qte=1)
+        response = self.client.post(self.url, {
+            "produit": self.product.pk, "donnee_vente": autre_vente.pk,
+            "quantite": 1, "prix_unitaire": "1000.00",
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     def test_str_liaison(self):
         self.assertIn("Produit DV", str(self.liaison))
@@ -1228,6 +1274,84 @@ class VenteCreationApiTests(TestCase):
     def test_creation_sans_authentification_est_refusee(self):
         response = anon_client().post(self.url, {'lignes_data': []}, format='json')
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    # --- Règle « au moins une ligne » -------------------------------------------------------
+    def test_liste_de_lignes_vide_est_refusee(self):
+        response = self._post([])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.data['detail'], "Une vente doit contenir au moins une ligne.")
+        self.assertEqual(DonneeVente.objects.count(), 0)
+
+    def test_lignes_qui_ne_sont_pas_une_liste_sont_refusees_sans_erreur_serveur(self):
+        for corps in ({'produit': self.product.pk}, "texte", 5):
+            with self.subTest(corps=corps):
+                response = self._post(corps)
+                self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DonneeVente.objects.count(), 0)
+
+    def test_ligne_mal_formee_est_refusee_sans_erreur_serveur(self):
+        response = self._post([42])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DonneeVente.objects.count(), 0)
+
+    def test_modifier_une_vente_existante_n_exige_pas_de_lignes(self):
+        dv = create_donnee_vente(self.user)
+        response = self.client.patch(
+            reverse('donnee-vente-detail', kwargs={'pk': dv.pk}), {'segment_clientele': 'VIP'}, format='json'
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    # --- Règle « une seule ligne par produit simple » ----------------------------------------
+    def test_meme_produit_simple_deux_fois_est_refuse_et_rien_n_est_enregistre(self):
+        response = self._post([
+            {'produit': self.product.pk, 'quantite': 1, 'prix_unitaire': 1000},
+            {'produit': self.product.pk, 'quantite': 2, 'prix_unitaire': 900},
+        ])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("une seule fois", response.data['detail'])
+        self.assertEqual(DonneeVente.objects.count(), 0)
+        self.assertEqual(ProduitDonneeVente.objects.count(), 0)
+
+    def test_meme_variante_deux_fois_est_refusee_proprement_et_non_en_erreur_serveur(self):
+        variante = ProduitDv.objects.create(product=self.product, designation="Café 100g", nombre=9)
+        ligne = {'produit': self.product.pk, 'produit_dv': variante.pk, 'quantite': 1, 'prix_unitaire': 1000}
+        response = self._post([ligne, dict(ligne)])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(DonneeVente.objects.count(), 0)
+
+    def test_variante_sans_produit_parent_dans_la_ligne_compte_aussi_comme_doublon(self):
+        variante = ProduitDv.objects.create(product=self.product, designation="Café 100g", nombre=9)
+        response = self._post([
+            {'produit_dv': variante.pk, 'quantite': 1, 'prix_unitaire': 1000},
+            {'produit': self.product.pk, 'produit_dv': variante.pk, 'quantite': 1, 'prix_unitaire': 1000},
+        ])
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_deux_variantes_differentes_du_meme_produit_sont_acceptees(self):
+        v1 = ProduitDv.objects.create(product=self.product, designation="Café 100g", nombre=9)
+        v2 = ProduitDv.objects.create(product=self.product, designation="Café 500g", nombre=9)
+        response = self._post([
+            {'produit': self.product.pk, 'produit_dv': v1.pk, 'quantite': 1, 'prix_unitaire': 1000},
+            {'produit': self.product.pk, 'produit_dv': v2.pk, 'quantite': 1, 'prix_unitaire': 4000},
+        ])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(DonneeVente.objects.get().lignes.count(), 2)
+
+    def test_produit_simple_et_sa_variante_dans_la_meme_vente_sont_acceptes(self):
+        variante = ProduitDv.objects.create(product=self.product, designation="Café 100g", nombre=9)
+        response = self._post([
+            {'produit': self.product.pk, 'quantite': 1, 'prix_unitaire': 5000},
+            {'produit': self.product.pk, 'produit_dv': variante.pk, 'quantite': 1, 'prix_unitaire': 1000},
+        ])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    def test_deux_produits_differents_sont_acceptes(self):
+        autre = create_product("Thé 100g", stock=5)
+        response = self._post([
+            {'produit': self.product.pk, 'quantite': 1, 'prix_unitaire': 1000},
+            {'produit': autre.pk, 'quantite': 1, 'prix_unitaire': 500},
+        ])
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
 
     # Règle « vente à crédit réservée au segment VIP/Fidélisé » : appliquée aussi par le serveur
     # (voir aussi VenteACreditServeurTests pour le détail des cas).
