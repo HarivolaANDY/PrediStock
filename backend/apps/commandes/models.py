@@ -251,8 +251,9 @@ class ProduitDonneeVente(models.Model):
     donnee_vente = models.ForeignKey(
         DonneeVente, on_delete=models.CASCADE, related_name='lignes'
     )
+    # PROTECT : supprimer un produit déjà vendu effacerait la ligne de la vente (cascade).
     produit = models.ForeignKey(
-        'catalogue.Product', on_delete=models.CASCADE
+        'catalogue.Product', on_delete=models.PROTECT
     )
     produit_dv = models.ForeignKey(
         'catalogue.ProduitDv', on_delete=models.SET_NULL, null=True, blank=True

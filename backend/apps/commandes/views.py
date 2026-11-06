@@ -40,6 +40,22 @@ def _refus_suppression(instance, nom):
     )
 
 
+def _refus_suppression_ligne(document, nom):
+    """
+    Réponse 400 si le document (achat ou vente) qui porte la ligne a laissé des traces : une
+    ligne ne se retire pas d'un document payé, livré ou remboursé (le stock et les montants
+    en seraient faussés). None si la ligne peut être supprimée.
+    """
+    motif = document.motif_non_supprimable()
+    if motif is None:
+        return None
+    return StandardResponse.render(
+        message=f"Suppression de la ligne impossible : {motif} ({nom}). "
+                f"Annulez {nom} plutôt : l'annulation conserve l'historique et restitue le stock.",
+        status_code=400,
+    )
+
+
 def _argent(valeur):
     """Montant lisible : « 5 000 Ar »."""
     return f"{Decimal(valeur):,.0f}".replace(",", " ") + " Ar"
@@ -113,6 +129,10 @@ class ContenuDansViewSet(GenericCRUDViewSet):
     filter_backends = [DjangoFilterBackend]
     filterset_class = ContenuDansFilter
 
+    def destroy(self, request, *args, **kwargs):
+        refus = _refus_suppression_ligne(self.get_object().bon_commande, "la commande")
+        return refus or super().destroy(request, *args, **kwargs)
+
 
 class DonneeVenteViewSet(viewsets.ModelViewSet):
     queryset = DonneeVente.objects.all().order_by('-date_vente').prefetch_related('lignes', 'paiements')
@@ -136,6 +156,10 @@ class ProduitDonneeVenteViewSet(GenericCRUDViewSet):
     model = ProduitDonneeVente
     queryset = ProduitDonneeVente.objects.all()
     serializer_class = ProduitDonneeVenteSerializer
+
+    def destroy(self, request, *args, **kwargs):
+        refus = _refus_suppression_ligne(self.get_object().donnee_vente, "la vente")
+        return refus or super().destroy(request, *args, **kwargs)
 
 
 class RemboursementViewSet(viewsets.ModelViewSet):

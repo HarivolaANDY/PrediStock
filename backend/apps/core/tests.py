@@ -577,3 +577,171 @@ class RapportsMouvementsPdfTests(TestCase):
             with self.subTest(rapport=nom):
                 response = anon_client().post(reverse(nom), payload, format='json')
                 self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+#  demo_reset : sauvegarde / restauration de la base pour refaire une démonstration
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+
+import sqlite3  # noqa: E402
+import tempfile  # noqa: E402
+from pathlib import Path  # noqa: E402
+
+from django.core.management import call_command  # noqa: E402
+from django.core.management.base import CommandError  # noqa: E402
+
+
+class DemoResetTests(TestCase):
+    """La commande travaille sur des bases SQLite temporaires : la vraie base n'est jamais ouverte."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.racine = Path(self._tmp.name)
+        self.base = self.racine / "base.sqlite3"
+        self.dossier = self.racine / "sauvegardes"
+        con = sqlite3.connect(self.base)
+        con.execute("CREATE TABLE vente (id INTEGER PRIMARY KEY, ref TEXT)")
+        con.execute("INSERT INTO vente (ref) VALUES ('VT-001')")
+        con.commit()
+        con.close()
+
+    # ── Aides ────────────────────────────────────────────────────────────────────────────
+    def _lancer(self, *args):
+        sortie = io.StringIO()
+        call_command("demo_reset", *args, "--base", str(self.base), "--dossier", str(self.dossier),
+                     "--noinput", stdout=sortie)
+        return sortie.getvalue()
+
+    def _refs(self, chemin=None):
+        con = sqlite3.connect(chemin or self.base)
+        try:
+            return [r[0] for r in con.execute("SELECT ref FROM vente ORDER BY id")]
+        finally:
+            con.close()
+
+    def _inserer(self, ref):
+        con = sqlite3.connect(self.base)
+        con.execute("INSERT INTO vente (ref) VALUES (?)", (ref,))
+        con.commit()
+        con.close()
+
+    def _avant_restauration(self):
+        return sorted(self.dossier.glob("avant-restauration-*.sqlite3"))
+
+    # ── Sauvegarder ──────────────────────────────────────────────────────────────────────
+    def test_sauvegarder_cree_une_copie_fidele(self):
+        sortie = self._lancer("sauvegarder", "demo")
+        self.assertIn("Sauvegarde « demo » créée", sortie)
+        self.assertEqual(self._refs(self.dossier / "demo.sqlite3"), ["VT-001"])
+
+    def test_sauvegarder_refuse_d_ecraser_le_point_de_depart(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        with self.assertRaisesMessage(CommandError, "existe déjà"):
+            self._lancer("sauvegarder", "demo")
+        # le point de départ d'origine est toujours intact
+        self.assertEqual(self._refs(self.dossier / "demo.sqlite3"), ["VT-001"])
+
+    def test_sauvegarder_avec_ecraser_remplace_la_copie(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        self._lancer("sauvegarder", "demo", "--ecraser")
+        self.assertEqual(self._refs(self.dossier / "demo.sqlite3"), ["VT-001", "VT-002"])
+
+    # ── Restaurer ────────────────────────────────────────────────────────────────────────
+    def test_restaurer_remet_la_base_dans_l_etat_sauvegarde(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        self._inserer("VT-003")
+        sortie = self._lancer("restaurer", "demo")
+        self.assertEqual(self._refs(), ["VT-001"])
+        self.assertIn("Base restaurée depuis « demo »", sortie)
+
+    def test_restaurer_conserve_l_etat_perdu_dans_une_copie_de_securite(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        self._lancer("restaurer", "demo")
+        copies = self._avant_restauration()
+        self.assertEqual(len(copies), 1)
+        self.assertEqual(self._refs(copies[0]), ["VT-001", "VT-002"])
+
+    def test_on_peut_recommencer_autant_de_fois_que_necessaire(self):
+        self._lancer("sauvegarder", "demo")
+        for essai in range(3):
+            self._inserer(f"PRISE-{essai}")
+            self._lancer("restaurer", "demo")
+            self.assertEqual(self._refs(), ["VT-001"])
+
+    def test_restaurer_une_sauvegarde_inconnue_est_refuse(self):
+        with self.assertRaisesMessage(CommandError, "introuvable"):
+            self._lancer("restaurer", "fantome")
+        self.assertEqual(self._refs(), ["VT-001"])
+
+    def test_restaurer_une_sauvegarde_corrompue_laisse_la_base_intacte(self):
+        self.dossier.mkdir()
+        (self.dossier / "abimee.sqlite3").write_bytes(b"ceci n'est pas une base SQLite" * 50)
+        self._inserer("VT-002")
+        with self.assertRaises(CommandError):
+            self._lancer("restaurer", "abimee")
+        self.assertEqual(self._refs(), ["VT-001", "VT-002"])
+
+    def test_restaurer_demande_confirmation_et_respecte_un_refus(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        with patch("builtins.input", return_value="non"):
+            with self.assertRaisesMessage(CommandError, "annulée"):
+                call_command("demo_reset", "restaurer", "demo", "--base", str(self.base),
+                             "--dossier", str(self.dossier))
+        self.assertEqual(self._refs(), ["VT-001", "VT-002"])
+        self.assertEqual(self._avant_restauration(), [])
+
+    def test_restaurer_accepte_une_confirmation_positive(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        with patch("builtins.input", return_value="oui"):
+            call_command("demo_reset", "restaurer", "demo", "--base", str(self.base),
+                         "--dossier", str(self.dossier), stdout=io.StringIO())
+        self.assertEqual(self._refs(), ["VT-001"])
+
+    def test_base_verrouillee_par_le_serveur_message_clair_et_base_inchangee(self):
+        self._lancer("sauvegarder", "demo")
+        self._inserer("VT-002")
+        serveur = sqlite3.connect(self.base)
+        serveur.execute("BEGIN EXCLUSIVE")  # comme un serveur qui tient la base
+        try:
+            with patch("apps.core.management.commands.demo_reset.ATTENTE_MAX", 1):
+                with self.assertRaisesMessage(CommandError, "Arrêtez le serveur"):
+                    self._lancer("restaurer", "demo")
+        finally:
+            serveur.rollback()
+            serveur.close()
+        self.assertEqual(self._refs(), ["VT-001", "VT-002"])
+
+    # ── Garde-fous ───────────────────────────────────────────────────────────────────────
+    def test_nom_de_sauvegarde_invalide_est_refuse(self):
+        for nom in ("../evasion", "a/b", "a b", "démo"):
+            with self.assertRaisesMessage(CommandError, "Nom invalide"):
+                self._lancer("sauvegarder", nom)
+        self.assertFalse(self.dossier.exists())
+
+    def test_base_introuvable_est_refusee(self):
+        self.base.unlink()
+        with self.assertRaisesMessage(CommandError, "Base introuvable"):
+            self._lancer("sauvegarder", "demo")
+
+    def test_sans_option_base_une_base_hors_fichier_est_refusee(self):
+        """Sous les tests, la configuration Django pointe une base en mémoire : la commande refuse."""
+        with self.assertRaisesMessage(CommandError, "SQLite stockée dans un fichier"):
+            call_command("demo_reset", "sauvegarder", "demo", "--dossier", str(self.dossier))
+
+    # ── Lister ───────────────────────────────────────────────────────────────────────────
+    def test_lister_sans_sauvegarde(self):
+        self.assertIn("Aucune sauvegarde", self._lancer("lister"))
+
+    def test_lister_affiche_les_sauvegardes(self):
+        self._lancer("sauvegarder", "demo")
+        self._lancer("sauvegarder", "autre")
+        sortie = self._lancer("lister")
+        self.assertIn("demo", sortie)
+        self.assertIn("autre", sortie)

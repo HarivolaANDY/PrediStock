@@ -320,6 +320,16 @@ class ProductViewSet(GenericCRUDViewSet):
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
+        # Un produit déjà vendu se conserve : le supprimer effacerait ses lignes de vente (et
+        # fausserait les ventes passées). Vérifié AVANT de toucher aux images.
+        nb_ventes = instance.produitdonneevente_set.values('donnee_vente').distinct().count()
+        if nb_ventes:
+            return StandardResponse.render(
+                message=(f'Suppression impossible : le produit "{instance.name}" figure dans '
+                         f'{nb_ventes} vente(s). Un produit vendu est conservé pour garder '
+                         "l'historique des ventes."),
+                status_code=status.HTTP_400_BAD_REQUEST,
+            )
         try:
             product_id = instance.id
             product_name = instance.name

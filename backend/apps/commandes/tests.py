@@ -2309,3 +2309,187 @@ class VenteACreditServeurTests(TestCase):
                            delai_paiement=timezone.now() + timedelta(days=10))
         self.assertEqual(self.client.patch(self._detail(dv), {'status': 'Livré'}, format='json').status_code, 200)
         self.assertEqual(self.client.patch(self._detail(dv), {'montant_paye': '1000', 'mode_paiement': 'Espèces'}, format='json').status_code, 200)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+#  SUPPRESSION « SANS TRACE » : admin Django, lignes (API) et produit déjà vendu
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+
+from django.db.models.deletion import ProtectedError  # noqa: E402
+from django.test import Client  # noqa: E402
+
+
+class SuppressionAdminTests(TestCase):
+    """
+    La règle « supprimable seulement sans trace » vaut aussi dans l'admin Django : même verdict
+    que l'API (`motif_non_supprimable()`), pour un document, sa suppression en masse et ses lignes.
+    """
+
+    def setUp(self):
+        self.user = create_user()
+        self.product = create_product("Riz 25kg", stock=100)
+        self.admin = User.objects.create_superuser(
+            username="root", email="root@predistock.com", password="Root12345",
+        )
+        self.web = Client()
+        self.web.force_login(self.admin)
+
+    # ── Aides ────────────────────────────────────────────────────────────────────────────
+    def _url(self, modele, action, *args):
+        return reverse(f"admin:commandes_{modele}_{action}", args=args)
+
+    def _supprimer(self, modele, pk):
+        return self.web.post(self._url(modele, "delete", pk), {"post": "yes"}, follow=True)
+
+    def _livre(self):
+        return make_bc(self.user, self.product, status=BonCommande.Status.LIVRE)
+
+    # ── Documents ────────────────────────────────────────────────────────────────────────
+    def test_achat_sans_trace_se_supprime_dans_l_admin(self):
+        bc, _ = make_bc(self.user, self.product)
+        self._supprimer("boncommande", bc.pk)
+        self.assertFalse(BonCommande.objects.filter(pk=bc.pk).exists())
+
+    def test_achat_livre_n_est_pas_supprime_et_l_admin_explique_pourquoi(self):
+        bc, _ = self._livre()
+        response = self._supprimer("boncommande", bc.pk)
+        self.assertTrue(BonCommande.objects.filter(pk=bc.pk).exists())
+        self.assertTrue(MouvementStock.objects.filter(referrence__startswith="BC-LINE-").exists())
+        self.assertContains(response, "Suppression impossible")
+        self.assertContains(response, "Annulez-la plutôt")
+
+    def test_achat_paye_n_est_pas_supprime(self):
+        bc, _ = make_bc(self.user, self.product, montant_paye=1000)
+        self._supprimer("boncommande", bc.pk)
+        self.assertTrue(BonCommande.objects.filter(pk=bc.pk).exists())
+
+    def test_vente_livree_n_est_pas_supprimee(self):
+        dv, _ = make_vente(self.user, self.product, status=DonneeVente.Status.VALIDE)
+        self._supprimer("donneevente", dv.pk)
+        self.assertTrue(DonneeVente.objects.filter(pk=dv.pk).exists())
+
+    def test_vente_sans_trace_se_supprime(self):
+        dv, _ = make_vente(self.user, self.product)
+        self._supprimer("donneevente", dv.pk)
+        self.assertFalse(DonneeVente.objects.filter(pk=dv.pk).exists())
+
+    def test_la_page_de_suppression_d_un_document_a_trace_redirige_vers_sa_fiche(self):
+        bc, _ = self._livre()
+        response = self.web.get(self._url("boncommande", "delete", bc.pk))
+        self.assertRedirects(response, self._url("boncommande", "change", bc.pk))
+
+    # ── Fiche : motif visible, bouton « Supprimer » masqué ───────────────────────────────
+    def test_fiche_d_un_document_a_trace_affiche_le_motif_sans_bouton_supprimer(self):
+        bc, _ = self._livre()
+        response = self.web.get(self._url("boncommande", "change", bc.pk))
+        self.assertContains(response, "Interdite : des mouvements de stock")
+        self.assertNotContains(response, 'class="deletelink"')
+
+    def test_fiche_d_un_document_sans_trace_propose_la_suppression(self):
+        bc, _ = make_bc(self.user, self.product)
+        response = self.web.get(self._url("boncommande", "change", bc.pk))
+        self.assertContains(response, "Possible (aucune trace)")
+        self.assertContains(response, 'class="deletelink"')
+
+    def test_formulaire_d_ajout_s_ouvre_sans_erreur(self):
+        self.assertEqual(self.web.get(self._url("boncommande", "add")).status_code, 200)
+        self.assertEqual(self.web.get(self._url("donneevente", "add")).status_code, 200)
+
+    # ── Suppression en masse ─────────────────────────────────────────────────────────────
+    def test_suppression_en_masse_refusee_des_qu_un_document_a_trace(self):
+        libre, _ = make_bc(self.user, self.product)
+        livre, _ = self._livre()
+        self.web.post(self._url("boncommande", "changelist"), {
+            "action": "delete_selected", "post": "yes",
+            "_selected_action": [libre.pk, livre.pk],
+        })
+        # tout ou rien : la sélection entière est refusée, aucun document n'est perdu
+        self.assertEqual(BonCommande.objects.filter(pk__in=[libre.pk, livre.pk]).count(), 2)
+
+    def test_suppression_en_masse_de_documents_sans_trace_reste_possible(self):
+        a, _ = make_bc(self.user, self.product)
+        b, _ = make_bc(self.user, self.product)
+        self.web.post(self._url("boncommande", "changelist"), {
+            "action": "delete_selected", "post": "yes", "_selected_action": [a.pk, b.pk],
+        })
+        self.assertFalse(BonCommande.objects.filter(pk__in=[a.pk, b.pk]).exists())
+
+    # ── Lignes ───────────────────────────────────────────────────────────────────────────
+    def test_ligne_d_un_achat_livre_n_est_pas_supprimable_dans_l_admin(self):
+        _, ligne = self._livre()
+        self._supprimer("contenudans", ligne.pk)
+        self.assertTrue(ContenuDans.objects.filter(pk=ligne.pk).exists())
+
+    def test_ligne_d_un_achat_sans_trace_est_supprimable_dans_l_admin(self):
+        _, ligne = make_bc(self.user, self.product)
+        self._supprimer("contenudans", ligne.pk)
+        self.assertFalse(ContenuDans.objects.filter(pk=ligne.pk).exists())
+
+    def test_ligne_d_une_vente_livree_n_est_pas_supprimable_dans_l_admin(self):
+        _, ligne = make_vente(self.user, self.product, status=DonneeVente.Status.VALIDE)
+        self._supprimer("produitdonneevente", ligne.pk)
+        self.assertTrue(ProduitDonneeVente.objects.filter(pk=ligne.pk).exists())
+
+    def test_inline_ne_propose_pas_de_retirer_les_lignes_d_un_document_a_trace(self):
+        bc, _ = self._livre()
+        response = self.web.get(self._url("boncommande", "change", bc.pk))
+        self.assertNotContains(response, "lignes-0-DELETE")  # pas de case « supprimer » sur les lignes
+        libre, _ = make_bc(self.user, self.product)
+        response = self.web.get(self._url("boncommande", "change", libre.pk))
+        self.assertContains(response, "lignes-0-DELETE")
+
+
+class SuppressionLignesEtProduitApiTests(TestCase):
+    """Mêmes garanties par l'API : lignes d'un document à trace, produit déjà vendu."""
+
+    def setUp(self):
+        self.user = create_user()
+        self.client = auth_client(self.user)
+        self.product = create_product("Riz 25kg", stock=100)
+
+    def test_ligne_d_achat_livre_refusee_en_400_avec_message(self):
+        _, ligne = make_bc(self.user, self.product, status=BonCommande.Status.LIVRE)
+        response = self.client.delete(reverse('contenu-dans-detail', kwargs={'pk': ligne.pk}))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertFalse(response.data['success'])
+        self.assertIn("Suppression de la ligne impossible", response.data['message'])
+        self.assertTrue(ContenuDans.objects.filter(pk=ligne.pk).exists())
+
+    def test_ligne_d_achat_sans_trace_se_supprime(self):
+        _, ligne = make_bc(self.user, self.product)
+        response = self.client.delete(reverse('contenu-dans-detail', kwargs={'pk': ligne.pk}))
+        self.assertLess(response.status_code, 300)
+        self.assertFalse(ContenuDans.objects.filter(pk=ligne.pk).exists())
+
+    def test_ligne_de_vente_livree_refusee_en_400(self):
+        _, ligne = make_vente(self.user, self.product, status=DonneeVente.Status.VALIDE)
+        response = self.client.delete(reverse('produit-donnee-vente-detail', kwargs={'pk': ligne.pk}))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertTrue(ProduitDonneeVente.objects.filter(pk=ligne.pk).exists())
+
+    def test_ligne_de_vente_sans_trace_se_supprime(self):
+        _, ligne = make_vente(self.user, self.product)
+        response = self.client.delete(reverse('produit-donnee-vente-detail', kwargs={'pk': ligne.pk}))
+        self.assertLess(response.status_code, 300)
+        self.assertFalse(ProduitDonneeVente.objects.filter(pk=ligne.pk).exists())
+
+    def test_produit_deja_vendu_n_est_pas_supprimable_et_sa_vente_reste_intacte(self):
+        dv, ligne = make_vente(self.user, self.product)
+        response = self.client.delete(reverse('product-detail', kwargs={'pk': self.product.pk}))
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("figure dans 1 vente", response.data['message'])
+        self.assertTrue(Product.objects.filter(pk=self.product.pk).exists())
+        self.assertTrue(ProduitDonneeVente.objects.filter(pk=ligne.pk).exists())
+
+    def test_produit_jamais_vendu_se_supprime(self):
+        libre = create_product("Sucre 1kg", stock=5)
+        response = self.client.delete(reverse('product-detail', kwargs={'pk': libre.pk}))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(Product.objects.filter(pk=libre.pk).exists())
+
+    def test_la_base_protege_aussi_contre_une_suppression_directe(self):
+        """Même en contournant l'API (shell, admin du catalogue) : la cascade n'efface plus la vente."""
+        _, ligne = make_vente(self.user, self.product)
+        with self.assertRaises(ProtectedError):
+            self.product.delete()
+        self.assertTrue(ProduitDonneeVente.objects.filter(pk=ligne.pk).exists())
