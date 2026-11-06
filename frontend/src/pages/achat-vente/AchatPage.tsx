@@ -1,13 +1,15 @@
 import { useState } from "react"
+import type { ReactNode } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getBonCommandes, createBonCommande, updateBonCommande, deleteBonCommande, searchProduits, getFournisseurs, getRemboursements } from "@/services/achatVenteService"
+import { getBonCommandes, createBonCommande, updateBonCommande, deleteBonCommande, searchProduits, getFournisseurs, getRemboursements, payerBonCommande } from "@/services/achatVenteService"
 import {
   ShoppingCart, Plus, RefreshCw,
   Clock, Truck, XCircle, ChevronDown, Eye, Trash2, Package, Search, ExternalLink,
   CreditCard, ShieldCheck,
   Calendar
 } from "lucide-react"
-import type { BonCommande, BonCommandeStatus, CreateLigneData } from "@/types/achatVente"
+import type { BonCommande, BonCommandeStatus, CreateLigneData, PaiementData } from "@/types/achatVente"
+import type { SupplierFormData } from "@/types/types"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
@@ -23,8 +25,9 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ProductForm } from "@/components/ProductForm"
 import { SupplierForm } from "@/components/SupplierForm"
+import { PaiementDialog } from "@/components/achat-vente/PaiementDialog"
 
-const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: any }> = {
+const STATUS_CONFIG: Record<BonCommandeStatus, { label: string; color: string; icon: ReactNode }> = {
   "En attente": { label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="h-3 w-3" /> },
   "Livré":    { label: "Livré",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <Truck className="h-3 w-3" /> },
   "Annulé":     { label: "Annulé",     color: "bg-red-50 text-red-700 border-red-100", icon: <XCircle className="h-3 w-3" /> },
@@ -77,6 +80,7 @@ export default function AchatPage() {
   const [searchTerm, setSearchTerm] = useState("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [paiementCible, setPaiementCible] = useState<BonCommande | null>(null)
   
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -137,8 +141,22 @@ export default function AchatPage() {
     onSuccess: () => {
       toast.success("Mise à jour réussie")
       qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+      // Annuler une commande déjà payée crée un remboursement côté backend : on recharge la liste
+      // des remboursements pour que la commande en soit immédiatement exclue de l'affichage.
+      qc.invalidateQueries({ queryKey: ["remboursements"] })
     },
     onError: (e: Error) => toast.error(e.message)
+  })
+
+  const payerMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: PaiementData }) => payerBonCommande(id, data),
+    onSuccess: () => {
+      toast.success("Paiement enregistré")
+      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+      setPaiementCible(null)
+    },
+    // la fenêtre reste ouverte : l'utilisateur peut corriger le montant
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const { data: api_baseUrl } = useQuery({ queryKey: ["api-url"], queryFn: () => Promise.resolve(import.meta.env.VITE_API_URL || "http://localhost:8000") })
@@ -162,7 +180,7 @@ export default function AchatPage() {
   })
 
   const createSupplierMut = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: SupplierFormData) => {
       const res = await fetch(`${api_baseUrl}/api/catalogue/suppliers/`, {
         method: "POST",
         headers: { 
@@ -190,7 +208,12 @@ export default function AchatPage() {
       setDeleteConfirmId(null)
       setSelectedIds([])
     },
-    onError: (e: Error) => toast.error(e.message),
+    onError: (e: Error) => {
+      // ex. « Suppression impossible : … » si l'état a changé depuis l'affichage de la liste
+      toast.error(e.message)
+      setDeleteConfirmId(null)
+      qc.invalidateQueries({ queryKey: ["bon-commandes"] })
+    },
   })
 
   const resetForm = () => {
@@ -226,9 +249,9 @@ export default function AchatPage() {
     })
   }
 
-  const supplierProducts = form.fournisseur 
-    ? productsAndSubProducts.filter((p: any) => 
-        p.supplier === Number(form.fournisseur) || 
+  const supplierProducts = form.fournisseur
+    ? productsAndSubProducts.filter((p) =>
+        p.supplier === Number(form.fournisseur) ||
         (p.supplier_ids && Array.isArray(p.supplier_ids) && p.supplier_ids.includes(Number(form.fournisseur)))
       )
     : productsAndSubProducts
@@ -405,6 +428,11 @@ export default function AchatPage() {
                                 <CreditCard className="h-4 w-4" /> Encaisser paiement
                               </DropdownMenuItem>
                           )}
+                          {c.status !== "Annulé" && c.statut_paiement !== "Payé" && (
+                            <DropdownMenuItem onClick={() => setPaiementCible(c)} className="gap-2 text-xs font-bold text-blue-600 py-2.5 cursor-pointer focus:bg-blue-50 focus:text-blue-700">
+                              <CreditCard className="h-4 w-4" /> Enregistrer un paiement
+                            </DropdownMenuItem>
+                          )}
                           {c.status !== "Annulé" && (
                             <DropdownMenuItem 
                               onClick={() => updateOrderMut.mutate({ id: c.id, data: { status: "Annulé" } })}
@@ -414,9 +442,18 @@ export default function AchatPage() {
                             </DropdownMenuItem>
                           )}
                           <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => setDeleteConfirmId(c.id)} className="gap-2 text-xs font-bold text-slate-500 py-2.5 cursor-pointer hover:bg-slate-50">
-                            <Trash2 className="h-4 w-4" /> Supprimer l'entrée
-                          </DropdownMenuItem>
+                          {c.supprimable === false ? (
+                            // Règle « supprimable seulement sans trace » : on annule, on ne supprime pas
+                            <div className="px-3 py-2 text-[10px] italic text-slate-400 bg-slate-50 rounded-lg mx-1 my-1">
+                              {c.status === "Annulé"
+                                ? "Conservée dans l'historique (non supprimable)"
+                                : "Non supprimable (paiement, livraison ou remboursement) : annulez-la plutôt"}
+                            </div>
+                          ) : (
+                            <DropdownMenuItem onClick={() => setDeleteConfirmId(c.id)} className="gap-2 text-xs font-bold text-slate-500 py-2.5 cursor-pointer hover:bg-slate-50">
+                              <Trash2 className="h-4 w-4" /> Supprimer l'entrée
+                            </DropdownMenuItem>
+                          )}
                         </DropdownMenuContent>
                       </DropdownMenu>
                     </div>
@@ -530,17 +567,17 @@ export default function AchatPage() {
                             if(!val) return;
                             const [type, idStr] = val.split('-');
                             const id = Number(idStr);
-                            const selected = productsAndSubProducts.find((p: any) => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
+                            const selected = productsAndSubProducts.find((p) => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
                             const price = selected?.price || 0;
                             if (type === 'dv') {
-                              handleUpdateLine(idx, { produit_dv: id, produit: (selected as any)?.parent_id || null, prix_unitaire: Number(price) });
+                              handleUpdateLine(idx, { produit_dv: id, produit: selected?.parent_id || null, prix_unitaire: Number(price) });
                             } else {
                               handleUpdateLine(idx, { produit: id, produit_dv: null, prix_unitaire: Number(price) });
                             }
                           }}
                         >
                           <option value="">Choisir un article...</option>
-                          {supplierProducts.map((p: any) => (
+                          {supplierProducts.map((p) => (
                             <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`}>
                               {p.is_deriv ? `[Variante] ${p.name}` : p.name} — {formatAmount(p.price)}
                             </option>
@@ -629,6 +666,7 @@ export default function AchatPage() {
                   <thead className="bg-slate-50 border-b border-slate-200">
                     <tr>
                       <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter">Produit</th>
+                      <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter">Lot</th>
                       <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-center">Qté</th>
                       <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-right">P.U</th>
                       <th className="px-6 py-4 font-black text-slate-500 uppercase tracking-tighter text-right">TOTAL</th>
@@ -638,6 +676,7 @@ export default function AchatPage() {
                     {selectedOrder?.lignes?.map(l => (
                       <tr key={l.id} className="hover:bg-slate-50 transition-colors">
                         <td className="px-6 py-4 font-bold text-slate-700">{l.product_name}</td>
+                        <td className="px-6 py-4 font-mono text-[10px] text-slate-500">{l.lot_numero ?? "—"}</td>
                         <td className="px-6 py-4 text-center font-black text-blue-600 text-sm">x{l.quantite}</td>
                         <td className="px-6 py-4 text-right text-slate-500 font-medium">{formatAmount(l.prix_unitaire)}</td>
                         <td className="px-6 py-4 text-right font-black text-slate-800 text-sm">{formatAmount(l.montant_ligne)}</td>
@@ -646,13 +685,26 @@ export default function AchatPage() {
                   </tbody>
                   <tfoot className="bg-slate-50/80 border-t border-slate-200">
                     <tr>
-                      <td colSpan={3} className="px-6 py-5 text-right font-black text-slate-500 uppercase tracking-widest">Total Global</td>
+                      <td colSpan={4} className="px-6 py-5 text-right font-black text-slate-500 uppercase tracking-widest">Total Global</td>
                       <td className="px-6 py-5 text-right font-black text-xl text-blue-600">{formatAmount(selectedOrder?.montant_total || 0)}</td>
                     </tr>
                   </tfoot>
                 </table>
               </div>
             </div>
+            {(selectedOrder?.paiements?.length ?? 0) > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest px-1">Paiements</h3>
+                <ul className="border border-slate-200 rounded-3xl divide-y divide-slate-100 bg-white overflow-hidden">
+                  {selectedOrder!.paiements!.map(p => (
+                    <li key={p.id} className="flex items-center justify-between px-6 py-3 text-xs">
+                      <span className="font-medium text-slate-500">{formatDate(p.date_paiement)} · {p.mode_paiement}{p.notes ? ` · ${p.notes}` : ""}</span>
+                      <span className="font-black text-slate-800 tabular-nums">{formatAmount(Number(p.montant))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <DialogFooter className="p-4 bg-slate-50 border-t border-slate-200">
             <Button onClick={() => setSelectedOrder(null)} variant="secondary" className="rounded-xl font-bold px-8">Fermer</Button>
@@ -672,6 +724,19 @@ export default function AchatPage() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PaiementDialog
+        key={paiementCible?.id ?? "aucun"}
+        open={!!paiementCible}
+        onOpenChange={(o) => { if (!o) setPaiementCible(null) }}
+        titre="Enregistrer un paiement"
+        reference={paiementCible?.numero_commande ?? ""}
+        total={Number(paiementCible?.montant_total ?? 0)}
+        dejaPaye={Number(paiementCible?.montant_paye ?? 0)}
+        modeParDefaut={paiementCible?.mode_paiement ?? "Espèces"}
+        enCours={payerMut.isPending}
+        onSubmit={(p) => paiementCible && payerMut.mutate({ id: paiementCible.id, data: p })}
+      />
 
       <Dialog open={showProductForm} onOpenChange={setShowProductForm}>
         <DialogContent className="max-w-4xl p-0 border-none bg-transparent">

@@ -9,6 +9,8 @@ import type {
   AnalyticsData,
   Fournisseur,
   PaginatedResponse,
+  ProduitRecherche,
+  PaiementData,
 } from "@/types/achatVente";
 import type { Product } from "@/types/types";
 
@@ -73,6 +75,13 @@ export const deleteBonCommande = (id: number) =>
     method: "DELETE",
   });
 
+/** Enregistre un versement sur un achat (paiement partiel possible). */
+export const payerBonCommande = (id: number, data: PaiementData) =>
+  fetchJson<BonCommande>(`${API_BASE_URL}/api/commandes/bon-commande/${id}/payer/`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+
 // ─── Donnée Vente ─────────────────────────────────────────────────────────────
 
 
@@ -99,6 +108,13 @@ export const updateDonneeVente = (id: number, data: Partial<CreateDonneeVenteDat
 export const deleteDonneeVente = (id: number) =>
   fetchJson<void>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/`, {
     method: "DELETE",
+  });
+
+/** Enregistre un versement sur une vente (paiement partiel possible). */
+export const payerDonneeVente = (id: number, data: PaiementData) =>
+  fetchJson<DonneeVente>(`${API_BASE_URL}/api/commandes/donnee-vente/${id}/payer/`, {
+    method: "POST",
+    body: JSON.stringify(data),
   });
 
 // ─── Retours ──────────────────────────────────────────────────────────────────
@@ -145,7 +161,7 @@ export const getProduits = () =>
   });
 
 export const searchProduits = (terme: string) =>
-  fetchJson<Product[]>(`${API_BASE_URL}/api/catalogue/products/`, {
+  fetchJson<ProduitRecherche[]>(`${API_BASE_URL}/api/catalogue/products/`, {
     method: "POST",
     body: JSON.stringify({ chercher: terme }),
   });

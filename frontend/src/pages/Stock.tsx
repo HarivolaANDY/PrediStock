@@ -18,6 +18,8 @@ import { parseAxiosBlobResponse, downloadAll, AxiosResponseWithBlob } from "@/ut
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { exportToCSV } from "@/utils/csvUtils"
 import { toast } from "@/hooks/use-toast"
+import { MouvementBadge } from "@/components/MouvementBadge"
+import { statsMouvementsParProduit } from "@/utils/mouvements"
 import { Category, StockMouvement, PDV, StockTrendPoint } from "@/types/types"
 
 
@@ -188,24 +190,8 @@ export default function Stock() {
     return map
   }, [stockMouvements])
 
-  const mouvementStatsByProduct = useMemo(() => {
-    const s: Record<number, { nbEntree: number; nbSortie: number; dernierMvt: string | null; dateDernierMvt: string | null }> = {}
-    stockMouvements.forEach((mvt: any) => {
-      const pid: number | null = mvt.produit ?? mvt.product ?? mvt.product_details?.id ?? null
-      if (pid === null) return
-      if (!s[pid]) s[pid] = { nbEntree: 0, nbSortie: 0, dernierMvt: null, dateDernierMvt: null }
-      if (mvt.movement_type === 'IN' || mvt.movement_type === 'RETURN') {
-        s[pid].nbEntree += Number(mvt.quantity) || 0
-      } else if (mvt.movement_type === 'OUT' || mvt.movement_type === 'SCRAP') {
-        s[pid].nbSortie += Number(mvt.quantity) || 0
-      }
-      if (!s[pid].dateDernierMvt || mvt.timestamp > s[pid].dateDernierMvt!) {
-        s[pid].dernierMvt = mvt.movement_type
-        s[pid].dateDernierMvt = mvt.timestamp
-      }
-    })
-    return s
-  }, [stockMouvements])
+  // Quantités entrées / sorties sur les flux RÉELS (les achats et ventes annulés n'y comptent pas)
+  const mouvementStatsByProduct = useMemo(() => statsMouvementsParProduit(stockMouvements), [stockMouvements])
 
   const formatCustomDate = (dateString: string) => {
     if (!dateString) return "—"
@@ -275,7 +261,7 @@ export default function Stock() {
           produit: resolveProductName(m, PDVs),
           type: formatMvtType(m.movement_type),
           quantite: `${m.movement_type === "OUT" || m.movement_type === "SCRAP" ? "-" : "+"}${m.quantity}`,
-          reference: m.reference || "—",
+          reference: m.referrence || m.reference || "—",
           raison: m.reason || "—",
           auteur: author
         }
@@ -571,9 +557,7 @@ export default function Stock() {
                                         <TableCell>{isIN ? <span className="text-green-600 font-medium text-sm">+{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
                                         <TableCell>{isOUT ? <span className="text-red-500 font-medium text-sm">-{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
                                         <TableCell>
-                                          <Badge variant={isIN ? "success" : isOUT ? "destructive" : "secondary"}>
-                                            {formatMvtType(mvt.movement_type)}
-                                          </Badge>
+                                          <MouvementBadge mouvement={mvt} variant={isIN ? "success" : isOUT ? "destructive" : "secondary"} />
                                         </TableCell>
                                         <TableCell className="text-sm text-muted-foreground">{formatCustomDate(mvt.timestamp)}</TableCell>
                                         <TableCell className="text-sm text-muted-foreground">{raison}</TableCell>
@@ -675,16 +659,14 @@ export default function Stock() {
                             </TableCell>
                             <TableCell><div className="font-medium">{resolveProductName(mouvement, PDVs)}</div></TableCell>
                             <TableCell>
-                              <Badge variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"}>
-                                {formatMvtType(mouvement.movement_type)}
-                              </Badge>
+                              <MouvementBadge mouvement={mouvement} variant={mouvement.movement_type === "IN" ? "success" : mouvement.movement_type === "OUT" ? "destructive" : mouvement.movement_type === "ADJUSTMENT" ? "warning" : "secondary"} />
                             </TableCell>
                             <TableCell>
                               <span className={mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "text-red-500 font-medium" : "text-green-600 font-medium"}>
                                 {mouvement.movement_type === "OUT" || mouvement.movement_type === "SCRAP" ? "-" : "+"}{mouvement.quantity}
                               </span>
                             </TableCell>
-                            <TableCell className="text-sm">{mouvement.reference || "—"}</TableCell>
+                            <TableCell className="text-sm">{mouvement.referrence || mouvement.reference || "—"}</TableCell>
                             <TableCell className="text-sm text-muted-foreground">{mouvement.reason || "—"}</TableCell>
                             <TableCell className="text-sm text-muted-foreground">
                               {mouvement.utilisateur_nom ? `${mouvement.utilisateur_nom.first_name} ${mouvement.utilisateur_nom.last_name}` : "—"}

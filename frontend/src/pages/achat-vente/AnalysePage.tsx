@@ -109,7 +109,7 @@ export default function AnalysePage() {
   const commandsFiltrees = useMemo(() => {
     return commandes.filter(c => {
       if (c.status !== "Livré") return false;
-      if (typeFlux === "ventes") return false;
+      if (typeFlux === "ventes" || typeFlux === "remboursements") return false;
       if (dateDebut && new Date(c.creer_le) < new Date(dateDebut)) return false;
       if (dateFin && new Date(c.creer_le) > new Date(dateFin + "T23:59:59")) return false;
       if (rechercheProduit) {
@@ -122,7 +122,7 @@ export default function AnalysePage() {
   const salesFiltrees = useMemo(() => {
     return ventes.filter(v => {
       if (v.status !== "Livré") return false;
-      if (typeFlux === "achats") return false;
+      if (typeFlux === "achats" || typeFlux === "remboursements") return false;
       if (dateDebut && new Date(v.date_vente) < new Date(dateDebut)) return false;
       if (dateFin && new Date(v.date_vente) > new Date(dateFin + "T23:59:59")) return false;
       if (rechercheProduit) {

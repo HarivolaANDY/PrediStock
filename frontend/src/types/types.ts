@@ -267,6 +267,7 @@ export interface StockMouvement {
   produit_nom?: string;
   produit_dv?: number;
   product_details?: {
+    id?: number;
     designation?: string;
     name?: string;
     nom?: string;
@@ -287,8 +288,15 @@ export interface StockMouvement {
   reason: string;
   notes: string;
   reference: string;
+  /** Nom réel du champ renvoyé par l'API (« referrence »). */
+  referrence?: string | null;
   date: string;
   timestamp: string;
+  /** Id du mouvement annulé (renseigné sur un mouvement d'annulation). */
+  annule?: number | null;
+  /** Id du mouvement d'annulation (renseigné sur un mouvement annulé). */
+  annule_par?: number | null;
+  lot_numero?: string | null;
 }
 
 export interface InventaireItem {

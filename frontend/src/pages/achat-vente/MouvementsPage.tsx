@@ -5,20 +5,50 @@ import { ArrowLeftRight, RefreshCw, Package, Search, Calendar, Zap } from "lucid
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { estAnnulation, estAnnule, natureMouvement } from "@/utils/mouvements"
 
 function formatDate(s: string | null) {
   if (!s) return "—"
   return new Date(s).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" })
 }
 
+// Ligne fusionnée mouvement de stock / remboursement, pour un affichage unifié dans le tableau
+interface CombinedTransaction {
+  id: number | string
+  timestamp: string
+  movement_type: string
+  produit_name?: string
+  produit_dv_name?: string
+  produit_display_name?: string
+  produit?: number | null
+  produit_dv?: number | null
+  quantity: number
+  reason: string | null
+  referrence: string | null
+  notes?: string | null
+  montant?: number
+  isRefund: boolean
+  source_type?: string
+  annule?: number | null
+  annule_par?: number | null
+  lot_numero?: string | null
+}
+
+// Un achat/une vente annulé(e) laisse DEUX mouvements : l'original (annulé) et son inverse
+// (voir @/utils/mouvements). Les remboursements n'ont pas de lien d'annulation.
+const isCancellation = (m: CombinedTransaction) => !m.isRefund && estAnnulation(m)
+const isCancelled = (m: CombinedTransaction) => !m.isRefund && estAnnule(m)
+const nature = (m: CombinedTransaction) => (m.isRefund ? null : natureMouvement(m))
+
 export default function MouvementsPage() {
   const [typeFilter, setTypeFilter] = useState<string>("")
   const [searchTerm, setSearchTerm] = useState("")
 
-  const params = typeFilter && typeFilter !== "REFUND" ? { movement_type: typeFilter } : undefined
+  // Tous les mouvements sont chargés : le filtre Achats/Ventes est appliqué ici, car un filtre
+  // serveur sur le sens (IN/OUT) séparerait à tort un achat de son annulation.
   const { data: allMouvements = [], isLoading: isLoadingMvmts, refetch: refetchMvmts } = useQuery({
-    queryKey: ["mouvements", typeFilter],
-    queryFn: () => getMouvements(params),
+    queryKey: ["mouvements"],
+    queryFn: () => getMouvements(),
   })
 
   const { data: allRemboursements = [], isLoading: isLoadingRefunds, refetch: refetchRefunds } = useQuery({
@@ -30,8 +60,8 @@ export default function MouvementsPage() {
   const refetch = () => { refetchMvmts(); refetchRefunds(); }
 
   // Fusionner et normaliser pour l'affichage
-  const combinedTransactions = [
-    ...allMouvements.map(m => ({ ...m, isRefund: false })),
+  const combinedTransactions: CombinedTransaction[] = [
+    ...allMouvements.map(m => ({ ...m, isRefund: false as const })),
     ...allRemboursements.map(r => ({
       id: `refund-${r.id}`,
       timestamp: r.date_remboursement,
@@ -41,7 +71,7 @@ export default function MouvementsPage() {
       reason: r.raison,
       referrence: r.numero_transaction,
       montant: r.montant,
-      isRefund: true,
+      isRefund: true as const,
       source_type: r.source_type
     }))
   ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
@@ -53,14 +83,15 @@ export default function MouvementsPage() {
       (m.referrence || "").toLowerCase().includes(searchTerm.toLowerCase())
     
     if (typeFilter === "REFUND") return m.isRefund && matchesSearch
-    if (typeFilter === "IN") return !m.isRefund && m.movement_type === "IN" && matchesSearch
-    if (typeFilter === "OUT") return !m.isRefund && m.movement_type === "OUT" && matchesSearch
-    
+    if (typeFilter === "IN") return nature(m) === "achat" && matchesSearch
+    if (typeFilter === "OUT") return nature(m) === "vente" && matchesSearch
+
     return matchesSearch
   })
 
-  const totalIn = allMouvements.filter(m => m.movement_type === "IN").length
-  const totalOut = allMouvements.filter(m => m.movement_type === "OUT").length
+  // Indicateurs : transactions réelles uniquement (ni annulées, ni mouvements d'annulation)
+  const totalIn = allMouvements.filter(m => m.movement_type === "IN" && m.annule == null && m.annule_par == null).length
+  const totalOut = allMouvements.filter(m => m.movement_type === "OUT" && m.annule == null && m.annule_par == null).length
 
   return (
     <div className="flex flex-col gap-6 p-6 max-w-7xl mx-auto w-full">
@@ -155,8 +186,8 @@ export default function MouvementsPage() {
                   </td>
                 </tr>
               ) : (
-                filteredMouvements.map((m: any) => (
-                  <tr key={m.id} className="hover:bg-muted/10 transition-colors group">
+                filteredMouvements.map((m) => (
+                  <tr key={m.id} className={`hover:bg-muted/10 transition-colors group ${isCancelled(m) ? "opacity-60" : ""}`}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center gap-2 text-muted-foreground">
                         <Calendar className="h-3 w-3" />
@@ -169,6 +200,10 @@ export default function MouvementsPage() {
                            <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 border-blue-200 uppercase text-[9px]">
                              REMB. {m.source_type === "Achat" ? "ENCAISSER" : "VERSER"}
                            </Badge>
+                        ) : isCancellation(m) ? (
+                          <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100 border-amber-200 uppercase text-[9px]">
+                            ANNUL. {nature(m) === "achat" ? "ACHAT" : "VENTE"}
+                          </Badge>
                         ) : m.movement_type === "IN" ? (
                           <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border-emerald-200">
                             ACHAT
@@ -180,8 +215,13 @@ export default function MouvementsPage() {
                         ) : (
                           <Badge variant="outline">{m.movement_type}</Badge>
                         )}
+                        {isCancelled(m) && (
+                          <span className="inline-flex items-center text-[9px] font-bold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded-full">
+                            ANNULÉ
+                          </span>
+                        )}
                         {/* Indicateur Vente à Crédit */}
-                        {!m.isRefund && m.movement_type === "OUT" && m.notes === "Crédit" && (
+                        {!m.isRefund && !isCancellation(m) && m.movement_type === "OUT" && m.notes === "Crédit" && (
                           <span className="inline-flex items-center gap-0.5 text-[9px] font-bold text-amber-700 bg-amber-100 border border-amber-200 px-1.5 py-0.5 rounded-full">
                             <Zap className="h-2.5 w-2.5" /> CRÉDIT
                           </span>
@@ -201,7 +241,7 @@ export default function MouvementsPage() {
                     <td className="px-6 py-4 text-center font-mono font-bold text-sm">
                       {m.isRefund ? (
                         <span className="text-blue-600">
-                          {new Intl.NumberFormat("fr-MG").format(m.montant)} Ar
+                          {new Intl.NumberFormat("fr-MG").format(m.montant ?? 0)} Ar
                         </span>
                       ) : (
                         <span className={m.movement_type === "IN" ? "text-emerald-600" : "text-red-600"}>
@@ -215,6 +255,9 @@ export default function MouvementsPage() {
                         <p className="text-[10px] text-muted-foreground font-mono uppercase truncate">
                           {m.referrence || "N/A"}
                         </p>
+                      {m.lot_numero && (
+                        <p className="text-[10px] text-violet-600 font-mono truncate">Lot {m.lot_numero}</p>
+                      )}
                       </div>
                     </td>
                   </tr>
