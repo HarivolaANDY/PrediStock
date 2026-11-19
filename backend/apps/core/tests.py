@@ -745,3 +745,247 @@ class DemoResetTests(TestCase):
         sortie = self._lancer("lister")
         self.assertIn("demo", sortie)
         self.assertIn("autre", sortie)
+
+
+# ════════════════════════════════════════════════════════════
+#  demo_seed : jeu de données de démonstration
+# ════════════════════════════════════════════════════════════
+from decimal import Decimal  # noqa: E402
+
+from django.db.models import Sum  # noqa: E402
+from django.utils import timezone  # noqa: E402
+
+from apps.catalogue.models import Category, ProductBatch, ProduitDv, Supplier  # noqa: E402
+from apps.commandes.models import Remboursement, TransactionPaiement  # noqa: E402
+from apps.core.management.commands.demo_seed import Command as CommandeSeed, PRODUITS  # noqa: E402
+
+
+class DemoSeedTests(TestCase):
+    def setUp(self):
+        self.admin = User.objects.create_superuser(
+            username="admin-demo", email="admin-demo@predistock.com", password="Pass123",
+            first_name="Admin", last_name="Demo",
+        )
+
+    def _lancer(self, *args):
+        sortie = io.StringIO()
+        call_command("demo_seed", "--sans-sauvegarde", *args, stdout=sortie)
+        return sortie.getvalue()
+
+    def _stock(self, nom):
+        return Product.objects.get(name=nom).current_stock
+
+    # ── Contenu du scénario ──────────────────────────────────────────────────────────────
+    def test_le_scenario_cree_le_catalogue(self):
+        self._lancer()
+        self.assertEqual(Category.objects.count(), 3)
+        self.assertEqual(Supplier.objects.count(), 3)
+        self.assertEqual(Product.objects.filter(name__in=PRODUITS).count(), len(PRODUITS))
+        self.assertEqual(ProduitDv.objects.filter(product__name="Savon de ménage").count(), 2)
+
+    def test_le_scenario_cree_6_achats_et_7_ventes_aux_statuts_attendus(self):
+        self._lancer()
+        achats = {s: BonCommande.objects.filter(status=s).count() for s in ("Livré", "En attente", "Annulé")}
+        ventes = {s: DonneeVente.objects.filter(status=s).count() for s in ("Livré", "En attente", "Annulé")}
+        self.assertEqual(achats, {"Livré": 3, "En attente": 1, "Annulé": 2})
+        self.assertEqual(ventes, {"Livré": 5, "En attente": 1, "Annulé": 1})
+
+    def test_les_stocks_sont_ceux_des_mouvements_reellement_produits(self):
+        self._lancer()
+        attendu = {
+            "Riz Vary Gasy 25 kg": 14, "Huile végétale 1 L": 56, "Sucre blanc 1 kg": 120,
+            "Eau minérale 1,5 L (pack)": 28, "Jus d'orange 1 L": 35, "Savon de ménage": 190,
+            "Lessive en poudre 1 kg": 9,
+        }
+        for nom, quantite in attendu.items():
+            with self.subTest(produit=nom):
+                self.assertEqual(Decimal(str(self._stock(nom))), Decimal(quantite))
+        variantes = {v.designation: v.nombre for v in ProduitDv.objects.filter(product__name="Savon de ménage")}
+        self.assertEqual({k: Decimal(str(v)) for k, v in variantes.items()},
+                         {"Pain 200 g": Decimal(110), "Pain 400 g": Decimal(80)})
+
+    def test_un_produit_passe_sous_son_seuil_d_alerte_pour_la_demonstration(self):
+        self._lancer()
+        sous_le_seuil = [p.name for p in Product.objects.filter(name__in=PRODUITS)
+                         if Decimal(str(p.current_stock)) < p.stock_threshold]
+        self.assertEqual(sous_le_seuil, ["Lessive en poudre 1 kg"])
+
+    def test_le_magasin_demarre_avec_un_stock_d_ouverture_date_de_30_jours(self):
+        self._lancer()
+        ouverture = MouvementStock.objects.filter(referrence__startswith="INIT-")
+        self.assertEqual(ouverture.count(), 8)  # 6 produits simples + 2 variantes du savon
+        self.assertEqual(set(ouverture.values_list("movement_type", flat=True)), {"IN"})
+        self.assertGreaterEqual((timezone.now() - min(ouverture.values_list("timestamp", flat=True))).days, 29)
+
+    def test_la_marge_de_l_ecran_analyse_est_positive(self):
+        """Achats raisonnables face aux ventes : la démonstration ne doit pas afficher une marge négative."""
+        self._lancer()
+        client = APIClient()
+        client.force_authenticate(user=self.admin)
+        reponse = client.get("/api/commandes/analytics/")
+        self.assertEqual(reponse.status_code, status.HTTP_200_OK)
+        donnees = reponse.data.get("data", reponse.data)
+        self.assertGreater(donnees["total_sales"], donnees["total_purchases"])
+        self.assertGreater(donnees["margin"], 0)
+        self.assertEqual((donnees["purchase_count"], donnees["sale_count"]), (3, 5))
+
+    def test_chaque_ligne_d_achat_livree_a_son_lot(self):
+        self._lancer()
+        self.assertEqual(ProductBatch.objects.count(), 9)  # A1: 3, A2: 2, A3: 3, A4: 1 (annulée, lot conservé)
+
+    def test_l_historique_des_paiements_est_coherent_avec_les_montants_payes(self):
+        self._lancer()
+        documents = [(d, "bon_commande") for d in BonCommande.objects.all()] + \
+                    [(d, "donnee_vente") for d in DonneeVente.objects.all()]
+        for document, champ in documents:
+            total = TransactionPaiement.objects.filter(**{champ: document}).aggregate(t=Sum("montant"))["t"] or 0
+            with self.subTest(document=str(document)):
+                self.assertEqual(Decimal(total), document.montant_paye)
+
+    def test_les_statuts_de_paiement_sont_varies(self):
+        self._lancer()
+        achats = set(BonCommande.objects.values_list("statut_paiement", flat=True))
+        ventes = set(DonneeVente.objects.values_list("statut_paiement", flat=True))
+        self.assertEqual(achats, {"Payé", "Partiel", "Non payé"})
+        self.assertEqual(ventes, {"Payé", "Partiel", "Non payé"})
+
+    def test_la_vente_a_credit_est_partiellement_payee_avec_un_delai_futur(self):
+        self._lancer()
+        credit = DonneeVente.objects.get(type_vente="Crédit")
+        self.assertEqual(credit.segment_clientele, "VIP/Fidélisé")
+        self.assertEqual(credit.statut_paiement, "Partiel")
+        self.assertGreater(credit.delai_paiement, timezone.now())
+        self.assertEqual(credit.status, "Livré")  # pas annulée à l'échéance : le délai n'est pas dépassé
+
+    def test_trois_remboursements_dont_un_regle_avec_sa_ligne_de_paiement(self):
+        self._lancer()
+        remboursements = {r.source_type: r for r in Remboursement.objects.all()}
+        self.assertEqual(set(remboursements), {"Achat", "Vente", "Retour"})
+        self.assertEqual(remboursements["Achat"].statut_reglement, "Non réglé")
+        self.assertEqual(remboursements["Vente"].statut_reglement, "Réglé")
+        self.assertTrue(TransactionPaiement.objects.filter(remboursement=remboursements["Vente"]).exists())
+        self.assertEqual(remboursements["Retour"].montant, Decimal("17000"))
+
+    def test_les_annulations_laissent_des_mouvements_inverses_et_pas_de_suppression(self):
+        self._lancer()
+        annule = BonCommande.objects.filter(status="Annulé", montant_paye__gt=0).get()
+        refs = [f"BC-LINE-{ligne.id}" for ligne in annule.lignes.all()]
+        mouvements = MouvementStock.objects.filter(referrence__in=refs)
+        self.assertEqual(mouvements.count(), 2)  # l'entrée d'origine + son inverse
+        self.assertEqual(MouvementStock.effectifs().filter(referrence__in=refs).count(), 0)
+
+    def test_l_achat_annule_sans_livraison_ne_laisse_aucun_mouvement(self):
+        self._lancer()
+        annule = BonCommande.objects.filter(status="Annulé", montant_paye=0).get()
+        refs = [f"BC-LINE-{ligne.id}" for ligne in annule.lignes.all()]
+        self.assertFalse(MouvementStock.objects.filter(referrence__in=refs).exists())
+
+    def test_les_dates_sont_etalees_sur_quatre_semaines(self):
+        self._lancer()
+        maintenant = timezone.now()
+        dates = list(DonneeVente.objects.values_list("date_vente", flat=True))
+        self.assertGreaterEqual((maintenant - min(dates)).days, 19)
+        self.assertLessEqual((maintenant - max(dates)).days, 2)
+        premier_achat = min(BonCommande.objects.values_list("date_commande", flat=True))
+        self.assertGreaterEqual((maintenant - premier_achat).days, 27)
+        # les mouvements suivent la date de leur document
+        plus_ancien = min(MouvementStock.objects.values_list("timestamp", flat=True))
+        self.assertGreaterEqual((maintenant - plus_ancien).days, 27)
+
+    def test_chaque_mouvement_porte_la_date_de_son_document(self):
+        """Le Transactions et les graphiques s'appuient sur la date des mouvements : elle suit celle du document."""
+        self._lancer()
+        verifies = 0
+        for m in MouvementStock.objects.exclude(referrence__startswith="INIT-"):
+            if m.referrence.startswith("BC-LINE-"):
+                document_date = ContenuDans.objects.get(pk=int(m.referrence.split("-")[2])).bon_commande.date_commande
+            else:
+                document_date = DonneeVente.objects.get(pk=int(m.referrence.split("-")[1])).date_vente
+            with self.subTest(mouvement=m.referrence):
+                self.assertLess(abs((m.timestamp - document_date).total_seconds()), 60)
+            verifies += 1
+        self.assertEqual(verifies, 22)  # 30 mouvements dont 8 ouvertures exclues
+
+    def test_les_documents_portent_l_utilisateur_choisi(self):
+        autre = User.objects.create_user(username="autre", email="autre@predistock.com", password="Pass123",
+                                         first_name="A", last_name="B")
+        self._lancer("--utilisateur", "autre")
+        self.assertEqual(set(DonneeVente.objects.values_list("utilisateur_id", flat=True)), {autre.pk})
+        self.assertEqual(set(BonCommande.objects.values_list("utilisateur_id", flat=True)), {autre.pk})
+
+    def test_par_defaut_l_auteur_est_le_premier_superutilisateur(self):
+        self._lancer()
+        self.assertEqual(set(DonneeVente.objects.values_list("utilisateur_id", flat=True)), {self.admin.pk})
+
+    def test_le_compte_rendu_liste_le_stock(self):
+        sortie = self._lancer()
+        self.assertIn("Données de démonstration insérées", sortie)
+        self.assertIn("Lessive en poudre 1 kg", sortie)
+        self.assertIn("sous le seuil", sortie)
+
+    # ── Existant préservé ────────────────────────────────────────────────────────────────
+    def test_les_donnees_existantes_sont_conservees(self):
+        existant = Product.objects.create(name="Produit de l'utilisateur", sku="MIEN", price=100, current_stock=7)
+        vente = DonneeVente.objects.create(utilisateur=self.admin, numero_vente="VT-MIENNE", montant_total=500)
+        self._lancer()
+        existant.refresh_from_db()
+        self.assertEqual(existant.current_stock, 7)
+        self.assertTrue(DonneeVente.objects.filter(pk=vente.pk, numero_vente="VT-MIENNE").exists())
+
+    # ── Garde-fous ───────────────────────────────────────────────────────────────────────
+    def test_une_seconde_execution_est_refusee_sans_rien_dupliquer(self):
+        self._lancer()
+        total = (Product.objects.count(), BonCommande.objects.count(), DonneeVente.objects.count())
+        with self.assertRaisesMessage(CommandError, "déjà présentes"):
+            self._lancer()
+        self.assertEqual((Product.objects.count(), BonCommande.objects.count(), DonneeVente.objects.count()), total)
+
+    def test_sans_superutilisateur_la_commande_est_refusee(self):
+        User.objects.all().delete()
+        with self.assertRaisesMessage(CommandError, "Aucun superutilisateur"):
+            self._lancer()
+        self.assertEqual(Product.objects.count(), 0)
+
+    def test_utilisateur_inconnu_est_refuse(self):
+        with self.assertRaisesMessage(CommandError, "introuvable"):
+            self._lancer("--utilisateur", "fantome")
+        self.assertEqual(Product.objects.count(), 0)
+
+    def test_un_echec_en_cours_de_route_n_insere_rien(self):
+        """Tout ou rien : la 3ᵉ vente échoue → ni catalogue, ni achats, ni ventes, ni mouvements."""
+        appels = {"n": 0}
+        original = CommandeSeed._creer_vente
+
+        def tombe_a_la_3e(commande, *args, **kwargs):
+            appels["n"] += 1
+            if appels["n"] == 3:
+                raise CommandError("panne simulée")
+            return original(commande, *args, **kwargs)
+
+        with patch.object(CommandeSeed, "_creer_vente", tombe_a_la_3e):
+            with self.assertRaisesMessage(CommandError, "panne simulée"):
+                self._lancer()
+        self.assertEqual(Product.objects.count(), 0)
+        self.assertEqual(BonCommande.objects.count(), 0)
+        self.assertEqual(DonneeVente.objects.count(), 0)
+        self.assertEqual(MouvementStock.objects.count(), 0)
+        self.assertEqual(TransactionPaiement.objects.count(), 0)
+
+    # ── Sauvegarde automatique ───────────────────────────────────────────────────────────
+    def test_par_defaut_la_base_est_sauvegardee_avant_toute_ecriture(self):
+        ordre = []
+        with patch.object(CommandeSeed, "_sauvegarder", lambda *a, **k: ordre.append("sauvegarde")), \
+                patch.object(CommandeSeed, "_semer", lambda *a, **k: ordre.append("semis")):
+            call_command("demo_seed", stdout=io.StringIO())
+        self.assertEqual(ordre, ["sauvegarde", "semis"])
+
+    def test_sans_sauvegarde_possible_rien_n_est_insere(self):
+        """Sous les tests la base est en mémoire : la sauvegarde est impossible, donc on s'arrête AVANT d'écrire."""
+        with self.assertRaisesMessage(CommandError, "SQLite stockée dans un fichier"):
+            call_command("demo_seed", stdout=io.StringIO())
+        self.assertEqual(Product.objects.count(), 0)
+
+    def test_l_option_sans_sauvegarde_n_appelle_pas_la_sauvegarde(self):
+        with patch.object(CommandeSeed, "_sauvegarder") as sauvegarder:
+            self._lancer()
+        sauvegarder.assert_not_called()

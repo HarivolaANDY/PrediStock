@@ -11,7 +11,7 @@ interface LoginData {
 interface AuthContextType {
     createUser: (userData: CreateUserData) => Promise<boolean>;
     updateUser: (userId: string, userData: CreateUserData) => Promise<boolean>;
-    updateProfile: (userData: Partial<User> & { avatar?: File | string | null }) => Promise<boolean>;
+    updateProfile: (userData: Omit<Partial<User>, 'avatar'> & { avatar?: File | string | null }) => Promise<boolean>;
     isLoading: boolean;
     verifyItem : (parameter:string, value:string) => Promise<boolean>;
     verifyItems : (nom:string, prenom:string) => Promise<boolean>;
@@ -115,7 +115,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
     }
 
-    const updateProfile = async (userData: Partial<User> & { avatar?: File | string | null }): Promise<boolean> => {
+    const updateProfile = async (userData: Omit<Partial<User>, 'avatar'> & { avatar?: File | string | null }): Promise<boolean> => {
         setIsLoading(true);
         try {
             const response = await UserService.updateProfile(userData);

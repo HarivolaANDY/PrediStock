@@ -94,7 +94,7 @@ export function Header() {
               <DropdownMenuLabel className="font-normal">
                 <div className="flex flex-col space-y-1">
                   <p className="text-sm font-medium leading-none">{user?.first_name} {user?.last_name}</p>
-                  <p className="text-xs leading-none text-muted-foreground">{typeof user?.role === 'string' ? user.role : (user?.role as any)?.name}</p>
+                  <p className="text-xs leading-none text-muted-foreground">{typeof user?.role === 'string' ? user.role : user?.role?.name}</p>
                 </div>
               </DropdownMenuLabel>
               <DropdownMenuSeparator />

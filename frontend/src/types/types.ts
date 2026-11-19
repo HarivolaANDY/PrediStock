@@ -71,7 +71,7 @@ export interface User {
     last_name: string;
     email: string;
     phone?: string;
-    role: string;
+    role: string | Role;
     department: string;
     location?: string;
     biography?: string;
@@ -266,6 +266,8 @@ export interface StockMouvement {
   product_name?: string;
   produit_nom?: string;
   produit_dv?: number;
+  produit_dv_name?: string;
+  produit_display_name?: string;
   product_details?: {
     id?: number;
     designation?: string;
@@ -387,7 +389,7 @@ export interface ProductStats {
   total_stock_faible: number;
   total_stock_critique: number;
   total_stock_rupture: number;
-  valeur_totale_stock: number;
+  total_stock_value?: number;
 }
 
 export interface DashboardStats extends ProductStats {

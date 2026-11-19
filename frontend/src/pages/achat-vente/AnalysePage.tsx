@@ -16,13 +16,30 @@ function fmt(n: number) {
   return new Intl.NumberFormat("fr-MG", { maximumFractionDigits: 0 }).format(n) + " Ar"
 }
 
+type TypeFlux = "tous" | "achats" | "ventes" | "remboursements"
+
+interface FluxChartPoint {
+  date: string
+  fullDate: string
+  achats: number
+  ventes: number
+  remboursements: number
+  products: string[]
+}
+
+interface FluxTooltipEntry {
+  name: string
+  value: number | string
+  payload: FluxChartPoint
+}
+
 function buildComparison(
   commandes: BonCommande[],
   ventes: DonneeVente[],
   rembs: Remboursement[],
   groupBy: 'day' | 'month'
-) {
-  const map: Record<string, { date: string; fullDate: string; achats: number; ventes: number; remboursements: number; products: string[] }> = {}
+): FluxChartPoint[] {
+  const map: Record<string, FluxChartPoint> = {}
 
   commandes.forEach(c => {
     if (!c.creer_le) return
@@ -103,7 +120,7 @@ export default function AnalysePage() {
 
   const [dateDebut, setDateDebut] = useState<string>("")
   const [dateFin, setDateFin] = useState<string>("")
-  const [typeFlux, setTypeFlux] = useState<"tous" | "achats" | "ventes" | "remboursements">("tous")
+  const [typeFlux, setTypeFlux] = useState<TypeFlux>("tous")
   const [rechercheProduit, setRechercheProduit] = useState<string>("")
 
   const commandsFiltrees = useMemo(() => {
@@ -266,7 +283,7 @@ export default function AnalysePage() {
         
         <div className="flex flex-col gap-1.5 flex-1 min-w-[150px]">
           <label className="text-xs font-semibold text-muted-foreground uppercase">Type de flux</label>
-          <Select value={typeFlux} onValueChange={(val: any) => setTypeFlux(val)}>
+          <Select value={typeFlux} onValueChange={(val: string) => setTypeFlux(val as TypeFlux)}>
             <SelectTrigger><SelectValue placeholder="Tous les flux" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="tous">Tous les flux</SelectItem>
@@ -323,12 +340,13 @@ export default function AnalysePage() {
               <Tooltip
                 content={({ active, payload }) => {
                   if (active && payload && payload.length) {
-                    const data = payload[0].payload;
+                    const entries = payload as unknown as FluxTooltipEntry[];
+                    const data = entries[0].payload;
                     return (
                       <div className="bg-white border border-border p-4 rounded-3xl shadow-2xl space-y-3 min-w-[220px]">
                         <p className="text-[10px] font-black text-muted-foreground uppercase">{data.fullDate}</p>
                         <div className="space-y-2">
-                          {payload.map((p: any) => (
+                          {entries.map((p) => (
                             <div key={p.name} className="flex items-center justify-between gap-4">
                               <span className="text-xs font-bold flex items-center gap-1.5 uppercase">
                                 <div className={`h-1.5 w-1.5 rounded-full ${p.name === 'achats' ? 'bg-blue-500' : p.name === 'ventes' ? 'bg-emerald-500' : 'bg-orange-500'}`} />

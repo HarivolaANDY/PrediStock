@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from "react"
+import type { AxiosResponse } from "axios"
 import { Package, TrendingDown, AlertTriangle, Search, DollarSign, RefreshCw, ChevronDown, ChevronRight, ChevronLeft, Download } from "lucide-react"
 import { stockMouvementService } from "@/services/stockMouvementService"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -20,14 +21,16 @@ import { exportToCSV } from "@/utils/csvUtils"
 import { toast } from "@/hooks/use-toast"
 import { MouvementBadge } from "@/components/MouvementBadge"
 import { statsMouvementsParProduit } from "@/utils/mouvements"
-import { Category, StockMouvement, PDV, StockTrendPoint } from "@/types/types"
+import { Category, StockMouvement, PDV, StockTrendPoint, Product } from "@/types/types"
 
+// Produit renvoyé par les endpoints d'alerte (rupture/critique/faible), enrichi d'un statut calculé
+type AlertProduct = Product & { status: 'rupture' | 'critical' | 'warning' | 'low' }
 
 function resolveProductName(mouvement: StockMouvement, PDVs: PDV[]): string {
   // 1. Champ unifié calculé côté backend (couvre tous les cas : dv seul, parent seul, les deux)
-  if ((mouvement as any).produit_display_name) return (mouvement as any).produit_display_name
+  if (mouvement.produit_display_name) return mouvement.produit_display_name
   // 2. Nom du sous-produit (variante)
-  if ((mouvement as any).produit_dv_name) return (mouvement as any).produit_dv_name
+  if (mouvement.produit_dv_name) return mouvement.produit_dv_name
   // 3. Détails embarqués
   const details = mouvement.product_details
   if (details) {
@@ -75,7 +78,7 @@ export default function Stock() {
   const [categories, setCategories] = useState<Category[]>([])
   // ✅ Tous les produits pour alertItems et valeurTotaleStock
   const { products, refetch } = useProducts({ page: 1, status: "all" })
-  const [alertProducts, setAlertProducts] = useState<any[]>([])
+  const [alertProducts, setAlertProducts] = useState<AlertProduct[]>([])
   const [alertLoading, setAlertLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState("")
   const [alertSearchTerm, setAlertSearchTerm] = useState("")
@@ -163,9 +166,9 @@ export default function Stock() {
   const fetchCategoryChart = async () => {
     try {
       const res = await API.get('stock/mouvements/chart_by_category/')
-      const data = res.data?.data || res.data?.results || res.data || []
+      const data: { category: string; stock?: number; net?: number }[] = res.data?.data || res.data?.results || res.data || []
       setCategoryStockData(
-        (Array.isArray(data) ? data : []).map((item: any) => ({
+        (Array.isArray(data) ? data : []).map((item) => ({
           name: item.category,
           stock: item.stock ?? item.net ?? 0,
         }))
@@ -177,8 +180,8 @@ export default function Stock() {
   }
 
   const mouvementsByProduct = useMemo(() => {
-    const map: Record<number, any[]> = {}
-    stockMouvements.forEach((mvt: any) => {
+    const map: Record<number, StockMouvement[]> = {}
+    stockMouvements.forEach((mvt) => {
       const pid: number | null = mvt.produit ?? mvt.product ?? mvt.product_details?.id ?? null
       if (pid === null) return
       if (!map[pid]) map[pid] = []
@@ -337,13 +340,13 @@ export default function Stock() {
         API.get('catalogue/products/?stock_status=stock_faible&page_size=1000'),
       ])
 
-      const merge = (res: any) =>
+      const merge = (res: AxiosResponse): Product[] =>
         res.data?.data?.results ?? res.data?.results ?? res.data?.data ?? []
 
-      const all = [
-        ...merge(rupture).map((p: any) => ({ ...p, status: 'rupture' })),
-        ...merge(critique).map((p: any) => ({ ...p, status: 'critical' })),
-        ...merge(faible).map((p: any) => ({ ...p, status: 'warning' })),
+      const all: AlertProduct[] = [
+        ...merge(rupture).map((p) => ({ ...p, status: 'rupture' as const })),
+        ...merge(critique).map((p) => ({ ...p, status: 'critical' as const })),
+        ...merge(faible).map((p) => ({ ...p, status: 'warning' as const })),
       ]
 
       setAlertProducts(all)
@@ -501,7 +504,7 @@ export default function Stock() {
                         ) : filteredPDVs.length === 0 ? (
                           <TableRow><TableCell colSpan={7} className="text-center py-8 text-muted-foreground">Aucun produit disponible</TableCell></TableRow>
                         ) : (
-                          filteredPDVs.map((produit: any) => {
+                          filteredPDVs.map((produit) => {
                             const produitId: number | null = produit.product ?? produit.id ?? null
                             const mvtStats = produitId !== null ? mouvementStatsByProduct[produitId] : null
                             const mouvements = produitId !== null ? (mouvementsByProduct[produitId] ?? []) : []
@@ -545,14 +548,14 @@ export default function Stock() {
                                         Aucun mouvement enregistré pour ce produit.
                                       </TableCell>
                                     </TableRow>
-                                  ) : mouvements.map((mvt: any, idx: number) => {
+                                  ) : mouvements.map((mvt, idx: number) => {
                                     const isIN  = mvt.movement_type === "IN"  || mvt.movement_type === "RETURN"
                                     const isOUT = mvt.movement_type === "OUT" || mvt.movement_type === "SCRAP"
                                     const qty   = Number(mvt.quantity) || 0
                                     const auteur = mvt.utilisateur_nom ? `${mvt.utilisateur_nom.first_name} ${mvt.utilisateur_nom.last_name}`.trim() : null
                                     const raison = mvt.reason || auteur || "—"
                                     return (
-                                      <TableRow key={`mvt-${produit.id}-${mvt.id_movement ?? idx}`} className="bg-muted/20 hover:bg-muted/30">
+                                      <TableRow key={`mvt-${produit.id}-${mvt.id ?? idx}`} className="bg-muted/20 hover:bg-muted/30">
                                         <TableCell /><TableCell /><TableCell />
                                         <TableCell>{isIN ? <span className="text-green-600 font-medium text-sm">+{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
                                         <TableCell>{isOUT ? <span className="text-red-500 font-medium text-sm">-{qty}</span> : <span className="text-muted-foreground text-sm">—</span>}</TableCell>
@@ -734,16 +737,16 @@ export default function Stock() {
                   </TableHeader>
                   <TableBody>
                     {categoryStockData.map((cat, index) => {
-                      const catPDVs = PDVs.filter((pdv: any) => {
+                      const catPDVs = PDVs.filter((pdv) => {
                         const cid = pdv.infos?.category ?? null
                         const catName = cid !== null
                           ? (categories.find(c => String(c.id) === String(cid))?.name || "Sans catégorie")
                           : "Sans catégorie"
                         return catName === cat.name
                       })
-                      const valeur = catPDVs.reduce((sum: number, pdv: any) => {
+                      const valeur = catPDVs.reduce((sum: number, pdv) => {
                         const product = products.find(p => p.id === pdv.infos?.id)
-                        return sum + (product ? parseFloat(product.price) || 0 : 0) * (Number(pdv.quantite) || 0)
+                        return sum + (product ? parseFloat(product.price) || 0 : 0) * (Number(pdv.nombre) || 0)
                       }, 0)
                       return (
                         <TableRow key={`cat-${cat.name}-${index}`}>
@@ -904,7 +907,7 @@ export default function Stock() {
         <ImportModalGenerer
           isOpen={showImportModal}
           onClose={() => setShowImportModal(false)}
-          onImport={(data: any) => { console.log('Données importées:', data); setShowImportModal(false) }}
+          onImport={(data) => { console.log('Données importées:', data); setShowImportModal(false) }}
         />
       )}
     </div>
