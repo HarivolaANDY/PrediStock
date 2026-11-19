@@ -150,7 +150,7 @@ export default function Register() {
               <div className="space-y-2">
                 <Label htmlFor="role">Rôle</Label>
                 <Select
-                  onValueChange={(value) => setValue("role", value as any)}
+                  onValueChange={(value) => setValue("role", value as RegisterFormData["role"])}
                   defaultValue="Administrateur"
                 >
                   <SelectTrigger className="h-12 border-slate-200">

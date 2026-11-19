@@ -14,6 +14,22 @@ export interface Fournisseur {
 
 export type BonCommandeStatus = 'En attente' | 'Livré' | 'Annulé';
 
+/** Une ligne de l'historique des paiements d'un achat ou d'une vente (lecture seule). */
+export interface TransactionPaiement {
+  id: number;
+  montant: number | string;
+  mode_paiement: string;
+  date_paiement: string;
+  notes: string;
+}
+
+/** Corps de POST .../payer/ : un versement (paiement partiel possible). */
+export interface PaiementData {
+  montant: number;
+  mode_paiement?: string;
+  notes?: string;
+}
+
 export interface LigneCommande {
   id: number;
   bon_commande: number | null;
@@ -22,6 +38,8 @@ export interface LigneCommande {
   quantite: number;
   prix_unitaire: number;
   montant_ligne: number;
+  /** Numéro du lot créé à la livraison de la ligne (null tant qu'elle n'est pas livrée). */
+  lot_numero?: string | null;
 }
 
 export interface BonCommande {
@@ -42,6 +60,10 @@ export interface BonCommande {
   lignes: LigneCommande[];
   creer_le: string;
   update_at: string;
+  /** false si la commande a laissé des traces (paiement, livraison, remboursement) : on l'annule au lieu de la supprimer. */
+  supprimable?: boolean;
+  /** Historique des paiements, du plus ancien au plus récent. */
+  paiements?: TransactionPaiement[];
 }
 
 export interface CreateLigneData {
@@ -57,6 +79,7 @@ export interface CreateBonCommandeData {
   numero_commande?: string;
   status?: BonCommandeStatus;
   statut_paiement?: string;
+  montant_paye?: number;
   mode_paiement?: string;
   date_commande?: string;
   livraison_prevue?: string | null;
@@ -92,6 +115,10 @@ export interface DonneeVente {
   lignes: LigneVente[];
   creer_le: string;
   update_at: string;
+  /** false si la vente a laissé des traces (paiement, livraison, remboursement) : on l'annule au lieu de la supprimer. */
+  supprimable?: boolean;
+  /** Historique des paiements, du plus ancien au plus récent. */
+  paiements?: TransactionPaiement[];
 }
 
 export interface CreateLigneVenteData {
@@ -108,6 +135,7 @@ export interface CreateDonneeVenteData {
   segment_clientele?: string;
   mode_paiement?: string;
   statut_paiement?: string;
+  montant_paye?: number | string;
   status?: string;
   type_vente?: string;
   delai_paiement?: string | null;
@@ -136,6 +164,7 @@ export interface MouvementStock {
   id: number;
   produit: number | null;
   produit_name?: string;
+  produit_display_name?: string;
   produit_dv: number | null;
   produit_dv_name?: string;
   utilisateur: number | null;
@@ -147,6 +176,12 @@ export interface MouvementStock {
   referrence: string | null;
   date: string | null;
   timestamp: string;
+  /** Id du mouvement d'origine, renseigné uniquement sur un mouvement d'ANNULATION (inverse). */
+  annule?: number | null;
+  /** Id du mouvement inverse qui annule celui-ci, renseigné uniquement sur un mouvement annulé. */
+  annule_par?: number | null;
+  /** Numéro du lot de la livraison à l'origine du mouvement (null s'il n'en a pas). */
+  lot_numero?: string | null;
 }
 
 export interface AnalyticsData {
@@ -155,6 +190,21 @@ export interface AnalyticsData {
   margin: number;
   purchase_count: number;
   sale_count: number;
+}
+
+// Résultat de la recherche combinée produits + sous-produits (dérivées)
+// utilisée dans les formulaires d'achat/vente — endpoint POST /catalogue/products/
+export interface ProduitRecherche {
+  id: number;
+  name: string;
+  sku?: string;
+  price: number;
+  stock: number;
+  is_deriv: boolean;
+  parent_id: number | null;
+  parent_name: string | null;
+  supplier: number | null;
+  supplier_ids: number[];
 }
 
 export interface PaginatedResponse<T> {

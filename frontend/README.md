@@ -23,6 +23,7 @@ frontend/
 │   ├── hooks/              # Hooks React personnalisés (useSettings, useToast, etc.)
 │   ├── pages/              # Vues principales de l'application (Dashboard, Stock, etc.)
 │   ├── services/           # Logique de communication avec l'API backend
+│   ├── test/               # Configuration et outils partagés des tests (Vitest)
 │   ├── types/              # Définitions TypeScript
 │   ├── utils/              # Fonctions utilitaires et helpers
 │   ├── App.tsx             # Configuration des routes (React Router)
@@ -76,6 +77,38 @@ L'application sera accessible sur `http://localhost:5173`.
 - `npm run build` : Compile l'application pour la production (dossier `dist/`).
 - `npm run lint` : Vérifie la qualité du code avec ESLint.
 - `npm run preview` : Prévisualise la version de production localement.
+- `npm test` : Exécute toute la suite de tests (une seule passe, adaptée à la CI).
+- `npm run test:watch` : Relance les tests concernés à chaque modification.
+- `npm run test:coverage` : Exécute les tests avec rapport de couverture (texte + HTML dans `coverage/`).
+
+## 🧪 Tests
+
+Les tests utilisent **Vitest** (environnement jsdom) et **Testing Library**. Ils ne contactent jamais le serveur : la couche service est simulée (`vi.mock`) et le graphique Recharts est remplacé par un double qui expose ses données.
+
+```powershell
+npm test                                   # toute la suite
+npx vitest run src/pages/achat-vente       # un dossier
+npx vitest run src/pages/achat-vente/__tests__/AchatPage.test.tsx   # un fichier
+npx vitest run -t "livraison"              # les tests dont le nom contient « livraison »
+```
+
+Organisation (module **Achats & Ventes**, un fichier par mission du mémoire) :
+
+| Fichier | Couvre |
+|---|---|
+| `src/pages/achat-vente/__tests__/AchatPage.test.tsx` | Mission 1 — achats : liste, filtres, statuts, formulaire multi-lignes, suppression, paiement en plusieurs versements, lots, historique des paiements |
+| `.../VentePage.test.tsx` | Mission 2 — ventes : vente à crédit, contrôle de stock, créances, états de paiement, paiement en plusieurs versements |
+| `.../RetoursPage.test.tsx` | Mission 3 — remboursements : montants à rembourser / à encaisser, règlement, détail |
+| `.../AnalysePage.test.tsx` | Mission 4 — analyse financière : agrégation, jour/mois, marge, filtres |
+| `.../MouvementsPage.test.tsx` | Mission 4 — historique : fusion mouvements + remboursements, annulations, lot de chaque mouvement |
+| `.../moduleAchatsVentes.integration.test.tsx` | Les 5 écrans ensemble, navigation et synchronisation, face à un faux backend en mémoire |
+| `src/services/__tests__/achatVenteService.test.ts` | Appels HTTP du module (URL, en-têtes, erreurs, enveloppe `data`, `payer`) |
+| `src/components/achat-vente/__tests__/PaiementDialog.test.tsx` | Saisie d'un versement : montant ≤ reste à payer, pré-remplissage, « Solder », mode et note |
+| `src/components/__tests__/MouvementBadge.test.tsx` | Badge du type de mouvement : annulation (inverse) et mouvement annulé |
+| `src/utils/__tests__/mouvements.test.ts` | Mouvements annulés / inverses exclus des flux, nature achat/vente, statistiques par produit |
+
+Aide commune : `src/test/` (`setup.ts`, `fixtures.ts`, `helpers.ts`, `renderWithProviders.tsx`).
+
 
 ## 💡 Fonctionnalités Phares
 

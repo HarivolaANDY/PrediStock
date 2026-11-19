@@ -33,7 +33,8 @@ class ProduitDvAdmin(admin.ModelAdmin):
 
 @admin.register(ProductBatch)
 class ProductBatchAdmin(admin.ModelAdmin):
-    list_display = ['product', 'quantity', 'expiration_date', 'created_at']
+    list_display = ['product', 'numero_lot', 'quantity', 'expiration_date', 'created_at']
     list_filter = ['expiration_date']
+    search_fields = ['numero_lot', 'product__name']
 
 admin.site.register(ProductImage)

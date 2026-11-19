@@ -176,7 +176,7 @@ export default function RemboursementsPage() {
               ) : (
                 <>
                   <div className="grid grid-cols-2 gap-4 bg-muted/30 p-4 rounded-2xl">
-                    <div><p className="text-[10px] font-black uppercase text-muted-foreground">Réf.</p><p className="font-mono font-bold text-blue-600">{(sourceDetail as any).numero_commande || (sourceDetail as any).numero_vente}</p></div>
+                    <div><p className="text-[10px] font-black uppercase text-muted-foreground">Réf.</p><p className="font-mono font-bold text-blue-600">{'numero_commande' in sourceDetail ? sourceDetail.numero_commande : sourceDetail.numero_vente}</p></div>
                     <div><p className="text-[10px] font-black uppercase text-muted-foreground">Raison</p><p className="text-xs italic text-slate-600">"{selectedRemb?.raison}"</p></div>
                   </div>
                   <div className="border border-slate-200 rounded-2xl overflow-hidden">
@@ -187,7 +187,7 @@ export default function RemboursementsPage() {
                       <tbody>
                         {sourceDetail.lignes?.map(l => (
                           <tr key={l.id} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/50">
-                            <td className="px-4 py-3 font-bold text-slate-700">{(l as any).produit_name || (l as any).product_name}</td>
+                            <td className="px-4 py-3 font-bold text-slate-700">{(l as IVente['lignes'][number]).produit_name ?? (l as BonCommande['lignes'][number]).product_name}</td>
                             <td className="px-4 py-3 text-center font-black text-emerald-600">x{l.quantite}</td>
                             <td className="px-4 py-3 text-right font-black text-slate-800">{fmt(l.montant_ligne)}</td>
                           </tr>

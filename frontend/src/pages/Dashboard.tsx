@@ -281,10 +281,10 @@ export default function Dashboard() {
         await fetchCriticalProducts()
         toast({ title: "Succès", description: `Réapprovisionnement réussi. Nouveau stock : ${product.current_stock + quantity}` })
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error("Erreur réapprovisionnement:", error);
       let msg = "Impossible de mettre à jour le stock";
-      if (error.response?.data) {
+      if (axios.isAxiosError(error) && error.response?.data) {
         const data = error.response.data;
         if (data.message) msg = data.message;
         else if (data.detail) msg = data.detail;

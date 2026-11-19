@@ -21,8 +21,9 @@ import {
   TableRow 
 } from "@/components/ui/table"
 import { MetricCard } from "@/components/MetricCard"
-import { GenerateReportModal } from "@/components/GenerateReportModal"
+import { GenerateReportModal, type ReportData } from "@/components/GenerateReportModal"
 import { ReportsDetails } from "@/components/ReportsDetails"
+import type { ProductStats } from "@/types/types"
 import  API  from "@/services/axios"
 import { parseAxiosBlobResponse, downloadAll, type AxiosResponseWithBlob } from "@/utils/blobUtils";
 import { 
@@ -160,7 +161,7 @@ export default function Reports() {
   const [reportsList, setReportsList] = useState<Report[]>(INITIAL_GENERATED_REPORTS)
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false)
   const [reportToDelete, setReportToDelete] = useState<Report | null>(null)
-  const [stats, setStats] = useState<any>(null)
+  const [stats, setStats] = useState<ProductStats | null>(null)
 
   useEffect(() => {
     fetchReports()
@@ -292,7 +293,7 @@ export default function Reports() {
     ? reportTemplates
     : reportTemplates.filter(template => template.category.toLowerCase() === selectedCategory)
 
-  const handleGenerateSubmit = async (data: any) => {
+  const handleGenerateSubmit = async (data: ReportData) => {
     try {
       console.log('Génération du rapport:', data)
       let table = "Produits";
@@ -320,7 +321,7 @@ export default function Reports() {
         table,
         specific,
         titre: `Rapport_${data.type}_${Date.now()}.pdf`,
-      }, data.format);
+      }, data.format as 'pdf' | 'csv' | 'excel');
 
       setShowGenerateModal(false)
     } catch (error) {

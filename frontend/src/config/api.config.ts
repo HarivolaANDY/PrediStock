@@ -1,7 +1,7 @@
 // Configuration API pour Predistock
 
 // URL de base de l'API — toujours avec le préfixe /api
-const API_ORIGIN = import.meta.env.VITE_API_URL || "http://localhost:8000";
+export const API_ORIGIN = import.meta.env.VITE_API_URL || "http://localhost:8000";
 export const API_BASE_URL = `${API_ORIGIN}/api`;
 
 // Configuration du token

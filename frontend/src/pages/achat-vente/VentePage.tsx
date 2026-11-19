@@ -1,13 +1,15 @@
 import { useState } from "react"
+import type { ReactNode } from "react"
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query"
-import { getDonneeVentes, createDonneeVente, searchProduits, updateDonneeVente, deleteDonneeVente, getRemboursements } from "@/services/achatVenteService"
+import { getDonneeVentes, createDonneeVente, searchProduits, updateDonneeVente, deleteDonneeVente, getRemboursements, payerDonneeVente } from "@/services/achatVenteService"
 import { DollarSign, ShoppingBag, RefreshCw, Plus, Search, Eye, Package, Trash2, FileText, ChevronDown, CreditCard, Ban, MoreVertical, AlertTriangle, TrendingUp, Clock, CheckCircle2, ShieldCheck, Calendar } from "lucide-react"
-import type { DonneeVente, CreateLigneVenteData } from "@/types/achatVente"
+import type { DonneeVente, CreateLigneVenteData, CreateDonneeVenteData, PaiementData } from "@/types/achatVente"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogDescription } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import { PaiementDialog } from "@/components/achat-vente/PaiementDialog"
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,10 +25,13 @@ function fmt(n: number | string) {
 
 const STATUS_PAIEMENT_CONFIG: Record<string, { label: string; color: string }> = {
   "Non payé": { label: "Non payé", color: "bg-red-100 text-red-700 border-red-200" },
+  "Partiel":  { label: "Partiel",  color: "bg-amber-100 text-amber-700 border-amber-200" },
   "Payé":     { label: "Payé",     color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  // Posé par le backend quand une vente à crédit non payée est annulée automatiquement (délai dépassé)
+  "Annulé":   { label: "Annulé",   color: "bg-slate-100 text-slate-600 border-slate-200" },
 }
 
-const SALE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: any }> = {
+const SALE_STATUS_CONFIG: Record<string, { label: string; color: string; icon: ReactNode }> = {
   "En attente": { label: "En attente", color: "bg-amber-50 text-amber-700 border-amber-100", icon: <Clock className="h-3 w-3" /> },
   "Livré":     { label: "Livré",     color: "bg-emerald-50 text-emerald-700 border-emerald-100", icon: <CheckCircle2 className="h-3 w-3" /> },
   "Annulé":     { label: "Annulé",     color: "bg-red-50 text-red-700 border-red-100", icon: <Ban className="h-3 w-3" /> },
@@ -59,6 +64,7 @@ export default function VentePage() {
   const [statusFilter, setStatusFilter] = useState<string>("")
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null)
+  const [paiementCible, setPaiementCible] = useState<DonneeVente | null>(null)
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1)
@@ -116,17 +122,37 @@ export default function VentePage() {
       qc.invalidateQueries({ queryKey: ["donnee-ventes"] })
       setDeleteConfirmId(null)
       setSelectedIds([])
-    }
+    },
+    onError: (e: Error) => {
+      // ex. « Suppression impossible : … » si l'état a changé depuis l'affichage de la liste
+      toast.error(e.message)
+      setDeleteConfirmId(null)
+      qc.invalidateQueries({ queryKey: ["donnee-ventes"] })
+    },
   })
 
   const updateSaleMut = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: any }) => 
+    mutationFn: ({ id, data }: { id: number; data: Partial<CreateDonneeVenteData> }) =>
       updateDonneeVente(id, data),
     onSuccess: () => {
       toast.success("Mise à jour réussie")
       qc.invalidateQueries({ queryKey: ["donnee-ventes"] })
+      // Annuler une vente déjà payée crée un remboursement côté backend : on recharge la liste
+      // des remboursements pour que la vente en soit immédiatement exclue de l'affichage.
+      qc.invalidateQueries({ queryKey: ["remboursements"] })
     },
     onError: (e: Error) => toast.error(e.message)
+  })
+
+  const payerMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: PaiementData }) => payerDonneeVente(id, data),
+    onSuccess: () => {
+      toast.success("Paiement enregistré")
+      qc.invalidateQueries({ queryKey: ["donnee-ventes"] })
+      setPaiementCible(null)
+    },
+    // la fenêtre reste ouverte : l'utilisateur peut corriger le montant
+    onError: (e: Error) => toast.error(e.message),
   })
 
   const handleAddLine = () => setLines([...lines, { produit: null, produit_dv: null, quantite: 1, prix_unitaire: 0, remise_applique: 0 }])
@@ -158,7 +184,7 @@ export default function VentePage() {
 
     // Stock validation before mutating
     for (const l of lines) {
-      const selected = productsAndSubProducts.find((p: any) => l.produit_dv ? (p.is_deriv && p.id === l.produit_dv) : (!p.is_deriv && p.id === l.produit));
+      const selected = productsAndSubProducts.find((p) => l.produit_dv ? (p.is_deriv && p.id === l.produit_dv) : (!p.is_deriv && p.id === l.produit));
       if (selected && selected.stock !== undefined) {
         if (l.quantite > selected.stock) {
           return toast.error(`Stock insuffisant pour "${selected.name}". Disponible: ${selected.stock}, Demandé: ${l.quantite}`);
@@ -379,6 +405,11 @@ export default function VentePage() {
                                           <CreditCard className="h-4 w-4" /> Marquer comme payé
                                         </DropdownMenuItem>
                                       )}
+                                      {v.statut_paiement !== "Payé" && (
+                                        <DropdownMenuItem onClick={() => setPaiementCible(v)} className="gap-2 text-xs font-bold text-blue-600 py-2 cursor-pointer focus:bg-blue-50 focus:text-blue-700">
+                                          <CreditCard className="h-4 w-4" /> Enregistrer un paiement
+                                        </DropdownMenuItem>
+                                      )}
                                       {v.status !== "Livré" && (
                                          <DropdownMenuItem onClick={() => updateSaleMut.mutate({ id: v.id, data: { status: "Livré" } })} className="gap-2 text-xs font-bold text-emerald-600 py-2 cursor-pointer focus:bg-emerald-50 focus:text-emerald-700">
                                           <ShieldCheck className="h-4 w-4" /> Marquer comme livré
@@ -402,9 +433,18 @@ export default function VentePage() {
                             </div>
 
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem onClick={() => setDeleteConfirmId(v.id)} className="gap-2 text-xs font-bold text-red-600/70 py-2 cursor-pointer hover:bg-red-50">
-                              <Trash2 className="h-4 w-4" /> Supprimer l'enregistrement
-                            </DropdownMenuItem>
+                            {v.supprimable === false ? (
+                              // Règle « supprimable seulement sans trace » : on annule, on ne supprime pas
+                              <div className="px-3 py-2 text-[10px] italic text-slate-400 bg-slate-50 rounded-lg mx-1 my-1">
+                                {v.status === "Annulé"
+                                  ? "Conservée dans l'historique (non supprimable)"
+                                  : "Non supprimable (paiement, livraison ou remboursement) : annulez-la plutôt"}
+                              </div>
+                            ) : (
+                              <DropdownMenuItem onClick={() => setDeleteConfirmId(v.id)} className="gap-2 text-xs font-bold text-red-600/70 py-2 cursor-pointer hover:bg-red-50">
+                                <Trash2 className="h-4 w-4" /> Supprimer l'enregistrement
+                              </DropdownMenuItem>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -518,17 +558,17 @@ export default function VentePage() {
                           if (!val) return;
                           const [type, idStr] = val.split('-');
                           const id = Number(idStr);
-                          const selected = productsAndSubProducts.find((p: any) => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
+                          const selected = productsAndSubProducts.find((p) => (type === 'dv' ? p.is_deriv && p.id === id : !p.is_deriv && p.id === id));
                           const price = selected?.price || 0;
                           if (type === 'dv') {
-                            handleUpdateLine(idx, { produit_dv: id, produit: (selected as any)?.parent_id || null, prix_unitaire: Number(price) });
+                            handleUpdateLine(idx, { produit_dv: id, produit: selected?.parent_id || null, prix_unitaire: Number(price) });
                           } else {
                             handleUpdateLine(idx, { produit: id, produit_dv: null, prix_unitaire: Number(price) });
                           }
                         }}
                       >
                         <option value="">Selectionner un article...</option>
-                        {productsAndSubProducts.map((p: any) => (
+                        {productsAndSubProducts.map((p) => (
                           <option key={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} value={`${p.is_deriv ? 'dv' : 'pr'}-${p.id}`} disabled={p.stock <= 0}>
                             {p.is_deriv ? `🏷️ [Variante] ${p.name}` : `📦 ${p.name}`} (Stock: {p.stock}) — {fmt(p.price)}
                           </option>
@@ -627,12 +667,38 @@ export default function VentePage() {
                 </tbody>
               </table>
             </div>
+            {(selectedSale?.paiements?.length ?? 0) > 0 && (
+              <div className="space-y-3">
+                <h3 className="text-xs font-black text-slate-800 uppercase tracking-widest px-1">Paiements</h3>
+                <ul className="border border-slate-200 rounded-2xl divide-y divide-slate-100 bg-white overflow-hidden">
+                  {selectedSale!.paiements!.map(p => (
+                    <li key={p.id} className="flex items-center justify-between px-6 py-3 text-xs">
+                      <span className="font-medium text-slate-500">{new Date(p.date_paiement).toLocaleDateString()} · {p.mode_paiement}{p.notes ? ` · ${p.notes}` : ""}</span>
+                      <span className="font-black text-slate-800 tabular-nums">{fmt(Number(p.montant))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
           <DialogFooter className="p-4 bg-slate-50 border-t border-slate-200">
             <Button onClick={() => setSelectedSale(null)} variant="secondary" className="rounded-xl font-bold px-8">Fermer</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <PaiementDialog
+        key={paiementCible?.id ?? "aucun"}
+        open={!!paiementCible}
+        onOpenChange={(o) => { if (!o) setPaiementCible(null) }}
+        titre="Enregistrer un paiement"
+        reference={paiementCible?.numero_vente ?? ""}
+        total={Number(paiementCible?.montant_total ?? 0)}
+        dejaPaye={Number(paiementCible?.montant_paye ?? 0)}
+        modeParDefaut={paiementCible?.mode_paiement ?? "Espèces"}
+        enCours={payerMut.isPending}
+        onSubmit={(p) => paiementCible && payerMut.mutate({ id: paiementCible.id, data: p })}
+      />
 
       <Dialog open={!!deleteConfirmId} onOpenChange={s => !s && setDeleteConfirmId(null)}>
         <DialogContent className="rounded-3xl p-6">

@@ -50,7 +50,14 @@ export default function Profile() {
   const handleSave = async () => {
     try {
       const { avatar, ...restOfUserInfo } = userInfo;
-      const updateData: any = {
+      // Le backend renvoie aussi ces champs Django standards, absents du type User
+      const updateData: Omit<Partial<User>, 'avatar'> & {
+        avatar?: File | string | null;
+        created_at?: string;
+        is_superuser?: boolean;
+        is_staff?: boolean;
+        is_active?: boolean;
+      } = {
         ...restOfUserInfo
       };
       
@@ -161,7 +168,7 @@ export default function Profile() {
                 
                 <div className="space-y-2">
                   <h3 className="text-xl font-semibold">{userInfo.first_name} {userInfo.last_name}</h3>
-                  <Badge variant="secondary">{typeof userInfo.role === 'string' ? userInfo.role : (userInfo.role as any)?.name}</Badge>
+                  <Badge variant="secondary">{typeof userInfo.role === 'string' ? userInfo.role : userInfo.role?.name}</Badge>
                   <p className="text-sm text-muted-foreground">{userInfo.department}</p>
                 </div>
 

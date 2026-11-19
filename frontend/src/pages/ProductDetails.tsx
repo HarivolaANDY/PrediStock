@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react"
+import axios from "axios"
 import { useParams, useNavigate } from "react-router-dom"
 import { Table, TableHeader, TableRow, TableHead, TableBody, TableCell } from "@/components/ui/table"
 import { Package, Edit, Trash2, ChevronDown, Share, Heart, Package2, BarChart3, Eye, ArrowUpRight, ImageOff, ChevronLeft, ChevronRight } from "lucide-react"
@@ -326,8 +327,8 @@ export default function ProductDetails() {
       const response = await API.post('catalogue/produits-dv/', pdvData)
       toast({ title: "Succès", description: (response.data.message || "Sous-produit créé.") as string })
       setDesignation(""); setStockInitial(0); fetch_liste_PDV(); fetchProductImages()
-    } catch (error: any) {
-      const msg = error.response?.data?.message || "Une erreur s'est produite lors de l'enregistrement."
+    } catch (error) {
+      const msg = (axios.isAxiosError(error) && error.response?.data?.message) || "Une erreur s'est produite lors de l'enregistrement."
       toast({ title: "Erreur", description: msg, variant: "destructive" })
     }
   }

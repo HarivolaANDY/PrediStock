@@ -97,6 +97,34 @@ python manage.py runserver
 ```
 Le serveur sera accessible sur `http://localhost:8000`.
 
+## 🧪 Tests
+
+Les tests s'exécutent depuis le dossier `backend/`, environnement virtuel activé.
+
+```powershell
+python manage.py test apps.commandes.tests   # achats, ventes, remboursements, analyse, mouvements inverses
+python manage.py test apps.stock.tests       # statistiques de flux du module Stock
+```
+
+- **Indiquez le module de tests** (`apps.commandes.tests`) : `python manage.py test apps.commandes` seul échoue à la découverte automatique.
+- **Une classe ou un test** : `python manage.py test apps.commandes.tests.SuppressionSansTraceTests` ou `...SuppressionSansTraceTests.test_achat_paye_n_est_pas_supprimable`.
+- **Votre base n'est jamais touchée** : Django crée une base de test SQLite en mémoire, la remplit puis la détruit. `db.sqlite3` n'est ni lue ni modifiée.
+- **« expected failures=N »** : chaque échec attendu (`@unittest.expectedFailure`) documente une anomalie connue, avec un commentaire `ANOMALIE CONNUE` au-dessus du test. Quand l'anomalie est corrigée, le test devient « unexpected success » : retirez alors le décorateur.
+- Appliquez les migrations (`python manage.py migrate`) avant de lancer le serveur ; les tests, eux, les appliquent d'eux-mêmes sur la base temporaire.
+
+## 🎬 Démonstration (capture vidéo)
+
+Deux commandes permettent de refaire une démonstration depuis le même point de départ (serveur arrêté pour la restauration) :
+
+```bash
+python manage.py demo_seed                     # sauvegarde la base ("avant-seed-<date>") puis insère un scénario complet
+python manage.py demo_reset restaurer avant-seed-<date>   # remet la base comme avant, pour une nouvelle prise
+python manage.py demo_reset sauvegarder [nom]  # photographie la base à tout moment
+python manage.py demo_reset lister             # sauvegardes disponibles (dossier backend/sauvegardes/)
+```
+
+`demo_seed` passe par l'API réelle (donc par les mêmes règles et signaux que l'application) dans une seule transaction : si une étape échoue, rien n'est inséré. Il n'efface ni ne modifie les données existantes et refuse de s'exécuter deux fois. Le scénario : 3 catégories, 3 fournisseurs, 7 produits (dont un à variantes), un stock d'ouverture, 6 achats (livré payé en deux versements, paiement partiel, annulé après paiement…), 7 ventes (comptant, remise, à crédit VIP, annulée puis remboursée…) et 3 remboursements. Un produit passe volontairement sous son seuil d'alerte. Option `--utilisateur <nom>` pour choisir l'auteur des documents (défaut : premier superutilisateur).
+
 ## 🧠 Pipeline de Prévision (Machine Learning)
 
 Le backend inclut une commande personnalisée pour entraîner les modèles et générer des prédictions :

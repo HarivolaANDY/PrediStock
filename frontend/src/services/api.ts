@@ -113,7 +113,7 @@ export const UserService = {
   },
 
   updateProfile: async (
-    userData: Partial<User> & { avatar?: File | string | null },
+    userData: Omit<Partial<User>, 'avatar'> & { avatar?: File | string | null },
   ): Promise<User> => {
     try {
       const formData = new FormData();
