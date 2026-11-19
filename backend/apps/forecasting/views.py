@@ -16,8 +16,6 @@ from django_q.models import Schedule
 from django_q.tasks import async_task
 from django_filters.rest_framework import DjangoFilterBackend
 from dotenv import load_dotenv
-from langchain.chat_models import init_chat_model
-from langchain_google_genai.chat_models import ChatGoogleGenerativeAIError
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
@@ -44,7 +42,7 @@ NEXUM_BASE_URL = os.getenv("NEXUM_BASE_URL")
 class DataImportViewSet(ModelViewSet):
     queryset = DataImport.objects.all()
     serializer_class = DataImportSerializer
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
     http_method_names = ['get', 'post', 'delete']
 
 
@@ -276,7 +274,7 @@ class ExecutePipelineView(APIView):
 
 
 class RunPredictionView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         date_str = request.data.get('date_to_execute')
@@ -320,7 +318,7 @@ class RunPredictionView(APIView):
 
 class RecommenderView(APIView):
     """Chatbot IA Gemini — génère des recommandations d'import/export."""
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     PROMPT_EXTRACT = """
 Tu es un assistant intelligent de gestion de stock.
@@ -543,7 +541,7 @@ IMPORTANT SÉCURITÉ :
 # views.py — ajouter ces deux vues :
 
 class ModeleListView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from .models import Modele
@@ -589,11 +587,12 @@ class ChatView(APIView):
             intent = None
 
         if intent:
-            sql = NLPEngine.build_sql(intent, message)
-            if sql:
+            res = NLPEngine.build_sql(intent, message)
+            if res:
+                sql, params = res
                 try:
                     with connection.cursor() as cursor:
-                        cursor.execute(sql)
+                        cursor.execute(sql, params)
                         columns = [col[0] for col in cursor.description]
                         rows = cursor.fetchmany(20)
                     response_text = NLPEngine.format_response(intent, columns, rows)
@@ -669,7 +668,7 @@ class ChatView(APIView):
         return "\n".join(lines)
 
 class ModelePerformanceView(APIView):
-    permission_classes = [AllowAny]
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         from .models import Modele, Prediction

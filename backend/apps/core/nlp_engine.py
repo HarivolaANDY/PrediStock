@@ -218,23 +218,25 @@ class NLPEngine:
 
     # ── BUILD SQL ───────────────────────────────────────────────────
     @staticmethod
-    def build_sql(intent: str, message: str) -> str | None:
+    def build_sql(intent: str, message: str) -> tuple[str, list] | None:
         from apps.catalogue.models import Product
 
         msg = message.lower()
+        params = []
 
         if intent == "COUNT":
             return """
                 SELECT COUNT(*) AS "Nombre total de produits actifs"
                 FROM catalogue_product
                 WHERE is_active = TRUE
-            """
+            """, params
 
         if intent == "STOCK":
             products = Product.objects.values_list("name", flat=True)
             product = NLPEngine.extract_product_fuzzy(message, products)
             if product:
-                return f"""
+                params.append(f"%{product.lower()}%")
+                return """
                     SELECT
                         p.name            AS "Produit",
                         p.current_stock   AS "Stock actuel",
@@ -244,9 +246,9 @@ class NLPEngine:
                              ELSE 'OK'
                         END AS "Statut"
                     FROM catalogue_product p
-                    WHERE LOWER(p.name) LIKE '%{product.lower()}%'
+                    WHERE LOWER(p.name) LIKE %s
                       AND p.is_active = TRUE
-                """
+                """, params
             return """
                 SELECT
                     p.name            AS "Produit",
@@ -259,7 +261,7 @@ class NLPEngine:
                 FROM catalogue_product p
                 WHERE p.is_active = TRUE
                 ORDER BY p.current_stock ASC
-            """
+            """, params
 
         if intent == "RUPTURE":
             return """
@@ -275,7 +277,7 @@ class NLPEngine:
                 JOIN catalogue_product p ON p.id = fp.product_id
                 WHERE fp.rupture = TRUE
                 ORDER BY 1 ASC
-            """
+            """, params
 
         if intent == "THRESHOLD":
             return """
@@ -288,7 +290,7 @@ class NLPEngine:
                 WHERE p.current_stock < p.stock_threshold
                   AND p.is_active = TRUE
                 ORDER BY (p.stock_threshold - p.current_stock) DESC
-            """
+            """, params
 
         if intent == "PRODUCTS":
             return """
@@ -301,18 +303,19 @@ class NLPEngine:
                 LEFT JOIN catalogue_category c ON c.id = p.category_id
                 WHERE p.is_active = TRUE
                 ORDER BY p.name ASC
-            """
+            """, params
 
         if intent == "CATEGORY":
             products = Product.objects.values_list("name", flat=True)
             product = NLPEngine.extract_product_fuzzy(message, products)
             if product:
-                return f"""
+                params.append(f"%{product.lower()}%")
+                return """
                     SELECT p.name AS "Produit", c.name AS "Catégorie"
                     FROM catalogue_product p
                     JOIN catalogue_category c ON c.id = p.category_id
-                    WHERE LOWER(p.name) LIKE '%{product.lower()}%'
-                """
+                    WHERE LOWER(p.name) LIKE %s
+                """, params
             return """
                 SELECT
                     c.name               AS "Catégorie",
@@ -322,7 +325,7 @@ class NLPEngine:
                 LEFT JOIN catalogue_product p ON p.category_id = c.id AND p.is_active = TRUE
                 GROUP BY c.name
                 ORDER BY COUNT(p.id) DESC
-            """
+            """, params
 
         if intent == "SUPPLIER":
             from apps.catalogue.models import Supplier
@@ -332,23 +335,25 @@ class NLPEngine:
             # Demande de délai spécifique
             if any(w in msg for w in ["délai", "livraison", "lead time"]):
                 if supplier:
-                    return f"""
+                    params.append(f"%{supplier.lower()}%")
+                    return """
                         SELECT
                             s.name      AS "Fournisseur",
                             s.lead_time AS "Délai de livraison (jours)"
                         FROM catalogue_supplier s
-                        WHERE LOWER(s.name) LIKE '%{supplier.lower()}%'
-                    """
+                        WHERE LOWER(s.name) LIKE %s
+                    """, params
                 return """
                     SELECT s.name AS "Fournisseur", s.lead_time AS "Délai (jours)"
                     FROM catalogue_supplier s
                     WHERE s.lead_time IS NOT NULL
                     ORDER BY s.lead_time DESC
-                """
+                """, params
 
             # Infos sur un fournisseur précis
             if supplier:
-                return f"""
+                params.append(f"%{supplier.lower()}%")
+                return """
                     SELECT
                         s.name        AS "Fournisseur",
                         s.lead_time   AS "Délai (jours)",
@@ -356,9 +361,9 @@ class NLPEngine:
                     FROM catalogue_supplier s
                     LEFT JOIN catalogue_product p
                         ON p.supplier_id = s.id AND p.is_active = TRUE
-                    WHERE LOWER(s.name) LIKE '%{supplier.lower()}%'
+                    WHERE LOWER(s.name) LIKE %s
                     GROUP BY s.name, s.lead_time
-                """
+                """, params
 
             # Liste générale
             return """
@@ -371,12 +376,11 @@ class NLPEngine:
                     ON p.supplier_id = s.id AND p.is_active = TRUE
                 GROUP BY s.name, s.lead_time
                 ORDER BY s.lead_time ASC NULLS LAST
-            """
+            """, params
 
         if intent == "PREDICTION":
             target_date = NLPEngine.extract_relative_date(message)
-            date_filter = f"AND fp.date_prediction <= '{target_date.isoformat()}'" if target_date else ""
-            return f"""
+            sql = """
                 SELECT
                     p.name             AS "Produit",
                     fp.date_prediction AS "Date",
@@ -384,10 +388,17 @@ class NLPEngine:
                     CASE WHEN fp.rupture THEN 'Rupture prévue' ELSE 'OK' END AS "Statut"
                 FROM forecasting_prediction fp
                 JOIN catalogue_product p ON p.id = fp.product_id
-                WHERE fp.date_prediction >= CURRENT_DATE {date_filter}
+                WHERE fp.date_prediction >= CURRENT_DATE
+            """
+            if target_date:
+                sql += " AND fp.date_prediction <= %s"
+                params.append(target_date.isoformat())
+
+            sql += """
                 ORDER BY fp.date_prediction ASC, fp.stock_prevu ASC
                 LIMIT 30
             """
+            return sql, params
 
         if intent == "TOP_SALES":
             return """
@@ -401,7 +412,7 @@ class NLPEngine:
                 GROUP BY p.name
                 ORDER BY SUM(dv.quantite_vendu) DESC
                 LIMIT 10
-            """
+            """, params
 
         if intent == "RECOMMANDATION":
             return """
@@ -417,7 +428,7 @@ class NLPEngine:
                 ORDER BY
                     CASE r.priority WHEN 'HAUTE' THEN 1 WHEN 'MOYENNE' THEN 2 ELSE 3 END,
                     r.date_prediction ASC
-            """
+            """, params
 
         return None
 

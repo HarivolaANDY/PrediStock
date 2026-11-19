@@ -74,25 +74,40 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  // Simple validation for CSS variables and colors to prevent injection while keeping styling
+  const safeId = id.replace(/[^a-zA-Z0-9-]/g, "")
+
+  const styleContent = Object.entries(THEMES)
+    .map(([theme, prefix]) => {
+      const selector = `${prefix} [data-chart=${safeId}]`.trim()
+      const rules = colorConfig
+        .map(([key, itemConfig]) => {
+          const color =
+            itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
+            itemConfig.color
+
+          if (!color) return null
+
+          // Validate key and color
+          const safeKey = key.replace(/[^a-zA-Z0-9-]/g, "")
+          // Basic color validation: hex, rgb, rgba, or named colors without special characters
+          const safeColor = /^(#[0-9a-fA-F]{3,8}|(rgb|rgba)\([^)]*\)|[a-zA-Z]+)$/.test(color)
+            ? color
+            : "transparent"
+
+          return `  --color-${safeKey}: ${safeColor};`
+        })
+        .filter(Boolean)
+        .join("\n")
+
+      return `${prefix} [data-chart=${safeId}] {\n${rules}\n}`
+    })
+    .join("\n")
+
   return (
     <style
       dangerouslySetInnerHTML={{
-        __html: Object.entries(THEMES)
-          .map(
-            ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
-${colorConfig
-  .map(([key, itemConfig]) => {
-    const color =
-      itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
-      itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
-  })
-  .join("\n")}
-}
-`
-          )
-          .join("\n"),
+        __html: styleContent,
       }}
     />
   )
